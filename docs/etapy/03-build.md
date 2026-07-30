@@ -72,6 +72,13 @@ a wymuszony limit faktycznie przerywa działanie.
 
 ## 3.3 Collector — konto i plan
 
+> **⚠️ IMPLEMENTACJA ROZJEŻDŻA SIĘ Z TYM ZAPISEM — patrz `docs/OTWARTE.md` O8.**
+> Treść poniżej zostaje **celowo nietknięta** jako zapis pierwotnego zamiaru.
+> Dwie zmiany, obie zatwierdzone przez Kubę 2026-07-30 i uzasadnione w O8:
+> brama `is_admin` zamieniona na deklarowany zakres, a z zapytania wypadły
+> `me { name }` i `me { id }` (PII przed pseudonimizacją z 3.4).
+> Kod: `src/monday_audit/konto.py`.
+
 ```graphql
 query { me { id name is_admin account { id name slug
   plan { period tier max_users } } } }

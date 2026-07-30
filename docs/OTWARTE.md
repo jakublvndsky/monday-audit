@@ -25,12 +25,19 @@ od procesu przeniesionego na ręce.
 
 ## O2. Czy API zwraca zużycie kredytów AI
 
-**Status:** niepotwierdzone
+**Status:** niepotwierdzone, z nowym podejrzeniem co do przyczyny
 **Blokuje:** cała klasa `AI_UNUSED` (oznaczona `status: do_weryfikacji`)
 **Jeśli nie:** klasa zostaje wyłączona, ewentualnie zastąpiona ręcznym
 sprawdzeniem w Admin panel klienta.
 **Jak sprawdzić:** `account { usage { ai } }` plus introspekcja typu
 `Account`.
+
+**Wynik rozpoznania 2026-07-30:** `account { plan { tier period max_users } }`
+zwróciło **`null`** na koncie CXLABS przy tokenie bez uprawnień admina.
+Nie wiemy, czy to brak uprawnień, czy natura planu partnerskiego — ale jeśli
+`plan` jest bramkowany rolą, to `usage` prawdopodobnie też. **Nie testuj O2
+tokenem bez admina i nie wyciągaj z null-a wniosku, że pola nie ma.**
+Rozstrzygnięcie wymaga porównania odpowiedzi tokena admina i członka.
 
 ---
 
@@ -109,3 +116,115 @@ który **trzeba pobrać od klienta**, nie szacować.
 **Implementacja:** parametr wejściowy runu. Jeśli nie podany —
 finding raportowany bez kwoty, z adnotacją "wycena po podaniu
 kosztu licencji". Nigdy nie zgaduj tej liczby.
+
+---
+
+# Wyniki rozpoznania — konto CXLABS, 2026-07-30
+
+Zebrane przy 3.2, tokenem Kuby (`MONDAY_TOKEN`), ~180 wywołań read-only.
+**To są pomiary, nie założenia** — ale pomiary z **jednego** konta,
+i to konta partnerskiego pełnego demówek. Jako proxy typowego klienta
+jest złe, jako test obciążeniowy dobre.
+
+| Zmierzone | Wartość |
+|---|---|
+| workspace'y widoczne dla tokena | 128 (116 `open`, 12 `closed`) |
+| tablice, `state: all` | 3 171 |
+| — `active` / `deleted` / `archived` | 1 909 / 1 216 / 46 |
+| tablice `private` | 5, wszystkie z Kubą jako subskrybentem |
+| `me { is_admin }` | **false** |
+| `account { plan }` | **null** (patrz O2) |
+| waga inwentarza (pełne pola z 3.5) | 1 403 B/tablicę, ~13 kolumn |
+| complexity strony 25 tablic | ~128 tys. |
+| complexity pełnego przelotu 1 909 tablic | ~9,7 mln |
+
+---
+
+## O8. Zakres tokena — POTWIERDZONE, unieważnia bramę z 3.3
+
+**Status:** potwierdzone empirycznie
+**Blokuje:** 3.3 (walidacja admina), 3.5 (kompletność snapshotu)
+
+Potwierdzone:
+
+- **Token żyje w jednym koncie.** Nie ma technicznej możliwości dosięgnięcia
+  konta innego klienta. Audyt klienta wymaga tokena z konta klienta (D11).
+- **Widzi wszystkie workspace'y, do których użytkownik ma dostęp** — także
+  `closed`, jeśli jest ich członkiem. Nie tylko jeden workspace.
+- **Prywatne tablice tylko tam, gdzie jest subskrybentem** (5 z 5). Token nie
+  informuje, że coś pominął — to jest dokładnie ten cichy niepełny audyt,
+  którego boi się 3.3.
+- **`boards(workspace_ids: [...])` filtruje poprawnie** — sprawdzone, zero
+  tablic z obcych workspace'ów. To otwiera audyt zawężony do workspace'u,
+  wykonalny tokenem bez admina.
+- **`page` działa** na `boards` i `workspaces`, przy `limit` 3, 25 i 100;
+  paginacja kończy się pustą stroną.
+
+**Niepotwierdzone i wymagające tokena admina:** czy admin widzi prywatne
+tablice innych osób. Przy `is_admin: false` nie da się tego rozstrzygnąć.
+Test rozstrzygający: ktoś inny tworzy prywatną tablicę bez Kuby, admin
+odpytuje `boards(board_kind: private)`.
+
+**Konsekwencja dla 3.3:** brama „`is_admin` false → przerwij" zabija audyt
+CXLABS na pierwszym kroku, a Kuba nie będzie miał uprawnień admina.
+
+**DECYZJA KUBY (2026-07-30): deklarowany zakres zamiast bramy binarnej.**
+Wiążąca dla 3.3, zastępuje literalny zapis z `03-build.md`:
+
+- run przyjmuje jawny `zakres`: całe konto (**wymaga** `is_admin`) albo
+  lista `workspace_ids` (nie wymaga)
+- snapshot zapisuje `is_admin`, liczbę workspace'ów, liczbę tablic
+  i flagę `pokrycie_pelne`
+- przerwanie **tylko** wtedy, gdy ktoś prosi o całe konto tokenem bez admina
+- raport mówi wprost, co było audytowane
+
+Intencja 3.3 zostaje nienaruszona — cichy niepełny audyt nadal niemożliwy,
+ale realizowany przez jawność zakresu, nie przez odmowę.
+
+---
+
+## O9. Okno complexity jest większe, niż mówi dokumentacja
+
+**Status:** zmierzone, sprzeczne z dokumentacją
+**Blokuje:** tempo collectora w 3.5 i 3.7
+
+Dokumentacja monday i skill `monday-graphql` mówią **5 mln/min**.
+Na koncie CXLABS zaobserwowany zapas (`complexity.after`) sięga
+**~9,87 mln**, a okno resetuje się w trakcie runu.
+
+Pomiar: 45 stron po 25 tablic z pełnym zestawem pól = 5,69 mln complexity
+w 45 wywołaniach, **bez ani jednego `ComplexityException`** i bez ani jednej
+pauzy hamulca. Zapas w trakcie runu spadł do 7,4 mln i wrócił do 9,7 mln.
+
+Wnioski:
+
+1. **Wiążący jest limit dzienny wywołań, nie complexity** — dokładnie tak,
+   jak mówi skill. Przy zapytaniach wysyłanych sekwencyjnie okno resetuje się
+   szybciej, niż jesteśmy w stanie je opróżnić.
+2. **Hamulec complexity w kliencie (3.2) jest ubezpieczeniem, nie wąskim
+   gardłem.** Mechanizm jest pokryty testami jednostkowymi, ale **nie odpalił
+   się ani razu na żywym API** — nie mam dowodu z produkcji, że działa
+   w prawdziwym scenariuszu wyczerpania. Chroni przed kontem z mniejszym
+   oknem (Free?) i przed droższymi zapytaniami, nie przed tym, co widzimy.
+3. Nie zakładaj 5 mln ani 10 mln na sztywno. Klient czyta `after`
+   i `reset_in_x_seconds` z każdej odpowiedzi i nie potrzebuje tej stałej.
+
+---
+
+## O10. `state: all` wciąga kosz — 38% tablic to `deleted`
+
+**Status:** zmierzone, wymaga decyzji projektowej
+**Blokuje:** 3.5 i wszystkie detektory liczące tablice
+
+1 216 z 3 171 tablic (38%) ma `state: deleted`. To kosz, nie archiwum.
+
+3.5 każe zebrać **wszystkie** stany, bo „archiwizacja jest sygnałem" — i to
+jest słuszne dla `archived` (46 tablic). Ale `deleted` to śmieci: bez
+rozdzielenia tych dwóch stanów każda liczba w raporcie klienta jest zawyżona
+o zawartość kosza, a `BOARD_GHOST` policzy tablice, których nikt już nie ma.
+
+**Do decyzji człowieka:** czy `deleted` wchodzi do snapshotu jako osobna
+kategoria (moja rekomendacja: tak, zbieramy i oznaczamy, ale detektory
+liczą tylko `active` + `archived`), czy odfiltrowujemy je już w collectorze.
+Pierwsze jest droższe o ~12 wywołań, ale kosz sam potrafi być znaleziskiem —
+1 216 usuniętych tablic mówi coś o higienie konta.
