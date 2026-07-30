@@ -1,0 +1,172 @@
+[project]
+name = "monday-audit"
+version = "0.1.0"
+description = "Audyt konta monday.com — collector deterministyczny + agent analityczny (narzędzie wewnętrzne CXLABS)"
+readme = "README.md"
+requires-python = ">=3.12"
+
+# Produkcja. Każda pozycja ma uzasadnienie w docs/ARCHITEKTURA.md albo docs/etapy/.
+# Nie dodawaj nic tutaj bez pytania — patrz CLAUDE.md, "Zakazy twarde".
+dependencies = [
+    "httpx>=0.28.1",           # collector, czysty GraphQL (D4, etap 3.2)
+    "pyyaml>=6.0.3",           # rubryka_znalezisk.yaml: budżety klas, słowniki, walidacja (3.9, 3.11)
+    "pydantic>=2.13",          # kontrakt wyjściowy agenta D8 + modele rubryki (3.11)
+    "fastapi>=0.141",          # trigger runu i odczyt wyników (etap 5)
+    "uvicorn>=0.52",           # ASGI dla FastAPI; bez [standard] — uvloop/watchfiles zbędne przy jednym runie
+    "claude-agent-sdk>=0.2.128", # pętla agenta w procesie workera (D1, 3.11)
+]
+
+# Świadomie NIE ma tutaj:
+#   tenacity  — backoff z jitterem jest spleciony z licznikiem wywołań i zapisem
+#               do tabeli `wywolania`; to warstwa, którą D4 każe kontrolować samodzielnie
+#   structlog — stdlib logging wystarcza; obserwowalność siedzi w SQLite (D10)
+#   alembic   — migracje to numerowane pliki SQL + tabela `_migracje` (3.1)
+#   ORM       — 3.1 mówi wprost: `sqlite3` ze standardu i ręczne zapytania
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16",
+    "mypy>=2.3",
+    "pre-commit>=4.6",
+    "pytest>=9.1",
+    "pytest-asyncio>=1.4", # MondayClient.query/paginate są async (3.2)
+    "pytest-cov>=7.1",
+    "types-pyyaml>=6.0.12", # stuby do mypy dla PyYAML
+]
+
+# Layout `src/`, więc `uv sync` instaluje pakiet w trybie edytowalnym.
+# Dzięki temu `import monday_audit` działa niezależnie od katalogu roboczego —
+# a to jest wymóg etapu 5, gdzie FastAPI leci z systemd, a worker jako proces
+# jednorazowy odpalany z innego miejsca niż root repo.
+# hatchling jest zależnością BUDOWANIA, nie runtime — nie ląduje na produkcji.
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/monday_audit"]
+
+
+# ──────────────────────────────────────────────────────────────
+# RUFF — lint + format
+# ──────────────────────────────────────────────────────────────
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100  # polskie identyfikatory są długie (budzet_wywolan, pobierz_inwentarz)
+extend-exclude = [
+    ".venv",
+    "migracje", # numerowane pliki .sql, nie Python
+    # Ruff 0.16 formatuje bloki ```python wewnątrz Markdown. Dokumentacja jest
+    # specyfikacją i należy do człowieka — narzędzie jej nie przepisuje.
+    "*.md",
+]
+
+[tool.ruff.lint]
+select = [
+    "F",     # pyflakes — martwy kod, niezdefiniowane nazwy
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "I",     # isort — kolejność importów
+    "N",     # pep8-naming
+    "UP",    # pyupgrade — składnia 3.12
+    "B",     # bugbear — mutowalne wartości domyślne, pułapki w pętlach
+    "C4",    # comprehensions
+    "SIM",   # simplify
+    "ASYNC", # blokujące wywołania w kodzie async — collector jest async
+    "S",     # bandit — SQL injection, subprocess, słabe hashe, sekrety
+    "DTZ",   # datetime bez strefy — okna 90 dni i run_at wymagają aware
+    "PTH",   # pathlib zamiast os.path
+    "LOG",   # pułapki w logging
+    "G",     # formatowanie komunikatów logów (lazy %s, nie f-string)
+    "TRY",   # obsługa wyjątków
+    "TID",   # importy relatywne
+    "RUF",
+]
+ignore = [
+    # Polskie myślniki i znaki diakrytyczne w komentarzach i stringach.
+    # Cała dokumentacja i wszystkie komunikaty są po polsku — te trzy reguły
+    # zgłaszałyby każdą linię z „—".
+    "RUF001",
+    "RUF002",
+    "RUF003",
+    # „Nie umieszczaj długich komunikatów poza klasą wyjątku".
+    # Sprzeczne z 3.3: token bez uprawnień admina ma przerwać
+    # z jasnym komunikatem, a nie z gołym typem wyjątku.
+    "TRY003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "S101",  # assert jest sensem istnienia pytest
+    "S105",  # atrapy tokenów w testach
+    "S106",
+]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.isort]
+known-first-party = ["monday_audit"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+
+# ──────────────────────────────────────────────────────────────
+# MYPY — profil podstawowy, zaostrzany stopniowo
+# ──────────────────────────────────────────────────────────────
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "src"
+# `tests` dopisz do tej listy, gdy pojawi się pierwszy plik testowy (3.4).
+# Teraz mypy przerywa z błędem na katalogu bez plików .py.
+files = ["src"]
+exclude = ['^migracje/']
+
+# Profil podstawowy: sprawdzamy ciała funkcji bez adnotacji, ale nie wymuszamy
+# adnotacji wszędzie. Gdy collector ustabilizuje się, zaostrzenie idzie przez
+# `[[tool.mypy.overrides]]` na konkretne moduły (kandydaci: walidacja kontraktu
+# D8 i pseudonimizacja z 3.4 — tam typy są warstwą bezpieczeństwa, nie wygodą).
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+strict_equality = true
+extra_checks = true
+
+plugins = ["pydantic.mypy"]
+
+
+# ──────────────────────────────────────────────────────────────
+# PYTEST
+# ──────────────────────────────────────────────────────────────
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+markers = [
+    "integracyjny: uderza w prawdziwe API monday — WYŁĄCZNIE konto CXLABS, nigdy konto klienta (04-test.md, warstwa 2)",
+]
+
+
+# ──────────────────────────────────────────────────────────────
+# COVERAGE — opt-in przez `uv run pytest --cov`
+# ──────────────────────────────────────────────────────────────
+
+[tool.coverage.run]
+branch = true
+source = ["monday_audit"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]

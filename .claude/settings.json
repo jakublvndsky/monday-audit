@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "deny": [
+      "Edit(STATUS.md)",
+      "Edit(./STATUS.md)",
+      "Write(STATUS.md)",
+      "Write(./STATUS.md)"
+    ]
+  }
+}

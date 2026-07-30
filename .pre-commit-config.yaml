@@ -1,0 +1,80 @@
+# Bramka przed commitem. Instalacja jednorazowo:
+#     uv run pre-commit install
+#
+# Hooki lintujące są `repo: local` + `language: system`, więc odpalają ruff/mypy
+# z venv uv. Dzięki temu wersja z hooka i wersja z `uv run ruff` to zawsze
+# ta sama wersja z uv.lock — pre-commit nie trzyma własnej, rozjeżdżającej się kopii.
+#
+# `uv run --frozen` nie przepisuje uv.lock w trakcie commita.
+
+default_install_hook_types: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      # rubryka_znalezisk.yaml jest specyfikacją, skillem agenta i podstawą evali
+      # jednocześnie. Literówka w składni YAML wywala trzy rzeczy naraz.
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md] # nie zabijaj `  ` = <br> w dokumentacji
+      - id: check-added-large-files
+        args: [--maxkb=512] # snapshoty żyją w SQLite, nie w repo
+
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run --frozen ruff check --force-exclude --fix
+        language: system
+        types_or: [python, pyi]
+
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --frozen ruff format --force-exclude
+        language: system
+        types_or: [python, pyi]
+
+      # Bez pass_filenames: mypy potrzebuje całego projektu, żeby rozwiązać typy
+      # między modułami. Zakres bierze z `files` w pyproject.toml.
+      - id: mypy
+        name: mypy
+        entry: uv run --frozen mypy
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: false
+
+      # ── Bariery na sekrety i dane runu ────────────────────────────────────
+      # Zero nowych zależności: `pygrep` (regex Pythona, blokuje przy trafieniu)
+      # i `fail` (blokuje, gdy plik pasuje do `files`) są wbudowane w pre-commit.
+      #
+      # Wbudowany detect-private-key łapie tylko klucze PEM. W tym projekcie
+      # realne ryzyko jest inne — patrz docs/etapy/05-deploy.md, „Sekrety".
+
+      # Token monday to JWT. Wklejony do pliku testowego wygląda niewinnie.
+      - id: token-monday
+        name: token monday (JWT) w treści pliku
+        language: pygrep
+        entry: 'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'
+
+      # Sekret przypisany na sztywno zamiast czytany z env.
+      # Wzorzec nie łapie os.environ["X"] ani "${X}" — tylko literał w cudzysłowie.
+      - id: sekret-na-sztywno
+        name: sekret przypisany na sztywno, nie z env
+        language: pygrep
+        entry: "(?i)(MONDAY_TOKEN|ANTHROPIC_API_KEY|SOL_PSEUDONIMIZACJI|CXLABS_DOCS_KEY)\\s*=\\s*[\"'][^\"'{}$]+[\"']"
+        exclude: ^\.env\.example$
+
+      # Ostatnia linia obrony, gdy ktoś zrobi `git add -f` obok .gitignore.
+      - id: dane-runu-poza-repo
+        name: baza ze snapshotami i .env nie idą do repo
+        language: fail
+        entry: >-
+          Ten plik nie należy do repo. Baza ze snapshotami zawiera dane konta
+          klienta i tabelę osoby_mapowanie; .env zawiera token i sól.
+          Snapshoty backupujemy poza gitem (etap 5), sekrety trzymamy w env.
+        files: '(^|/)\.env$|(^|/)\.env\.(?!example)|\.(db|db-wal|db-shm|db-journal|sqlite3?)$'

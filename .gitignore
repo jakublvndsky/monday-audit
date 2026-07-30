@@ -1,0 +1,58 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Node — podproces MCP odpalany przez npx, plus ewentualny front w przyszłości
+node_modules/
+
+# Cache narzędzi
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Claude Code: settings.json jest wspólny i idzie do repo,
+# settings.local.json to prywatne nadpisania i zostaje lokalnie
+.claude/settings.local.json
+
+# Dane runów — snapshoty są niemutowalne i nieodtwarzalne (D7), ale nie należą do repo.
+# Kopie zapasowe idą poza Mikrusa (etap 5), nie do gita.
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite3
+
+# Wyrenderowane raporty. Wersja wewnętrzna jest PO deanonimizacji (3.12),
+# czyli zawiera prawdziwe imiona i e-maile klienta. Nie może trafić do repo.
+raporty/
+
+# Ewaluacje (etap 4) — blokujemy DANE, nie harness.
+#
+# Harness ewaluacyjny jest wersjonowany i ma być: bez niego nie da się powtórzyć
+# pomiaru. Blokujemy dwie rzeczy, które zawierają treść klienta:
+#   zloty_zestaw — pisany ręcznie przez człowieka, zawiera board_id klienta
+#                  i sądy o jego procesach (04-test.md)
+#   wyniki       — surowe wyjścia runów evalowych, per finding, per snapshot
+#
+# NIE blokujemy evals/baseline/ — to liczby zbiorcze (trafność, odsetek fałszywek)
+# bez identyfikatorów, a brama promocji z etapu 5 porównuje do nich regresję.
+evals/zloty_zestaw/
+evals/wyniki/
+
+# Sekrety: token klienta, sól do hashowania osób, klucz API, klucz publishera (etap 5)
+.env
+.env.*
+!.env.example
+
+# System
+.DS_Store

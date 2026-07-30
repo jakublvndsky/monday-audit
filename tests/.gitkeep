@@ -1,0 +1,3 @@
+# Katalog testów — pytest ma go w `testpaths`.
+# Zawartość powstaje w etapie 4 (docs/etapy/04-test.md), poza testem
+# antyprzeciekowym PII, który jest bramą już w etapie 3 (pozycja 3.4).

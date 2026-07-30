@@ -1,0 +1,31 @@
+# Wspólne wcięcia, kodowanie i końcówki linii — niezależnie od edytora.
+# Pilnuje plików, których ruff nie formatuje: .sql z migracji (3.1), YAML rubryki,
+# Makefile.
+#
+# VS Code potrzebuje rozszerzenia „EditorConfig for VS Code" — bez niego ten plik
+# nic nie robi. PyCharm i pozostałe JetBrains czytają go natywnie.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{yaml,yml,json,toml}]
+indent_size = 2
+
+[*.sql]
+indent_size = 2
+
+[*.md]
+# Dwie spacje na końcu linii to w Markdownie znaczący łamacz wiersza.
+# To samo ustawienie ma hook trailing-whitespace w .pre-commit-config.yaml.
+trim_trailing_whitespace = false
+
+[Makefile]
+# Make wymaga tabulatorów przed komendami. Spacje = "missing separator".
+indent_style = tab

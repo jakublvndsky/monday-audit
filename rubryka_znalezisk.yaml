@@ -1,0 +1,393 @@
+# Rubryka znalezisk — audyt konta monday.com
+# CXLABS | wersja 0.1 | 2026-07-29
+#
+# Ten plik jest JEDNOCZEŚNIE:
+#   - specyfikacją wymagań (etap 1)
+#   - skillem dla agenta analitycznego (etap 3)
+#   - podstawą evali na zamrożonych snapshotach (etap 4)
+#
+# Zasada nadrzędna: każde znalezisko musi wskazywać na fakt deterministyczny
+# ze snapshotu (pole `dowod`). Znalezisko bez dowodu odpada na walidacji
+# i nie dochodzi do renderera.
+
+wersja: "0.1"
+odbiorca_domyslny: wewnetrzny
+
+# ──────────────────────────────────────────────────────────────
+# SŁOWNIKI
+# ──────────────────────────────────────────────────────────────
+
+slowniki:
+  waga: [krytyczna, wysoka, srednia, niska]
+
+  wysilek_naprawy: [niski, sredni, wysoki]
+  # niski   — zmiana ustawień, do godziny, bez migracji danych
+  # sredni  — przebudowa jednej tablicy lub procesu, do dnia
+  # wysoki  — migracja danych, zmiana nawyków zespołu, projekt
+
+  typ_wyceny: [oszczednosc_bezposrednia, ryzyko]
+  # oszczednosc_bezposrednia — kwota z mnożenia znanych liczb
+  # ryzyko                   — bez kwoty, świadomie
+  #
+  # UWAGA: nie ma typu `czas_odzyskany`. Wymagałby danych na poziomie
+  # itemów, których nie zbieramy (objętość + PII). Wymyślone stałe
+  # godzinowe zabijają wiarygodność raportu u pierwszego klienta,
+  # który je sprawdzi.
+
+  widocznosc: [klient, tylko_wewnetrzne]
+
+# ──────────────────────────────────────────────────────────────
+# REGUŁY GLOBALNE
+# ──────────────────────────────────────────────────────────────
+
+reguly:
+  kolejnosc_raportu:
+    # Zastępuje Health Score. Bez wag arbitralnych — sortowanie, nie średnia.
+    - waga malejąco
+    - wysilek_naprawy rosnąco
+    # Efekt: krytyczne + niski wysiłek na górze = quick wins na pierwszy slajd
+
+  bezpiecznik_globalny:
+    max_wywolan_na_run: 600
+    # Nie polityka, a wyłącznik awaryjny. Przekroczenie = błąd w logice,
+    # nie duże konto. Loguj i przerwij.
+
+  wersjonowanie:
+    # Każdy finding w bazie zapisuje `rubric_version`. Umożliwia
+    # przepuszczenie starego snapshotu przez nową rubrykę i porównanie.
+    zapisuj_wersje: true
+
+# ──────────────────────────────────────────────────────────────
+# KLASY ZNALEZISK
+# ──────────────────────────────────────────────────────────────
+
+klasy:
+
+  # ═══ LICENCJE I PLAN ═══════════════════════════════════════
+
+  - id: ZOMBIE_ACCOUNT
+    nazwa: Konto nieaktywne, wciąż licencjonowane
+    modul_zrodlowy: 2
+    sygnal: enabled = true AND last_activity > 90 dni
+    rola_agenta: brak
+    budzet_wywolan: 0
+    warunki_odrzucenia:
+      - konto techniczne/serwisowe (rozpoznaj po nazwie lub braku zespołu)
+      - is_pending = true — to należy do NEVER_ACTIVATED, nie tutaj
+    waga: wysoka
+    wysilek_naprawy: niski
+    typ_wyceny: oszczednosc_bezposrednia
+    wzor: liczba_kont * koszt_licencji_mies * 12
+    zmienne_od_klienta: [koszt_licencji_mies]
+    dowod: [user_hash, last_activity, enabled, plan_tier]
+    widocznosc: klient
+    trop_sprzedazowy: porządkowanie licencji — szybka wygrana budująca zaufanie
+
+  - id: PLAN_MISMATCH
+    nazwa: Plan nieadekwatny do realnego użycia
+    modul_zrodlowy: 1
+    sygnal: |
+      (max_users - aktywni_30d) / max_users > 0.3
+      OR wykorzystanie funkcji planu poniżej progu tieru
+    rola_agenta: |
+      Ustal, czy nadwyżka miejsc jest zaplanowanym zapasem na rekrutację,
+      czy pozostałością. Sprawdź daty utworzenia kont — jeśli nikt nowy
+      nie doszedł od pół roku, to nie zapas, to nadpłata.
+    budzet_wywolan: 3
+    warunki_odrzucenia:
+      - konta utworzone w ostatnich 60 dniach — konto rośnie
+      - tier wymuszony jedną funkcją, której faktycznie używają
+    waga: wysoka
+    wysilek_naprawy: niski
+    typ_wyceny: oszczednosc_bezposrednia
+    wzor: nadwyzka_miejsc * koszt_licencji_mies * 12
+    zmienne_od_klienta: [koszt_licencji_mies]
+    dowod: [plan_tier, max_users, aktywni_30d, daty_utworzenia_kont]
+    widocznosc: klient
+    trop_sprzedazowy: przegląd licencji — argument, że audyt zwrócił się od razu
+
+  - id: GUEST_SPRAWL
+    nazwa: Niekontrolowany dostęp gości
+    modul_zrodlowy: 2
+    sygnal: |
+      liczba_guest > 0.25 * liczba_members
+      OR istnieją goście z last_activity > 180 dni
+    rola_agenta: |
+      Ustal, do których tablic mają dostęp nieaktywni goście.
+      Podnieś wagę do krytycznej, jeśli którakolwiek zawiera dane
+      wskazujące na wrażliwość (kadry, finanse, wynagrodzenia, prawne)
+      — oceniaj po nazwie tablicy i kolumn.
+    budzet_wywolan: 5
+    warunki_odrzucenia:
+      - model współpracy oparty na gościach (agencja, kancelaria) — wtedy
+        raportuj tylko nieaktywnych, nie samą liczbę
+    waga: srednia
+    wysilek_naprawy: niski
+    typ_wyceny: ryzyko
+    wzor: null
+    dowod: [liczba_guest, liczba_members, "guest_hash[]", "tablice_dostepne[]"]
+    widocznosc: klient
+    trop_sprzedazowy: uporządkowanie uprawnień i governance
+
+  # ═══ ZAANGAŻOWANIE ═════════════════════════════════════════
+
+  - id: ENGAGEMENT_DROP
+    nazwa: Spadek zaangażowania zespołu lub działu
+    modul_zrodlowy: 2, 5
+    sygnal: |
+      grupa (zespół lub workspace) z udziałem aktywnych_7d < 40%
+      przy jednoczesnym udziale aktywnych_90d > 70%
+      — czyli używali, przestali
+    rola_agenta: |
+      To nie jest znalezisko liczbowe, tylko pytanie "dlaczego".
+      Ustal moment spadku z activity logs. Sprawdź, co się wtedy
+      stało: nowa tablica, zmiana struktury, odejście właściciela,
+      nowa automatyzacja generująca szum. Bez przyczyny to znalezisko
+      jest bezużyteczne — odrzuć, jeśli nie znajdziesz hipotezy.
+    budzet_wywolan: 10
+    warunki_odrzucenia:
+      - sezonowość (urlopy, zamknięcie roku) — sprawdź analogiczny okres
+      - grupa projektowa po zakończeniu projektu
+      - brak możliwości wskazania przyczyny
+    waga: wysoka
+    wysilek_naprawy: sredni
+    typ_wyceny: ryzyko
+    wzor: null
+    dowod: [grupa, aktywni_7d, aktywni_90d, data_zwrotu, zdarzenie_towarzyszace]
+    widocznosc: tylko_wewnetrzne
+    trop_sprzedazowy: |
+      warsztat adopcyjny albo przebudowa procesu — zależnie od przyczyny.
+      Wewnętrzne, bo "twój dział przestał używać narzędzia, które kupiłeś"
+      wymaga rozmowy, nie akapitu w PDF.
+
+  # ═══ STRUKTURA ═════════════════════════════════════════════
+
+  - id: BOARD_GHOST
+    nazwa: Tablica porzucona
+    modul_zrodlowy: 3
+    sygnal: state = active AND updated_at > 90 dni AND items_count > 0
+    rola_agenta: |
+      Rozstrzygnij: archiwum czy porzucony proces. Sprawdź, czy itemy
+      zostały domknięte (statusy końcowe) — jeśli tak, to archiwum
+      i rekomendacja brzmi "zarchiwizuj". Jeśli itemy wiszą w stanach
+      pośrednich, to porzucona robota i sygnał do zbadania szerzej.
+    budzet_wywolan: 4
+    warunki_odrzucenia:
+      - tablica-szablon lub tablica referencyjna (rozpoznaj po nazwie)
+      - wszystkie itemy w statusach końcowych ORAZ nazwa wskazuje na rok/okres
+    waga: srednia
+    wysilek_naprawy: niski
+    typ_wyceny: ryzyko
+    wzor: null
+    dowod: [board_id, nazwa, updated_at, items_count, rozklad_statusow]
+    widocznosc: klient
+    trop_sprzedazowy: porządkowanie workspace — wejście do szerszej przebudowy
+
+  - id: BOARD_NO_OWNER
+    nazwa: Tablica bez właściciela
+    modul_zrodlowy: 3
+    sygnal: owners = [] OR wszyscy właściciele mają enabled = false
+    rola_agenta: |
+      Ustal, czy tablica jest żywa. Bez właściciela + aktywna = pilne,
+      bo nikt nie odpowiada za coś, z czego korzysta zespół.
+      Zaproponuj właściciela na podstawie tego, kto najczęściej
+      wprowadza zmiany.
+    budzet_wywolan: 4
+    warunki_odrzucenia: []
+    waga: wysoka
+    wysilek_naprawy: niski
+    typ_wyceny: ryzyko
+    wzor: null
+    dowod: [board_id, owners, updated_at, top_kontrybutor_hash]
+    widocznosc: klient
+    trop_sprzedazowy: governance i model odpowiedzialności
+
+  - id: BOARD_OVERCOMPLEX
+    nazwa: Tablica z polami, których nikt nie wypełnia
+    modul_zrodlowy: 3
+    sygnal: liczba_kolumn > 15
+    rola_agenta: |
+      Ustal, które kolumny są faktycznie martwe. UWAGA: snapshot nie
+      zawiera wskaźnika wypełnienia (nie schodzimy na poziom itemów),
+      więc musisz to sprawdzić przez narzędzie na wybranej próbce.
+      Odróżnij martwe od wypełnianych rzadko celowo (eskalacja, wyjątki).
+    budzet_wywolan: 8
+    warunki_odrzucenia:
+      - tablica archiwalna lub raportowa (kolumny formuł, lustra)
+      - kolumny wypełniane automatycznie przez integracje
+    waga: srednia
+    wysilek_naprawy: sredni
+    typ_wyceny: ryzyko
+    wzor: null
+    dowod: [board_id, liczba_kolumn, "kolumny_martwe[]", rozmiar_probki]
+    widocznosc: klient
+    trop_sprzedazowy: upraszczanie procesu — częsty i wdzięczny temat
+
+  - id: DUPLICATE_STRUCTURE
+    nazwa: Wiele tablic robiących to samo
+    modul_zrodlowy: 3
+    sygnal: |
+      >= 2 tablice w tym samym workspace o nakładaniu zestawu
+      typów i nazw kolumn >= 70%
+    rola_agenta: |
+      Odróżnij podział celowy od rozjazdu. Celowy: podział po kliencie,
+      regionie, roku — wtedy nazwy tworzą serię i wszystkie są aktywne.
+      Rozjazd: te same kolumny, ci sami subskrybenci, jedna aktywna
+      a reszta cichnie. Sprawdź daty utworzenia — jeśli powstawały
+      sukcesywnie, to prawdopodobnie każdy zakłada własną kopię,
+      bo nikt nie wie o istniejącej.
+    budzet_wywolan: 10
+    warunki_odrzucenia:
+      - nazwy tworzą jawną serię (rok, klient, region) i wszystkie aktywne
+      - tablice w różnych workspace'ach należących do różnych zespołów
+    waga: wysoka
+    wysilek_naprawy: wysoki
+    typ_wyceny: ryzyko
+    wzor: null
+    dowod: ["board_ids[]", nakladanie_kolumn, nakladanie_subskrybentow, daty_utworzenia]
+    widocznosc: klient
+    trop_sprzedazowy: konsolidacja i przebudowa — projekt, nie poprawka
+
+  - id: PROCESS_BYPASS
+    nazwa: Zespół obchodzi proces
+    modul_zrodlowy: 3, 5
+    sygnal: |
+      brak sygnału pojedynczego — wzbudzane koniunkcją:
+      tablica ucichła (> 60 dni) AND w oknie ±30 dni od zamilknięcia
+      powstały >= 2 nowe tablice w tym samym workspace
+      o nakładaniu kolumn >= 50%
+    rola_agenta: |
+      ZNALEZISKO FLAGOWE — tu jesteś najbardziej potrzebny.
+      Porównaj kolumny starej i nowych tablic. Sprawdź, czy subskrybenci
+      się pokrywają (jeśli tak, to ci sami ludzie, nowe miejsce = obejście,
+      nie nowy zespół). Ustal, co w starej tablicy było kosztem:
+      liczba pól, ścieżka akceptacji, brak właściciela, martwa automatyzacja
+      blokująca przepływ. Rekomendacja musi wskazywać przyczynę,
+      nie objaw — "uprościć do N pól i zmigrować", nie "używać starej tablicy".
+    budzet_wywolan: 12
+    warunki_odrzucenia:
+      - podział wg klienta/projektu/okresu, a nie obejście
+      - rozłączni subskrybenci — to nowy zespół, nie ucieczka
+      - stara tablica zarchiwizowana świadomie (state != active)
+    waga: krytyczna
+    wysilek_naprawy: wysoki
+    typ_wyceny: ryzyko
+    wzor: null
+    dowod:
+      - board_stary
+      - boardy_nowe[]
+      - nakladanie_kolumn
+      - nakladanie_subskrybentow
+      - data_zamilkniecia
+      - daty_utworzenia_nowych
+      - hipoteza_przyczyny
+    widocznosc: tylko_wewnetrzne
+    trop_sprzedazowy: |
+      discovery i przebudowa procesu — najwyższa wartość kontraktowa.
+      Wewnętrzne, bo to znaczy "twoi ludzie omijają system, który kupiłeś",
+      a osoba czytająca raport zwykle sama to konto zbudowała.
+      Do rozmowy, nie do PDF-a.
+
+  # ═══ AUTOMATYZACJE ═════════════════════════════════════════
+
+  - id: AUTOMATION_ABSENT
+    nazwa: Konto nie korzysta z automatyzacji
+    modul_zrodlowy: 4
+    sygnal: |
+      liczba_automatyzacji = 0
+      OR gestosc (automatyzacje / aktywne_tablice) < 0.2
+    rola_agenta: |
+      Wskaż 3 najlepsze kandydatury na automatyzację. Szukaj tablic
+      z kolumną statusu, właścicielem i datą — to gotowy wzorzec
+      "zmiana statusu → powiadom właściciela → ustaw termin".
+      Uzasadnij wyborem tablicy, nie ogólnikiem.
+    budzet_wywolan: 8
+    warunki_odrzucenia:
+      - konto młodsze niż 60 dni — jeszcze się wdrażają
+      - automatyzacja realizowana zewnętrznie (Make, Zapier) — sprawdź,
+        czy w nazwach kolumn lub integracjach są tego ślady
+    waga: wysoka
+    wysilek_naprawy: sredni
+    typ_wyceny: ryzyko
+    wzor: null
+    dowod: [liczba_automatyzacji, aktywne_tablice, gestosc, "kandydaci[]"]
+    widocznosc: klient
+    trop_sprzedazowy: |
+      NAJMOCNIEJSZY TROP HANDLOWY. Konto bez automatyzacji to konto,
+      które płaci za monday i używa go jak Excela. Warsztat automatyzacji
+      z gotową listą trzech kandydatów to oferta, która sama się pisze.
+
+  - id: AUTOMATION_DEAD
+    nazwa: Automatyzacja nieaktywna lub bez uruchomień
+    modul_zrodlowy: 4
+    sygnal: is_active = false OR (is_active AND 0 uruchomień w 90 dni)
+    rola_agenta: |
+      Rozstrzygnij: śmieć po testach czy proces przeniesiony na ręce.
+      Sprawdź, czy itemy na tej tablicy nadal zmieniają statusy —
+      jeśli tak, ktoś robi ręcznie to, co automat miał robić sam,
+      i to jest realne znalezisko. Jeśli tablica też jest martwa,
+      to zwykły śmieć — waga niska, zgłoś zbiorczo.
+    budzet_wywolan: 5
+    warunki_odrzucenia:
+      - automatyzacja sezonowa (rozpoznaj po nazwie lub warunku daty)
+      - tablica również martwa — degraduj wagę do niskiej
+    waga: srednia
+    wysilek_naprawy: niski
+    typ_wyceny: ryzyko
+    wzor: null
+    dowod: [automation_id, board_id, is_active, uruchomienia_90d, aktywnosc_tablicy]
+    widocznosc: klient
+    trop_sprzedazowy: audyt automatyzacji — wejście do warsztatu
+
+  # ═══ AI ════════════════════════════════════════════════════
+
+  - id: AI_UNUSED
+    nazwa: Konto nie wykorzystuje funkcji AI
+    modul_zrodlowy: 6
+    status: do_weryfikacji
+    # BLOKER: nie jest potwierdzone, czy API zwraca zużycie kredytów AI.
+    # Ta klasa jest nieaktywna do rozstrzygnięcia discovery.
+    # Nie raportuj i nie wliczaj do kolejności, dopóki status != aktywna.
+    sygnal: zuzycie_kredytow_ai = 0 AND plan_tier wspiera AI
+    rola_agenta: |
+      Wskaż tablice, na których kolumna AI dałaby natychmiastową wartość
+      (streszczanie długich opisów, klasyfikacja zgłoszeń, ekstrakcja
+      z treści). Wybieraj tablice o dużym napływie, nie największe.
+    budzet_wywolan: 6
+    warunki_odrzucenia:
+      - plan nie obejmuje AI
+      - klient świadomie wyłączył AI (polityka bezpieczeństwa)
+    waga: srednia
+    wysilek_naprawy: niski
+    typ_wyceny: ryzyko
+    wzor: null
+    dowod: [zuzycie_kredytow_ai, plan_tier, "kandydaci[]"]
+    widocznosc: klient
+    trop_sprzedazowy: wdrożenie AI w monday — wasza główna linia rozwojowa
+
+# ──────────────────────────────────────────────────────────────
+# DO ROZSTRZYGNIĘCIA EMPIRYCZNIE
+# ──────────────────────────────────────────────────────────────
+
+otwarte_zalozenia:
+  - klasa: BOARD_OVERCOMPLEX
+    pytanie: |
+      Ile itemów trzeba pobrać na próbkę, żeby wiarygodnie ocenić
+      wypełnienie kolumny? Jeśli okaże się, że >50, ta klasa
+      podnosi koszt runu i trzeba ją przemyśleć.
+
+  - klasa: AUTOMATION_DEAD
+    pytanie: |
+      Czy API zwraca liczbę uruchomień automatyzacji, czy tylko
+      is_active? Jeśli tylko is_active, sygnał zwęża się do
+      "nieaktywna" i traci połowę wartości.
+
+  - klasa: AI_UNUSED
+    pytanie: Czy account { usage { ai } } zwraca cokolwiek.
+
+  - klasa: wszystkie
+    pytanie: |
+      Czy items_count wystarcza jako proxy objętości, czy potrzebny
+      jest napływ (nowe itemy / miesiąc). Napływ wymagałby zejścia
+      na poziom itemów — decyzja do przemyślenia, gdyby okazał się
+      niezbędny dla więcej niż jednej klasy.
