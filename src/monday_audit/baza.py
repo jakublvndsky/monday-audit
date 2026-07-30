@@ -143,3 +143,56 @@ def zastosuj_migracje(con: sqlite3.Connection, katalog: Path | None = None) -> l
         logger.info("zastosowano migrację %s (%s)", numer, plik.name)
 
     return zastosowane
+
+
+class RejestrWywolan:
+    """Zapis każdego wywołania do tabeli `wywolania` — obserwowalność D10.
+
+    Obsługuje oba rodzaje wywołań: GraphQL collectora (3.2) i narzędzia
+    agenta (3.10). Zamiast Langfuse tabela, na której SQL odpowie na pięć
+    pytań z 06-operate.md.
+
+    **Wymaga istniejącego wiersza w `runy`.** `wywolania.run_id` to
+    NOT NULL REFERENCES, a `polacz()` włącza klucze obce — więc run trzeba
+    otworzyć przed pierwszym zapytaniem do monday, także tym walidującym
+    `is_admin` z 3.3.
+
+    Zapis jest synchroniczny, wołany z kodu async. Świadomie: to jeden
+    lokalny INSERT bez sieci, a `aiosqlite` byłoby nową zależnością.
+
+    Każdy wpis idzie z własnym commitem, żeby dane obserwowalności przetrwały
+    przerwany run. Konsekwencja do zapamiętania: nie wołaj `zapisz()`
+    z wnętrza otwartej transakcji zapisu — commit rejestru domknąłby także ją.
+    """
+
+    def __init__(self, con: sqlite3.Connection, run_id: str) -> None:
+        self._con = con
+        self._run_id = run_id
+
+    def zapisz(
+        self,
+        *,
+        narzedzie: str,
+        latency_ms: int | None = None,
+        complexity: int | None = None,
+        hipoteza_id: str | None = None,
+        tokens_in: int | None = None,
+        tokens_out: int | None = None,
+        model: str | None = None,
+    ) -> None:
+        self._con.execute(
+            "INSERT INTO wywolania (run_id, hipoteza_id, narzedzie, tokens_in, tokens_out, "
+            "latency_ms, complexity, model, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                self._run_id,
+                hipoteza_id,
+                narzedzie,
+                tokens_in,
+                tokens_out,
+                latency_ms,
+                complexity,
+                model,
+                datetime.now(tz=UTC).isoformat(),
+            ),
+        )
+        self._con.commit()

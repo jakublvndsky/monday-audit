@@ -144,7 +144,10 @@ plugins = ["pydantic.mypy"]
 [tool.pytest.ini_options]
 minversion = "9.0"
 testpaths = ["tests"]
-addopts = ["-ra", "--strict-markers", "--strict-config"]
+# Testy integracyjne są WYŁĄCZONE domyślnie. Uderzają w prawdziwe API, więc
+# `make sprawdz` nie może ich odpalać mimochodem — uruchomienie ma być decyzją:
+# `uv run pytest -m integracyjny`. Argument z linii komend nadpisuje ten poniżej.
+addopts = ["-ra", "--strict-markers", "--strict-config", "-m", "not integracyjny"]
 
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
