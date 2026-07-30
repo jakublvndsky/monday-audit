@@ -121,50 +121,138 @@ jako architektura, nie hasło.
 
 ## D7. Schemat danych
 
+Wszystkie tabele są `STRICT`. Bez tego SQLite typuje doradczo i wpuści tekst
+do kolumny liczbowej — a te liczby idą potem do raportu klienta.
+
+Implementacja: `src/monday_audit/migracje/001_schemat.sql`.
+
 ```sql
 CREATE TABLE snapshots (
   id            INTEGER PRIMARY KEY,
-  client_id     TEXT NOT NULL,
-  run_at        TEXT NOT NULL,
-  collector_ver TEXT NOT NULL,
-  payload       TEXT NOT NULL   -- JSON, niemutowalny
-);
+  client_id     TEXT    NOT NULL,
+  run_at        TEXT    NOT NULL,
+  collector_ver TEXT    NOT NULL,
+  payload       TEXT    NOT NULL,   -- JSON, niemutowalny
+  CHECK (json_valid(payload))
+) STRICT;
+
+-- Niemutowalność jako mechanizm, nie opis. DELETE zostaje dozwolony:
+-- usunięcie danych klienta musi być wykonalne.
+CREATE TRIGGER snapshots_bez_update
+BEFORE UPDATE ON snapshots
+BEGIN
+  SELECT RAISE(ABORT, 'snapshot jest niemutowalny (D7)');
+END;
+
+CREATE TABLE runy (
+  run_id      TEXT    PRIMARY KEY,
+  client_id   TEXT    NOT NULL,
+  snapshot_id INTEGER REFERENCES snapshots(id),
+  status      TEXT    NOT NULL,
+  started_at  TEXT    NOT NULL,
+  finished_at TEXT,
+  model       TEXT,                 -- pełny identyfikator, alias zakazany
+  rubric_ver  TEXT,
+  prompt_hash TEXT,
+  wywolania_monday      INTEGER,    -- agregaty per run (etap 6)
+  complexity_suma       INTEGER,
+  tokens_in             INTEGER,
+  tokens_out            INTEGER,
+  findingow             INTEGER,
+  odrzuconych_walidacja INTEGER,
+  hipotez_zbadanych     INTEGER,
+  hipotez_odrzuconych   INTEGER,
+  CHECK (status IN ('w_toku', 'zakonczony', 'przerwany'))
+) STRICT;
 
 CREATE TABLE findings (
   id           INTEGER PRIMARY KEY,
+  run_id       TEXT    NOT NULL REFERENCES runy(run_id),
   snapshot_id  INTEGER NOT NULL REFERENCES snapshots(id),
-  klasa_id     TEXT NOT NULL,
-  rubric_ver   TEXT NOT NULL,
-  waga         TEXT NOT NULL,
-  wysilek      TEXT NOT NULL,
-  typ_wyceny   TEXT NOT NULL,
-  kwota_pln    REAL,            -- NULL dla typu `ryzyko`
-  widocznosc   TEXT NOT NULL,
-  opis         TEXT NOT NULL,
-  rekomendacja TEXT NOT NULL,
-  dowod        TEXT NOT NULL,   -- JSON
-  trop         TEXT             -- tylko wersja wewnętrzna
-);
+  klasa_id     TEXT    NOT NULL,
+  rubric_ver   TEXT    NOT NULL,
+  waga         TEXT    NOT NULL,
+  wysilek      TEXT    NOT NULL,
+  typ_wyceny   TEXT    NOT NULL,
+  kwota_pln    REAL,               -- NULL dla typu `ryzyko`
+  widocznosc   TEXT    NOT NULL,
+  opis         TEXT    NOT NULL,
+  rekomendacja TEXT    NOT NULL,
+  dowod        TEXT    NOT NULL,   -- JSON, obiekt
+  pewnosc      TEXT    NOT NULL,
+  trop         TEXT,               -- tylko wersja wewnętrzna
+  CHECK (json_valid(dowod) AND json_type(dowod) = 'object')
+) STRICT;
+
+CREATE TABLE hipotezy_odrzucone (
+  id        INTEGER PRIMARY KEY,
+  run_id    TEXT    NOT NULL REFERENCES runy(run_id),
+  klasa_id  TEXT    NOT NULL,
+  obiekt_id TEXT,
+  powod     TEXT    NOT NULL
+) STRICT;
 
 CREATE TABLE osoby_mapowanie (
-  user_hash  TEXT PRIMARY KEY,
+  client_id     TEXT NOT NULL,
+  user_hash     TEXT NOT NULL,
   imie_nazwisko TEXT,
-  email      TEXT
-);
+  email         TEXT,
+  PRIMARY KEY (client_id, user_hash)
+) STRICT;
 -- Agent NIE MA narzędzia czytającego tę tabelę. Renderer ma.
 
 CREATE TABLE wywolania (
   id          INTEGER PRIMARY KEY,
-  run_id      TEXT NOT NULL,
+  run_id      TEXT    NOT NULL REFERENCES runy(run_id),
   hipoteza_id TEXT,
-  narzedzie   TEXT NOT NULL,
+  narzedzie   TEXT    NOT NULL,
   tokens_in   INTEGER,
   tokens_out  INTEGER,
   latency_ms  INTEGER,
+  complexity  INTEGER,             -- complexity { query after } z 3.2
   model       TEXT,
-  at          TEXT NOT NULL
-);
+  at          TEXT    NOT NULL
+) STRICT;
 ```
+
+Indeksy: `snapshots(client_id, run_at)`, `findings(snapshot_id)`,
+`findings(run_id)`, `runy(snapshot_id)`, `hipotezy_odrzucone(run_id)`,
+`wywolania(run_id)`.
+
+**Klucze obce wymagają `PRAGMA foreign_keys = ON` przy każdym połączeniu.**
+SQLite ma to domyślnie wyłączone, więc bez tego `REFERENCES` powyżej są
+dekoracją. Ustawia to `monday_audit.baza.polacz()`.
+
+**Słowniki rubryki (`waga`, `wysilek`, `typ_wyceny`, `widocznosc`) świadomie
+NIE są zamknięte w `CHECK`.** Rubryka jest wersjonowana niezależnie od bazy —
+każdy finding niesie `rubric_ver` — więc zmiana słownika w rubryce nie może
+wymagać migracji schematu. Waliduje je kod przeciwko wczytanej rubryce (3.11).
+`CHECK` na `runy.status` jest, bo to słownik własny, nie z rubryki.
+
+---
+
+### Pięć uzupełnień wobec pierwotnego zapisu D7
+
+Wykryte przy 3.1, gdy schemat miał trafić do migracji. Każde wynika
+z wymagania, które istniało już w innym dokumencie i nie miało gdzie usiąść.
+
+| Uzupełnienie | Powód |
+|---|---|
+| `findings.run_id` | Sensem niemutowalnego snapshotu jest powtórne przepuszczenie agenta. Etap 4 mierzy powtarzalność przez porównanie dwóch runów na jednym snapshocie — przy samym `snapshot_id` findingi z obu są nierozróżnialne |
+| tabela `runy` | Etap 5 wymaga pinowania czterech elementów per run. `collector_ver` siedzi w `snapshots`, ale pełny identyfikator modelu i hash promptu nie miały miejsca. Etap 6 dokłada agregaty per run |
+| tabela `hipotezy_odrzucone` | D8 czyni je obowiązkowymi i nazywa głównym wejściem do evali; etap 4 wymaga 100% niepustych. Bez tabeli nie ma gdzie ich zapisać |
+| `findings.pewnosc` | Kontrakt D8 to produkuje, schemat nie przyjmował |
+| `client_id` w `osoby_mapowanie` | To magazyn PII. Sól jest osobna per klient, a po audycie dostęp jest odbierany (D11) — bez `client_id` nie da się skasować mapowań jednego klienta |
+
+**`runy` obejmuje cały przebieg**, nie samą fazę agentową: collector →
+detektory → agent. Powód: etap 6 wymaga per run zarówno metryk collectora
+(wywołania monday, complexity), jak i agenta (tokeny, findingi). Gdyby run
+zaczynał się przy agencie, `wywolania.run_id` nie miałoby do czego wskazywać
+w czasie zbierania danych.
+
+**Konsekwencja do zaakceptowania:** `snapshot_id`, `model`, `rubric_ver`
+i `prompt_hash` są NULL-owalne, bo wypełniają się etapami. Komplet tych
+czterech to warunek domknięcia runu — pilnuje go kod, nie baza.
 
 **Dlaczego snapshot jest niemutowalny i oddzielony od findingów** — to
 najważniejsza decyzja projektowa w całym systemie:
@@ -173,6 +261,17 @@ najważniejsza decyzja projektowa w całym systemie:
    konta klienta**. To jest harness ewaluacyjny za darmo.
 2. Snapshot #1 vs #4 u tego samego klienta = case study z liczbami.
 3. Gdy agent zmyśli, masz `dowod` + snapshot, żeby to wychwycić.
+
+**Co unieważni:** zejście na poziom itemów (gdyby padło D5) — wtedy `payload`
+jako jeden JSON przestaje się skalować i snapshot trzeba znormalizować.
+Drugi warunek to wiele audytów równolegle: `runy` zakłada jeden przebieg
+naraz, a `snapshots` bez wersjonowania schematu payloadu utrudni porównywanie
+snapshotów zebranych różnymi wersjami collectora niż sam numer `collector_ver`.
+
+**Zastosowane migracje są niezmienne.** Tabela `_migracje` trzyma sumę
+kontrolną SHA-256 każdego pliku; edycja już zastosowanej migracji przerywa
+działanie z błędem. Bez tego baza i pliki rozjeżdżają się po cichu,
+a etap 5 wymaga odtwarzalności audytu sprzed miesięcy.
 
 ---
 

@@ -120,9 +120,7 @@ docstring-code-format = true
 [tool.mypy]
 python_version = "3.12"
 mypy_path = "src"
-# `tests` dopisz do tej listy, gdy pojawi się pierwszy plik testowy (3.4).
-# Teraz mypy przerywa z błędem na katalogu bez plików .py.
-files = ["src"]
+files = ["src", "tests"]
 exclude = ['^migracje/']
 
 # Profil podstawowy: sprawdzamy ciała funkcji bez adnotacji, ale nie wymuszamy
