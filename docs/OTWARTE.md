@@ -228,3 +228,62 @@ kategoria (moja rekomendacja: tak, zbieramy i oznaczamy, ale detektory
 liczą tylko `active` + `archived`), czy odfiltrowujemy je już w collectorze.
 Pierwsze jest droższe o ~12 wywołań, ale kosz sam potrafi być znaleziskiem —
 1 216 usuniętych tablic mówi coś o higienie konta.
+
+---
+
+## O11. Użytkownicy — POTWIERDZONE, plus trzy pułapki
+
+**Status:** zmierzone przy 3.4 na koncie CXLABS (95 użytkowników, 1 strona)
+**Blokuje:** `ZOMBIE_ACCOUNT`, `ENGAGEMENT_DROP`
+
+Pełne zapytanie z 3.4 **działa w całości** — wszystkie pola wracają:
+`id name email enabled is_admin is_guest is_pending is_verified created_at
+last_activity title teams { id name }`.
+
+| Zmierzone | Wartość |
+|---|---|
+| użytkowników | 95 |
+| `enabled: true` | 95 (wszyscy) |
+| adminów / gości / oczekujących | 10 / 12 / 1 |
+| `is_verified: false` | 1 |
+| `last_activity` wypełnione | **58 z 95** |
+| bez `title` | 50 |
+| bez zespołu | 86 |
+| koszt | 1 wywołanie, ~1 750 complexity |
+
+**Pułapka 1: `last_activity` jest timestampem, ale u 37 osób jest `null`.**
+Format to ISO-8601 ze strefą (`2026-07-30T20:25:49Z`), zakres na koncie
+CXLABS: od marca 2025 do dziś. **`null` znaczy „nie wiem", nie „nieaktywny
+od zawsze".** `ZOMBIE_ACCOUNT` nie może liczyć tych 37 kont jako martwych
+na podstawie tego pola — dla nich sygnał musi przyjść z activity logs (3.7).
+Collector zapisuje liczbę braków w snapshocie, żeby detektor nie mógł
+tego przemilczeć.
+
+**Pułapka 2: wszyscy użytkownicy są `enabled`.** Nie wiadomo, czy
+`users` w ogóle zwraca konta dezaktywowane — być może domyślnie je pomija.
+Ma to znaczenie dla wyceny: konto dezaktywowane nie zużywa licencji, więc
+`ZOMBIE_ACCOUNT` powinien liczyć tylko aktywne. **Do sprawdzenia:**
+argument `kind` w `users` (wartości do introspekcji) na koncie, które ma
+kogoś dezaktywowanego.
+
+**Pułapka 3: skan PII po pojedynczych tokenach daje fałszywki.**
+Pierwsza wersja walidatora antyprzeciekowego przerywała run przy każdym
+trafieniu tokenu z pola `name` w tekstach pisanych przez klienta (`title`,
+nazwy zespołów). Na CXLABS dało to **54 trafienia z 3 tokenów** — wszystkie
+fałszywe: konta serwisowe mają w `name` nazwę firmy albo produktu (jeden
+taki token występuje w 28 nazwach zespołów), a nie imię osoby.
+
+Rozstrzygnięcie zapisane w kodzie (`osoby.py`):
+
+- **twardo przerywa run:** cokolwiek w formacie adresu e-mail oraz **pełne**
+  imię i nazwisko jako ciągły napis (nazwy jednowyrazowe nie liczą się jako
+  imię i nazwisko)
+- **liczy i raportuje, nie przerywa:** pojedyncze tokeny — wynik ląduje
+  w snapshocie jako `podejrzenia_pii_w_tekstach` i w logu jako ostrzeżenie,
+  do ręcznego przejrzenia przy BRAMIE po 3.8
+
+Powód rozdzielenia: `title` i nazwy zespołów pisze klient, nie my. Wyciekiem
+jest skopiowanie przez nas pola `name` albo `email` — i to jest wykluczone
+konstrukcyjnie (snapshot budowany z listy dozwolonych pól). Przerywanie
+audytu na tym, że klient nazwał zespół słowem, które ktoś ma w nazwie konta,
+byłoby blokadą bez powodu.

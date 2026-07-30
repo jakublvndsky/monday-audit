@@ -10,9 +10,10 @@ from __future__ import annotations
 import hashlib
 import logging
 import sqlite3
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Protocol
 
 logger = logging.getLogger(__name__)
 
@@ -196,3 +197,68 @@ class RejestrWywolan:
             ),
         )
         self._con.commit()
+
+
+class WpisMapowania(Protocol):
+    """Kształt wpisu PII, którego oczekuje `MapowanieOsob`.
+
+    Protokół, a nie import z `osoby.py`: baza jest warstwą niżej i nie ma
+    powodu wiedzieć, jak collector nazywa swoje struktury.
+    """
+
+    # Właściwości, nie pola: `WpisPII` jest niemutowalny (frozen dataclass),
+    # a protokół z gołymi adnotacjami wymagałby atrybutów zapisywalnych.
+    @property
+    def user_hash(self) -> str: ...
+
+    @property
+    def imie_nazwisko(self) -> str | None: ...
+
+    @property
+    def email(self) -> str | None: ...
+
+
+class MapowanieOsob:
+    """MAGAZYN PII — tabela `osoby_mapowanie` (etap 3.4).
+
+    **Agent nie ma żadnego narzędzia czytającego tę tabelę** (D6, CLAUDE.md).
+    Czyta ją wyłącznie renderer, i to dopiero w 3.12, żeby zdeanonimizować
+    raport. Nie dopisuj tu metody odczytu „na potrzeby debugowania" —
+    to jedyna warstwa, która oddziela raport od danych osobowych klienta.
+
+    Klucz główny to `(client_id, user_hash)`, więc powtórny run tego samego
+    klienta nadpisuje własne wpisy zamiast się wywalić. Sól jest per klient,
+    a po audycie dostęp jest odbierany (D11) — dlatego `client_id` musi być
+    w kluczu, inaczej nie da się skasować mapowań jednego klienta.
+    """
+
+    def __init__(self, con: sqlite3.Connection, client_id: str) -> None:
+        self._con = con
+        self._client_id = client_id
+
+    def zapisz_wiele(self, wpisy: Iterable[WpisMapowania]) -> int:
+        """Zapisuje mapowania w JEDNEJ transakcji. Zwraca liczbę wpisów.
+
+        Jeden commit, nie N: albo mapowanie jest kompletne, albo nie ma go
+        wcale. Snapshot bez pełnego mapowania jest nierenderowalny — findingi
+        wskazywałyby na hashe, których nikt nie umie rozwinąć.
+        """
+        wiersze = [(self._client_id, w.user_hash, w.imie_nazwisko, w.email) for w in wpisy]
+        if not wiersze:
+            return 0
+
+        try:
+            self._con.executemany(
+                "INSERT INTO osoby_mapowanie (client_id, user_hash, imie_nazwisko, email) "
+                "VALUES (?, ?, ?, ?) "
+                "ON CONFLICT (client_id, user_hash) DO UPDATE SET "
+                "imie_nazwisko = excluded.imie_nazwisko, email = excluded.email",
+                wiersze,
+            )
+        except Exception:
+            self._con.rollback()
+            raise
+        self._con.commit()
+
+        logger.info("zapisano %d mapowań osób dla klienta %s", len(wiersze), self._client_id)
+        return len(wiersze)
