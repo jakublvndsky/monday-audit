@@ -11,6 +11,23 @@ implementuj fallback.** Loguj wyniki: `[DISCOVERY] ✅ pole X dostępne`.
 
 ---
 
+## CZEKAJĄ NA DECYZJĘ CZŁOWIEKA
+
+Skrót dla nowej sesji: to są miejsca, gdzie kod działa na moim założeniu,
+a nie na twoim rozstrzygnięciu. Szczegóły w wskazanych pozycjach.
+
+| Co | Gdzie | Stan tymczasowy w kodzie |
+|---|---|---|
+| Snapshot #1 przejrzany? | BRAMA w `03-build.md` | snapshot 1 zapisany, zakres = workspace 6576039; #2 na pełnym koncie **czeka na zatwierdzenie #1** |
+| Kosz (`state: deleted`) w snapshocie | **O10** | zbieramy `all`, listujemy `active` + `archived`, kosz tylko liczony |
+| `is_verified` w rekordzie użytkownika | 3.4 mówi „WYŁĄCZNIE" i nie wymienia tego pola | pole JEST w snapshocie — sygnał dla `ZOMBIE_ACCOUNT` |
+| Tablice `Subitems of ...` | **O14** | nieodfiltrowane; zafałszują `BOARD_GHOST` w 3.9 |
+| Sandbox jako blokada `.env` | rozmowa 2026-07-31 | tylko `permissions.deny`; polecenia Basha nadal mogą czytać plik |
+| `pydantic-settings` jako źródło konfiguracji | zakaz dodawania zależności bez pytania | brak; sekrety przez `os.environ` |
+| Sól pseudonimizacji | wygenerowana przeze mnie 2026-07-30 | w `.env`; jej zmiana unieważnia porównywalność snapshotów |
+
+---
+
 ## O1. Czy API zwraca liczbę uruchomień automatyzacji
 
 **Status: ROZSTRZYGNIĘTE 2026-07-30 — tak, na poziomie konta. Szczegóły w O12.**
