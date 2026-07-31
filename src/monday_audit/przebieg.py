@@ -40,7 +40,7 @@ from monday_audit.automatyzacje import MAKS_SOND, zbierz_automatyzacje
 from monday_audit.baza import MapowanieOsob, RejestrWywolan
 from monday_audit.klient import MondayClient, Postep
 from monday_audit.konto import Zakres, rozpoznaj_konto
-from monday_audit.logi import TOP_PO_ITEMACH, Z_OGONA, zbierz_logi
+from monday_audit.logi import MAKS_STRON_LOGOW, TOP_PO_ITEMACH, Z_OGONA, zbierz_logi
 from monday_audit.osoby import waliduj_brak_pii, zbierz_osoby, zredaguj_pii
 from monday_audit.tablice import zbierz_tablice
 
@@ -175,6 +175,7 @@ async def wykonaj_run(
     dni_okna: int = DNI_OKNA,
     top_logow: int = TOP_PO_ITEMACH,
     z_ogona: int = Z_OGONA,
+    maks_stron_logow: int = MAKS_STRON_LOGOW,
     maks_sond: int = MAKS_SOND,
     budzet_wywolan: int = 400,
     transport: httpx.AsyncBaseTransport | None = None,
@@ -216,6 +217,7 @@ async def wykonaj_run(
             do=run_at,
             top=top_logow,
             z_ogona=z_ogona,
+            maks_stron=maks_stron_logow,
         )
         wywolan = klient.liczba_wywolan
         complexity = klient.complexity_suma

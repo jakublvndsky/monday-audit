@@ -27,6 +27,7 @@ from pathlib import Path
 
 from monday_audit.baza import polacz, zastosuj_migracje
 from monday_audit.konto import Zakres
+from monday_audit.logi import MAKS_STRON_LOGOW, TOP_PO_ITEMACH, Z_OGONA
 from monday_audit.osoby import sol_z_env
 from monday_audit.postep import LicznikKonsolowy
 from monday_audit.przebieg import RaportRunu, wykonaj_run
@@ -58,8 +59,16 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     parser.add_argument("--budzet-wywolan", type=int, default=400)
     parser.add_argument("--dni-okna", type=int, default=90)
     parser.add_argument("--maks-sond", type=int, default=10, help="sufit sond automatyzacji")
-    parser.add_argument("--top-logow", type=int, default=10, help="tablic w próbce logów")
-    parser.add_argument("--z-ogona", type=int, default=5, help="tablic z ogona próbki")
+    parser.add_argument(
+        "--top-logow", type=int, default=TOP_PO_ITEMACH, help="tablic w próbce logów"
+    )
+    parser.add_argument("--z-ogona", type=int, default=Z_OGONA, help="tablic z ogona próbki")
+    parser.add_argument(
+        "--maks-stron-logow",
+        type=int,
+        default=MAKS_STRON_LOGOW,
+        help="sufit stron logu na tablicę (100 wpisów na stronę)",
+    )
     parser.add_argument(
         "--bez-eksportu",
         action="store_true",
@@ -125,6 +134,7 @@ async def uruchom(argumenty: argparse.Namespace) -> RaportRunu:
             maks_sond=argumenty.maks_sond,
             top_logow=argumenty.top_logow,
             z_ogona=argumenty.z_ogona,
+            maks_stron_logow=argumenty.maks_stron_logow,
         )
     finally:
         licznik.zakoncz()

@@ -458,6 +458,47 @@ sygnał byłby bezwartościowy — collector loguje wtedy ostrzeżenie.
 dla akcji systemowych (np. ujemnych). Na dwóch zbadanych tablicach był
 tylko jeden autor, więc nie było na czym tego zobaczyć.
 
+### Rozbudowa warstwy aktywności (2026-07-31)
+
+Pierwsza wersja agregowała trzy osie osobno — kto (zbiór autorów), co
+(liczniki typów), kiedy (min i maks) — i **wyrzucała powiązania między nimi**.
+Snapshot #1 pokazał, że to za cienko na health score: „jedna osoba zrobiła 90%
+zmian trzy miesiące temu" i „pięć osób zmienia coś co tydzień" dawały
+identyczny zestaw liczb.
+
+Doszły cztery sygnały, **żaden nie kosztuje dodatkowego wywołania** — te dane
+były już w odpowiedzi API:
+
+| Sygnał | Pole | Po co |
+|---|---|---|
+| ostatnia zmiana OD CZŁOWIEKA | `najnowszy_od_znanego_at` | `updated_at` tablicy zmienia też automat; to jest data, która mówi o ludziach |
+| udział autorów | `udzial_autorow`, `udzial_najaktywniejszego` | jeden autor na 90% zmian to ryzyko bus factor, nie zdrowie |
+| kubełki czasowe 0-30/31-60/61-90 | `kubelki_dni` | `ENGAGEMENT_DROP` widać w kształcie rozkładu, nie w sumie |
+| podział zdarzeń | `po_klasie` | `subscribe` i `set_entity_board_role` to zmiana DOSTĘPU, nie używanie. Na zbadanej tablicy 32 ze 100 wpisów — wrzucone do „operacyjnych" zawyżałyby sygnał życia o jedną trzecią |
+
+Nierozpoznane typy zdarzeń lądują w klasie `inne`, a ich nazwy w
+`discovery.nieznane_zdarzenia` — do sklasyfikowania w następnym runie.
+Świadomie bez heurystyki po podłańcuchu nazwy: dawałaby ciche pomyłki,
+a `po_event` i tak trzyma pełne liczniki.
+
+**Paginacja logu.** Sto wpisów na stronę to nie „tyle jest" — 3 z 15 tablic
+w snapshocie #1 miały log urwany. Teraz paginujemy do `maks_stron` (domyślnie
+5, czyli 500 wpisów), z **deduplikacją po `id` wpisu**. Dedup jest
+zabezpieczeniem, nie optymalizacją: gdyby `page` był ignorowany — a w tym API
+zdarzył się już zepsuty filtr `board_id` (O12) — naiwna paginacja policzyłaby
+te same zdarzenia po kilka razy i zawyżyła każdą metrykę. Powtórzona strona
+przerywa pętlę i ląduje w `discovery.paginacja_logow_dziala: false`.
+
+**Do sprawdzenia na żywym API:** czy `page` w `activity_logs` faktycznie
+stronicuje. Obecność argumentu w schemacie niczego nie gwarantuje — filtr
+`board_id` też był w schemacie i jest zepsuty. Zabezpieczenie jest na miejscu,
+ale flagi jeszcze nikt nie odczytał z prawdziwej odpowiedzi.
+
+**Sufity próbki wrócone do liczb ze specyfikacji:** top 30 + 20 z ogona.
+Wcześniejsze 10 + 5 dawało health score liczony na 14% tablic workspace'u.
+
+---
+
 ### Odstępstwo od specyfikacji: ogon deterministyczny, nie losowy
 
 3.7 mówi „20 **losowych** z ogona". Zaimplementowane deterministycznie:

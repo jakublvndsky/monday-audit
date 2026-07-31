@@ -8,8 +8,10 @@ Trzy testy pilnują rzeczy, na których ten etap stoi:
 
 from __future__ import annotations
 
+import itertools
 import json
 from collections.abc import AsyncIterator, Callable
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -21,6 +23,7 @@ from monday_audit.logi import (
     OKNO_OSTATNICH,
     ZAPYTANIE_LOGOW,
     LogiError,
+    klasa_zdarzenia,
     na_iso,
     wybierz_probke,
     zbierz_logi,
@@ -76,15 +79,25 @@ def tablica(board_id: str, items_count: int | None = 10) -> Tablica:
     )
 
 
+_licznik = itertools.count()
+
+
 def wpis(
     *,
     event: str = "update_column_value",
     user_id: str = "101",
     entity: str = "pulse",
     czas: int = CZAS_LOGU,
+    log_id: str | None = None,
 ) -> dict[str, Any]:
+    """Identyfikator jest UNIKALNY z licznika.
+
+    Collector deduplikuje wpisy po `id` (zabezpieczenie przed ignorowanym
+    `page`), więc powtórzony identyfikator w atrapie skleiłby różne zdarzenia
+    w jedno i test mierzyłby coś innego, niż myśli.
+    """
     return {
-        "id": f"log-{czas}-{user_id}",
+        "id": log_id or f"log-{next(_licznik)}",
         "event": event,
         "entity": entity,
         "created_at": str(czas),
@@ -92,25 +105,46 @@ def wpis(
     }
 
 
+def _odpowiedz_http(board_id: str, logi: list[dict[str, Any]]) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            "data": {
+                "boards": [{"id": board_id, "activity_logs": logi}],
+                "complexity": {"query": 12_650, "after": 9_000_000, "reset_in_x_seconds": 60},
+            }
+        },
+    )
+
+
 def odpowiedz(logi_per_tablica: dict[str, list[dict[str, Any]]]) -> Any:
+    """Cała treść na pierwszej stronie, kolejne puste — tak kończy się log."""
+
     def uchwyt(zapytanie: httpx.Request) -> httpx.Response:
-        cialo = json.loads(zapytanie.content)
-        board_id = cialo["variables"]["ids"][0]
-        return httpx.Response(
-            200,
-            json={
-                "data": {
-                    "boards": [
-                        {"id": board_id, "activity_logs": logi_per_tablica.get(board_id, [])}
-                    ],
-                    "complexity": {
-                        "query": 12_650,
-                        "after": 9_000_000,
-                        "reset_in_x_seconds": 60,
-                    },
-                }
-            },
-        )
+        zmienne = json.loads(zapytanie.content)["variables"]
+        board_id = zmienne["ids"][0]
+        strona = zmienne["p"]
+        logi = logi_per_tablica.get(board_id, []) if strona == 1 else []
+        return _odpowiedz_http(board_id, logi)
+
+    return uchwyt
+
+
+def odpowiedz_stronicowana(strony: dict[int, list[dict[str, Any]]]) -> Any:
+    """Atrapa z prawdziwą paginacją: strona → wpisy."""
+
+    def uchwyt(zapytanie: httpx.Request) -> httpx.Response:
+        zmienne = json.loads(zapytanie.content)["variables"]
+        return _odpowiedz_http(zmienne["ids"][0], strony.get(zmienne["p"], []))
+
+    return uchwyt
+
+
+def odpowiedz_ignorujaca_strone(logi: list[dict[str, Any]]) -> Any:
+    """Atrapa API, które ma `page`, ale go nie stosuje — jak zepsuty filtr z O12."""
+
+    def uchwyt(zapytanie: httpx.Request) -> httpx.Response:
+        return _odpowiedz_http(json.loads(zapytanie.content)["variables"]["ids"][0], logi)
 
     return uchwyt
 
@@ -165,9 +199,13 @@ def test_na_iso_odrzuca_puste(wejscie: Any, oczekiwane: None) -> None:
     assert na_iso(wejscie) is oczekiwane
 
 
-def test_na_iso_przepuszcza_iso_gdyby_monday_zmienil_format() -> None:
-    """Lepiej oddać oryginał niż zgadywać, gdy format się zmieni."""
-    assert na_iso("2026-07-03T11:44:39Z") == "2026-07-03T11:44:39Z"
+def test_na_iso_normalizuje_wejscie_juz_w_iso() -> None:
+    """Gdyby monday zmienił format — normalizujemy do UTC, nie zgadujemy."""
+    assert na_iso("2026-07-03T11:44:39Z") == "2026-07-03T11:44:39+00:00"
+
+
+def test_na_iso_oddaje_oryginal_gdy_nie_umie_sparsowac() -> None:
+    assert na_iso("wczoraj po obiedzie") == "wczoraj po obiedzie"
 
 
 # ── sygnał żywa kontra pozornie żywa ─────────────────────────────────────
@@ -353,14 +391,158 @@ async def test_rozklad_typow_akcji(zbuduj: Any) -> None:
     assert wynik.podsumowanie()["najczestsze_zdarzenia"]["create_column"] == 2
 
 
-async def test_pelna_strona_oznacza_urwane_dane(zbuduj: Any) -> None:
+async def test_sufit_stron_oznacza_log_jako_urwany(zbuduj: Any) -> None:
+    """Sto wpisów na stronę to nie „tyle jest" — trzeba to odnotować."""
+    klient = zbuduj(odpowiedz_stronicowana({1: [wpis(czas=CZAS_LOGU + n) for n in range(10)]}))
+
+    wynik = await zbierz_logi(
+        klient,
+        [tablica("1")],
+        client_id=KLIENT,
+        sol=SOL,
+        limit_wpisow=10,
+        maks_stron=1,
+    )
+
+    assert wynik.sygnaly[0].urwane is True
+    assert wynik.podsumowanie()["tablic_z_urwanym_logiem"] == 1
+
+
+async def test_paginacja_zbiera_wpisy_z_wielu_stron(zbuduj: Any) -> None:
+    klient = zbuduj(
+        odpowiedz_stronicowana(
+            {
+                1: [wpis(czas=CZAS_LOGU + n) for n in range(10)],
+                2: [wpis(czas=CZAS_LOGU + 100 + n) for n in range(4)],
+            }
+        )
+    )
+
+    wynik = await zbierz_logi(
+        klient, [tablica("1")], client_id=KLIENT, sol=SOL, limit_wpisow=10, maks_stron=5
+    )
+
+    assert wynik.sygnaly[0].wpisow == 14
+    assert wynik.sygnaly[0].urwane is False
+    assert wynik.discovery["paginacja_logow_dziala"] is True
+
+
+async def test_ignorowany_page_nie_zawyza_liczb(zbuduj: Any) -> None:
+    """Gdyby `page` był zepsuty jak filtr board_id z O12 — nie liczymy dwa razy."""
     logi = [wpis(czas=CZAS_LOGU + n) for n in range(10)]
+    klient = zbuduj(odpowiedz_ignorujaca_strone(logi))
+
+    wynik = await zbierz_logi(
+        klient, [tablica("1")], client_id=KLIENT, sol=SOL, limit_wpisow=10, maks_stron=5
+    )
+
+    assert wynik.sygnaly[0].wpisow == 10, "deduplikacja po id, nie 20 ani 50"
+    assert wynik.discovery["paginacja_logow_dziala"] is False
+    assert klient.liczba_wywolan == 2, "druga strona wystarcza, żeby to wykryć"
+
+
+# ── cztery sygnały pod health score ──────────────────────────────────────
+
+
+async def test_znacznik_ostatniej_zmiany_od_czlowieka(zbuduj: Any) -> None:
+    """„Kiedy człowiek ostatnio tknął tablicę" to inne pytanie niż „kiedy cokolwiek"."""
+    haszyk = policz_hash(KLIENT, "101", SOL)
+    logi = [
+        wpis(user_id="101", czas=CZAS_LOGU),
+        wpis(user_id="999", czas=CZAS_LOGU + 10_000_000_000),  # automat, później
+    ]
     klient = zbuduj(odpowiedz({"1": logi}))
 
-    wynik = await zbierz_logi(klient, [tablica("1")], client_id=KLIENT, sol=SOL, limit_wpisow=10)
+    sygnal = (
+        await zbierz_logi(klient, [tablica("1")], client_id=KLIENT, sol=SOL, znane_hashe={haszyk})
+    ).sygnaly[0]
 
-    assert wynik.sygnaly[0].strona_pelna is True
-    assert wynik.podsumowanie()["tablic_z_urwana_strona"] == 1
+    assert sygnal.najnowszy_od_znanego_at is not None
+    assert sygnal.najnowszy_od_znanego_at < str(sygnal.najnowszy_at)
+
+
+async def test_brak_zmiany_od_czlowieka_jest_liczony(zbuduj: Any) -> None:
+    klient = zbuduj(odpowiedz({"1": [wpis(user_id="999")]}))
+
+    wynik = await zbierz_logi(
+        klient, [tablica("1")], client_id=KLIENT, sol=SOL, znane_hashe={"nieistotny"}
+    )
+
+    assert wynik.sygnaly[0].najnowszy_od_znanego_at is None
+    assert wynik.podsumowanie()["tablic_bez_zmiany_od_czlowieka"] == 1
+
+
+async def test_udzial_autorow_wykrywa_dominacje(zbuduj: Any) -> None:
+    """Jedna osoba na 90% zmian to inny stan konta niż pięć osób po równo."""
+    logi = [wpis(user_id="101") for _ in range(9)] + [wpis(user_id="102")]
+    klient = zbuduj(odpowiedz({"1": logi}))
+
+    wynik = await zbierz_logi(klient, [tablica("1")], client_id=KLIENT, sol=SOL)
+    sygnal = wynik.sygnaly[0]
+
+    assert sygnal.udzial_autorow[policz_hash(KLIENT, "101", SOL)] == 9
+    assert sygnal.udzial_najaktywniejszego == pytest.approx(0.9)
+    assert wynik.podsumowanie()["tablic_zdominowanych_jednym_autorem"] == 1
+
+
+async def test_kubelki_czasowe_pokazuja_rozklad(zbuduj: Any) -> None:
+    """Bez rozkładu w czasie nie ma ENGAGEMENT_DROP — spadek widać w kształcie."""
+    teraz = datetime(2026, 7, 31, tzinfo=UTC)
+
+    def kiedys(dni: int) -> int:
+        return int((teraz - timedelta(days=dni)).timestamp() * JEDNOSTEK_NA_SEKUNDE)
+
+    logi = [
+        wpis(czas=kiedys(5)),
+        wpis(czas=kiedys(20)),
+        wpis(czas=kiedys(45)),
+        wpis(czas=kiedys(80)),
+        wpis(czas=kiedys(200)),
+    ]
+    klient = zbuduj(odpowiedz({"1": logi}))
+
+    sygnal = (
+        await zbierz_logi(klient, [tablica("1")], client_id=KLIENT, sol=SOL, teraz=teraz)
+    ).sygnaly[0]
+
+    assert sygnal.kubelki_dni == {"0-30": 2, "31-60": 1, "61-90": 1, "starsze": 1}
+
+
+async def test_podzial_zdarzen_oddziela_uprawnienia_od_uzywania(zbuduj: Any) -> None:
+    """Na tablicy CXLABS 32 ze 100 wpisów to była zmiana dostępu, nie praca."""
+    logi = [
+        wpis(event="update_column_value"),
+        wpis(event="create_pulse"),
+        wpis(event="create_column"),
+        wpis(event="subscribe"),
+        wpis(event="set_entity_board_role"),
+        wpis(event="zdarzenie_ktorego_nie_znamy"),
+    ]
+    klient = zbuduj(odpowiedz({"1": logi}))
+
+    wynik = await zbierz_logi(klient, [tablica("1")], client_id=KLIENT, sol=SOL)
+
+    assert wynik.sygnaly[0].po_klasie == {
+        "operacyjne": 2,
+        "strukturalne": 1,
+        "uprawnienia": 2,
+        "inne": 1,
+    }
+    assert wynik.discovery["nieznane_zdarzenia"] == ["zdarzenie_ktorego_nie_znamy"]
+
+
+@pytest.mark.parametrize(
+    ("event", "klasa"),
+    [
+        ("create_column", "strukturalne"),
+        ("update_column_value", "operacyjne"),
+        ("subscribe", "uprawnienia"),
+        ("set_entity_board_role", "uprawnienia"),
+        ("cokolwiek_nowego", "inne"),
+    ],
+)
+def test_klasyfikacja_zdarzen(event: str, klasa: str) -> None:
+    assert klasa_zdarzenia(event) == klasa
 
 
 async def test_okno_czasowe_trafia_do_zapytania(zbuduj: Any) -> None:

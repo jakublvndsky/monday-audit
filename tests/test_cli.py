@@ -15,6 +15,7 @@ import pytest
 
 from monday_audit.baza import polacz, zastosuj_migracje
 from monday_audit.cli import eksportuj, zbuduj_parser, zbuduj_zakres
+from monday_audit.logi import MAKS_STRON_LOGOW, TOP_PO_ITEMACH, Z_OGONA
 from monday_audit.przebieg import RaportRunu, zapisz_snapshot
 
 
@@ -66,8 +67,9 @@ def test_parser_ma_sufity_z_wartosciami_domyslnymi() -> None:
     argumenty = zbuduj_parser().parse_args(["--klient", "x", "--zakres", "cale_konto"])
 
     assert argumenty.maks_sond == 10
-    assert argumenty.top_logow == 10
-    assert argumenty.z_ogona == 5
+    assert argumenty.top_logow == TOP_PO_ITEMACH == 30
+    assert argumenty.z_ogona == Z_OGONA == 20
+    assert argumenty.maks_stron_logow == MAKS_STRON_LOGOW
     assert argumenty.dni_okna == 90
 
 
