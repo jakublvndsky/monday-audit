@@ -135,7 +135,11 @@ async def test_snapshot_nie_zawiera_identyfikatorow_osob(zbuduj: Any) -> None:
     klient = zbuduj(odpowiedz({"1": [wpis(user_id="101"), wpis(user_id="102")]}))
 
     wynik = await zbierz_logi(
-        klient, [tablica("1")], client_id=KLIENT, sol=SOL, znani_uzytkownicy={"101"}
+        klient,
+        [tablica("1")],
+        client_id=KLIENT,
+        sol=SOL,
+        znane_hashe={policz_hash(KLIENT, "101", SOL)},
     )
     payload = json.dumps(wynik.do_snapshotu(), ensure_ascii=False)
 
@@ -175,7 +179,11 @@ async def test_pozornie_zywa_tablica(zbuduj: Any) -> None:
     klient = zbuduj(odpowiedz({"1": logi}))
 
     wynik = await zbierz_logi(
-        klient, [tablica("1")], client_id=KLIENT, sol=SOL, znani_uzytkownicy={"101"}
+        klient,
+        [tablica("1")],
+        client_id=KLIENT,
+        sol=SOL,
+        znane_hashe={policz_hash(KLIENT, "101", SOL)},
     )
     sygnal = wynik.sygnaly[0]
 
@@ -191,7 +199,11 @@ async def test_zywa_tablica_nie_jest_pozorna(zbuduj: Any) -> None:
     klient = zbuduj(odpowiedz({"1": logi}))
 
     wynik = await zbierz_logi(
-        klient, [tablica("1")], client_id=KLIENT, sol=SOL, znani_uzytkownicy={"101"}
+        klient,
+        [tablica("1")],
+        client_id=KLIENT,
+        sol=SOL,
+        znane_hashe={policz_hash(KLIENT, "101", SOL)},
     )
 
     assert wynik.sygnaly[0].pozornie_zywa is False
@@ -203,7 +215,11 @@ async def test_pusta_tablica_nie_jest_pozornie_zywa(zbuduj: Any) -> None:
     klient = zbuduj(odpowiedz({"1": []}))
 
     wynik = await zbierz_logi(
-        klient, [tablica("1")], client_id=KLIENT, sol=SOL, znani_uzytkownicy={"101"}
+        klient,
+        [tablica("1")],
+        client_id=KLIENT,
+        sol=SOL,
+        znane_hashe={policz_hash(KLIENT, "101", SOL)},
     )
 
     assert wynik.sygnaly[0].wpisow == 0
@@ -220,7 +236,11 @@ async def test_okno_ostatnich_liczy_najnowsze_a_nie_pierwsze(zbuduj: Any) -> Non
     klient = zbuduj(odpowiedz({"1": logi}))
 
     wynik = await zbierz_logi(
-        klient, [tablica("1")], client_id=KLIENT, sol=SOL, znani_uzytkownicy={"101"}
+        klient,
+        [tablica("1")],
+        client_id=KLIENT,
+        sol=SOL,
+        znane_hashe={policz_hash(KLIENT, "101", SOL)},
     )
 
     assert wynik.sygnaly[0].ostatnich_od_znanych == 0
@@ -283,7 +303,13 @@ async def test_pominiete_tablice_ida_do_snapshotu(zbuduj: Any) -> None:
     klient = zbuduj(odpowiedz({}))
 
     wynik = await zbierz_logi(
-        klient, tablice, client_id=KLIENT, sol=SOL, znani_uzytkownicy={"101"}, top=2, z_ogona=1
+        klient,
+        tablice,
+        client_id=KLIENT,
+        sol=SOL,
+        znane_hashe={policz_hash(KLIENT, "101", SOL)},
+        top=2,
+        z_ogona=1,
     )
 
     assert wynik.podsumowanie()["tablic_zbadanych"] == 3
@@ -297,7 +323,7 @@ async def test_jedno_wywolanie_na_tablice(zbuduj: Any) -> None:
     klient = zbuduj(odpowiedz({}))
 
     await zbierz_logi(
-        klient, tablice, client_id=KLIENT, sol=SOL, znani_uzytkownicy={"1"}, top=5, z_ogona=0
+        klient, tablice, client_id=KLIENT, sol=SOL, znane_hashe={"1"}, top=5, z_ogona=0
     )
 
     assert klient.liczba_wywolan == 5

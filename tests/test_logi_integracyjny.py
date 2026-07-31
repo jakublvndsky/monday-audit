@@ -76,7 +76,7 @@ async def test_sygnaly_aktywnosci_bez_tresci(rejestr: RejestrWywolan) -> None:
             tablice,
             client_id=KLIENT,
             sol=SOL_TESTOWA,
-            znani_uzytkownicy=set(),
+            znane_hashe=set(),
             od=od,
             do=dzis.isoformat(),
             top=2,

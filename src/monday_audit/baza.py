@@ -11,6 +11,7 @@ import hashlib
 import logging
 import sqlite3
 from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
@@ -199,6 +200,15 @@ class RejestrWywolan:
         self._con.commit()
 
 
+@dataclass(frozen=True, slots=True)
+class WpisOdczytany:
+    """Jedna linia PII odczytana z `osoby_mapowanie`."""
+
+    user_hash: str
+    imie_nazwisko: str | None
+    email: str | None
+
+
 class WpisMapowania(Protocol):
     """Kształt wpisu PII, którego oczekuje `MapowanieOsob`.
 
@@ -222,9 +232,13 @@ class MapowanieOsob:
     """MAGAZYN PII — tabela `osoby_mapowanie` (etap 3.4).
 
     **Agent nie ma żadnego narzędzia czytającego tę tabelę** (D6, CLAUDE.md).
-    Czyta ją wyłącznie renderer, i to dopiero w 3.12, żeby zdeanonimizować
-    raport. Nie dopisuj tu metody odczytu „na potrzeby debugowania" —
-    to jedyna warstwa, która oddziela raport od danych osobowych klienta.
+
+    Metoda `wczytaj()` istnieje dla DWÓCH wywołujących i żadnego więcej:
+    walidacji antyprzeciekowej w 3.8 (trzeba znać nazwiska, żeby sprawdzić,
+    że ich nie ma w snapshocie) oraz renderera w 3.12 (deanonimizacja
+    raportu). **Nie owijaj jej w narzędzie agenta i nie dopisuj kolejnych
+    czytników „na potrzeby debugowania"** — to jedyna warstwa, która oddziela
+    raport od danych osobowych klienta.
 
     Klucz główny to `(client_id, user_hash)`, więc powtórny run tego samego
     klienta nadpisuje własne wpisy zamiast się wywalić. Sól jest per klient,
@@ -262,3 +276,19 @@ class MapowanieOsob:
 
         logger.info("zapisano %d mapowań osób dla klienta %s", len(wiersze), self._client_id)
         return len(wiersze)
+
+    def wczytaj(self) -> list[WpisOdczytany]:
+        """Odczytuje PII tego klienta. Patrz ostrzeżenie w docstringu klasy."""
+        wiersze = self._con.execute(
+            "SELECT user_hash, imie_nazwisko, email FROM osoby_mapowanie "
+            "WHERE client_id = ? ORDER BY user_hash",
+            (self._client_id,),
+        ).fetchall()
+        return [
+            WpisOdczytany(
+                user_hash=str(w["user_hash"]),
+                imie_nazwisko=w["imie_nazwisko"],
+                email=w["email"],
+            )
+            for w in wiersze
+        ]

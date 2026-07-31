@@ -81,6 +81,21 @@ class Mapowanie(Protocol):
     def zapisz_wiele(self, wpisy: Iterable[WpisPII]) -> int: ...
 
 
+class MaPII(Protocol):
+    """Cokolwiek, co niesie imię i e-mail — wejście dla walidacji.
+
+    Protokół, a nie `WpisPII`: 3.8 waliduje złożony snapshot przeciwko
+    wpisom ODCZYTANYM z bazy (`baza.WpisOdczytany`), a nie tym świeżo
+    zebranym. Walidator potrzebuje tylko dwóch pól.
+    """
+
+    @property
+    def imie_nazwisko(self) -> str | None: ...
+
+    @property
+    def email(self) -> str | None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class Osoba:
     """Użytkownik BEZ PII — dokładnie to, co wolno w snapshocie (3.4)."""
@@ -123,6 +138,16 @@ class WynikOsob:
             "podsumowanie": self.podsumowanie(),
             "discovery": dict(self.discovery),
         }
+
+    @property
+    def hashe(self) -> frozenset[str]:
+        """Pseudonimy użytkowników konta — wejście dla heurystyki z 3.7.
+
+        Zwracamy hashe, nie surowe identyfikatory: 3.7 musi tylko wiedzieć,
+        czy autor wpisu w logu jest użytkownikiem konta, a do tego hash
+        wystarcza. Identyfikator osoby nie ma powodu krążyć między etapami.
+        """
+        return frozenset(o.user_hash for o in self.osoby)
 
     def podsumowanie(self) -> dict[str, int]:
         return {
@@ -172,7 +197,71 @@ def policz_hash(client_id: str, user_id: str | int, sol: bytes) -> str:
     return hmac.new(sol, wiadomosc, hashlib.sha256).hexdigest()[:DLUGOSC_HASHA]
 
 
-def waliduj_brak_pii(payload: str, wpisy: Sequence[WpisPII]) -> None:
+def _pary_do_redakcji(wpisy: Sequence[MaPII]) -> tuple[tuple[str, str], ...]:
+    """(szukane, pseudonim) — najdłuższe najpierw, żeby nie ciąć w środku.
+
+    Bierzemy tylko nazwy wieloczłonowe: „CXLABS" to konto serwisowe i jego
+    podmiana zniszczyłaby nazwy zespołów bez powodu (O11).
+    """
+    pary: list[tuple[str, str]] = []
+    for wpis in wpisy:
+        haszyk = getattr(wpis, "user_hash", "") or "?"
+        imie = (wpis.imie_nazwisko or "").strip()
+        if len(imie.split()) >= 2:
+            pary.append((imie, f"[OSOBA:{haszyk}]"))
+        email = (wpis.email or "").strip()
+        if email:
+            pary.append((email, f"[EMAIL:{haszyk}]"))
+    return tuple(sorted(pary, key=lambda para: -len(para[0])))
+
+
+def zredaguj_pii(dane: Any, wpisy: Sequence[MaPII], *, sciezka: str = "") -> tuple[Any, list[str]]:
+    """Podmienia znane imiona i adresy w treści klienta na pseudonimy.
+
+    Klient potrafi nazwać tablicę, kolumnę albo zespół imieniem osoby — i wtedy
+    PII wchodzi do snapshotu nie przez nasze pole `name`, a przez treść, którą
+    on sam napisał. Usunięcie takiej nazwy zabrałoby sygnał (fakt, że tablica
+    jest nazwana po kimś, jest informacją audytową), więc **podmieniamy ją na
+    pseudonim tej samej osoby**. Renderer w 3.12 umie to rozwinąć z powrotem.
+
+    Zwraca strukturę po redakcji i listę ŚCIEŻEK, w których coś podmieniono —
+    ścieżki, nie wartości, bo raport z runu nie może być wyciekiem.
+    """
+    pary = _pary_do_redakcji(wpisy)
+
+    def redaguj(wartosc: Any, gdzie: str) -> tuple[Any, list[str]]:
+        if isinstance(wartosc, str):
+            wynik = wartosc
+            for szukane, pseudonim in pary:
+                # GRANICE SŁÓW są tu kluczowe. Bez nich konto serwisowe
+                # „AI Agent" wpasowuje się w nazwę workspace „monday AI Agents"
+                # i redakcja psuje 105 rekordów, zamieniając je na
+                # „monday [OSOBA:...]s" (zmierzone na CXLABS przy 3.8).
+                wynik = re.sub(rf"\b{re.escape(szukane)}\b", pseudonim, wynik, flags=re.IGNORECASE)
+            return wynik, ([gdzie] if wynik != wartosc else [])
+        if isinstance(wartosc, dict):
+            nowy: dict[str, Any] = {}
+            trafienia: list[str] = []
+            for klucz, pod in wartosc.items():
+                nowy[klucz], znalezione = redaguj(pod, f"{gdzie}.{klucz}" if gdzie else str(klucz))
+                trafienia += znalezione
+            return nowy, trafienia
+        if isinstance(wartosc, list):
+            nowa_lista: list[Any] = []
+            trafienia = []
+            for numer, pod in enumerate(wartosc):
+                element, znalezione = redaguj(pod, f"{gdzie}[{numer}]")
+                nowa_lista.append(element)
+                trafienia += znalezione
+            return nowa_lista, trafienia
+        return wartosc, []
+
+    if not pary:
+        return dane, []
+    return redaguj(dane, sciezka)
+
+
+def waliduj_brak_pii(payload: str, wpisy: Sequence[MaPII]) -> None:
     """Twarda granica: przerywa run przy JEDNOZNACZNYM wycieku PII.
 
     Sprawdza dwie rzeczy, obie bez fałszywych trafień:
@@ -209,7 +298,9 @@ def waliduj_brak_pii(payload: str, wpisy: Sequence[WpisPII]) -> None:
         imie = (wpis.imie_nazwisko or "").strip()
         if len(imie.split()) < 2:
             continue
-        if imie.lower() in maly:
+        # Granice słów, z tego samego powodu co w `zredaguj_pii`: „AI Agent"
+        # w „AI Agents" to nazwa produktu, nie wyciek nazwiska.
+        if re.search(rf"\b{re.escape(imie.lower())}\b", maly):
             pelne += 1
 
     if pelne:
@@ -219,7 +310,7 @@ def waliduj_brak_pii(payload: str, wpisy: Sequence[WpisPII]) -> None:
         )
 
 
-def policz_podejrzenia_pii(payload: str, wpisy: Sequence[WpisPII]) -> int:
+def policz_podejrzenia_pii(payload: str, wpisy: Sequence[MaPII]) -> int:
     """Miękki skan: ile tokenów z pól `name` pojawia się w payloadzie.
 
     Nie przerywa runu, bo trafienia bywają fałszywe (nazwa firmy w nazwie

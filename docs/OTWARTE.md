@@ -452,3 +452,26 @@ znacznikami czasu**. Przy losowaniu różniłyby się też próbką.
 Sufity zmniejszone z „top 30 + 20" na **top 10 + 5 z ogona** na życzenie
 przy zawężeniu do jednego workspace. Zmiana zakresu, nie zasady — liczba
 tablic pominiętych ląduje w snapshocie.
+
+---
+
+## O14. Tablice `Subitems of ...` zafałszują BOARD_GHOST
+
+**Status:** zauważone w snapshocie #1, 2026-07-31
+**Blokuje:** jakość `BOARD_GHOST`, pośrednio `DUPLICATE_STRUCTURE`
+
+W snapshocie #1 (workspace 6576039) osiem tablic ma `items_count = 0`, czyli
+wyglądają na kandydatów na `BOARD_GHOST`. Jedna z nich to
+**`Subitems of ⚠️ Flagi Konfliktów`** — tablica techniczna, którą monday
+tworzy automatycznie dla podelementów. Nie jest martwa, tylko służebna,
+i nikt jej nigdy nie „używa" bezpośrednio.
+
+**Do zrobienia w 3.9:** detektor `BOARD_GHOST` musi odfiltrować tablice
+podelementów, zanim policzy cokolwiek. Rozpoznanie po nazwie
+(`Subitems of `) jest kruche — do sprawdzenia, czy `Board.type` albo
+`hierarchy_type` (oba są w schemacie, patrz O12) odróżniają je wprost.
+Jeśli tak, collector powinien te pola zbierać w 3.5.
+
+**Dlaczego to ważne:** to dokładnie ten rodzaj fałszywki, którą rubryka
+nazywa najgroźniejszą — klient sprawdzi takie znalezisko pierwsze
+i zobaczy, że narzędzie nie rozumie jego konta.

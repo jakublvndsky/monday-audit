@@ -188,41 +188,47 @@ def wybierz_probke(
     return probka, max(0, len(tablice) - len(probka))
 
 
+def _klucz_czasu(wpis: dict[str, Any]) -> int:
+    surowy = str(wpis.get("created_at") or "0")
+    return int(surowy) if surowy.isdigit() else 0
+
+
 def _sygnaly(
     board_id: str,
     logi: Sequence[dict[str, Any]],
     *,
     client_id: str,
     sol: bytes,
-    znani: Collection[str],
+    znane_hashe: Collection[str],
     limit_wpisow: int,
 ) -> SygnalyTablicy:
-    """Buduje sygnały z listy wpisów. Pole `data` w ogóle tu nie dociera."""
-    posortowane = sorted(
-        logi,
-        key=lambda w: (
-            int(str(w.get("created_at") or 0)) if str(w.get("created_at") or "0").isdigit() else 0
-        ),
-        reverse=True,
-    )
+    """Buduje sygnały z listy wpisów. Pole `data` w ogóle tu nie dociera.
 
-    hashe: list[str] = []
-    znanych = 0
-    nieznanych = 0
-    for wpis in logi:
-        surowy_id = wpis.get("user_id")
-        if surowy_id is None:
-            continue
-        hashe.append(policz_hash(client_id, str(surowy_id), sol))
-        if str(surowy_id) in znani:
-            znanych += 1
-        else:
-            nieznanych += 1
+    Autorów porównujemy po PSEUDONIMACH, nie po surowych identyfikatorach —
+    hash jest deterministyczny, więc porównanie jest równoważne, a surowe id
+    osoby nie musi przechodzić przez interfejs tej funkcji ani przez wywołanie
+    w 3.8.
+    """
+    # Hash liczymy raz na wpis i nosimy obok, żeby sortowanie i liczenie
+    # patrzyły na to samo.
+    wzbogacone = [
+        (
+            wpis,
+            policz_hash(client_id, str(wpis["user_id"]), sol)
+            if wpis.get("user_id") is not None
+            else None,
+        )
+        for wpis in logi
+    ]
+    posortowane = sorted(wzbogacone, key=lambda para: _klucz_czasu(para[0]), reverse=True)
+
+    hashe = [haszyk for _, haszyk in wzbogacone if haszyk]
+    znanych = sum(1 for haszyk in hashe if haszyk in znane_hashe)
+    nieznanych = len(hashe) - znanych
 
     ostatnie = posortowane[:OKNO_OSTATNICH]
-    od_znanych = sum(1 for w in ostatnie if str(w.get("user_id")) in znani)
-    znaczniki = [na_iso(w.get("created_at")) for w in posortowane]
-    czyste = [z for z in znaczniki if z]
+    od_znanych = sum(1 for _, haszyk in ostatnie if haszyk and haszyk in znane_hashe)
+    czyste = [z for z in (na_iso(w.get("created_at")) for w, _ in posortowane) if z]
 
     return SygnalyTablicy(
         board_id=board_id,
@@ -246,7 +252,7 @@ async def zbierz_logi(
     *,
     client_id: str,
     sol: bytes,
-    znani_uzytkownicy: Collection[str] = (),
+    znane_hashe: Collection[str] = (),
     od: str | None = None,
     do: str | None = None,
     limit_wpisow: int = LIMIT_WPISOW,
@@ -255,9 +261,10 @@ async def zbierz_logi(
 ) -> WynikLogow:
     """Sampluje activity logs i wyciąga z nich sygnały, nie treść.
 
-    `znani_uzytkownicy` to surowe identyfikatory z 3.4 — służą wyłącznie do
-    rozstrzygnięcia, czy autor wpisu jest użytkownikiem konta. Do wyniku
-    trafiają już tylko pseudonimy.
+    `znane_hashe` to pseudonimy użytkowników konta z 3.4 (`WynikOsob.hashe`).
+    Świadomie hashe, nie surowe identyfikatory: hash jest deterministyczny,
+    więc porównanie jest równoważne, a identyfikator osoby nie musi krążyć
+    między etapami.
     """
     probka, pominietych = wybierz_probke(tablice, top=top, z_ogona=z_ogona)
     if pominietych:
@@ -272,7 +279,7 @@ async def zbierz_logi(
         )
 
     sygnaly: list[SygnalyTablicy] = []
-    znani = {str(u) for u in znani_uzytkownicy}
+    znane = {str(h) for h in znane_hashe}
 
     for tablica in probka:
         dane = await klient.query(
@@ -288,7 +295,7 @@ async def zbierz_logi(
                 logi,
                 client_id=client_id,
                 sol=sol,
-                znani=znani,
+                znane_hashe=znane,
                 limit_wpisow=limit_wpisow,
             )
         )
@@ -298,7 +305,7 @@ async def zbierz_logi(
         "logi_dostepne": any(s.wpisow for s in sygnaly),
         # Heurystyka, nie fakt z API — `ActivityLogType` nie ma znacznika bota.
         "rozroznienie_czlowiek_automat": "heurystyka: user_id nieobecny na liście konta",
-        "znanych_uzytkownikow_na_wejsciu": len(znani),
+        "znanych_uzytkownikow_na_wejsciu": len(znane),
         "tablic_tylko_z_nieznanymi_autorami": bez_autorow,
         "okno_czasowe": {"od": od, "do": do} if (od or do) else None,
         "created_at_w_jednostkach_100ns": True,
@@ -321,7 +328,7 @@ async def zbierz_logi(
         sum(s.wpisow for s in sygnaly),
         sum(1 for s in sygnaly if s.pozornie_zywa),
     )
-    if not znani:
+    if not znane:
         logger.warning(
             "brak listy użytkowników konta na wejściu — każdy autor wpisu wyjdzie "
             "jako nieznany, więc sygnał człowiek/automat będzie bezwartościowy"

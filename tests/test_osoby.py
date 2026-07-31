@@ -32,6 +32,7 @@ from monday_audit.osoby import (
     sol_z_env,
     waliduj_brak_pii,
     zbierz_osoby,
+    zredaguj_pii,
 )
 
 TOKEN = "tajny-token-klienta"
@@ -426,3 +427,89 @@ def test_osoba_jest_niemutowalna() -> None:
 
     with pytest.raises((AttributeError, TypeError)):
         osoba.user_hash = "inny"  # type: ignore[misc]
+
+
+# ── redakcja PII w treści pisanej przez klienta ───────────────────────────
+
+
+def test_redakcja_podmienia_pelne_imie_na_pseudonim() -> None:
+    """Zmierzone przy 3.8: klient nazwał obiekt w monday imieniem osoby."""
+    dane = {"tablice": [{"nazwa": "Zdzisława Wąchockańska prywatna"}]}
+
+    wynik, sciezki = zredaguj_pii(dane, [WpisPII("abc123", "Zdzisława Wąchockańska", None)])
+
+    assert wynik["tablice"][0]["nazwa"] == "[OSOBA:abc123] prywatna"
+    assert sciezki == ["tablice[0].nazwa"]
+
+
+def test_redakcja_nie_rusza_nazw_jednowyrazowych() -> None:
+    """„CXLABS" to konto serwisowe — podmiana zniszczyłaby nazwy zespołów."""
+    dane = {"zespoly": ["CXLABS Main"]}
+
+    wynik, sciezki = zredaguj_pii(dane, [WpisPII("abc", "CXLABS", None)])
+
+    assert wynik == dane
+    assert sciezki == []
+
+
+def test_redakcja_podmienia_znany_email() -> None:
+    dane = {"title": "pisz na bonifacy@przyklad.test"}
+
+    wynik, _ = zredaguj_pii(dane, [WpisPII("def456", None, "bonifacy@przyklad.test")])
+
+    assert wynik["title"] == "pisz na [EMAIL:def456]"
+
+
+def test_redakcja_zwraca_sciezki_nie_wartosci() -> None:
+    """Raport z runu nie może być wyciekiem — stąd ścieżki, nie treść."""
+    dane = {"a": {"b": ["Bonifacy Krzeptowski"]}}
+
+    _, sciezki = zredaguj_pii(dane, [WpisPII("h", "Bonifacy Krzeptowski", None)])
+
+    assert sciezki == ["a.b[0]"]
+    assert all("Bonifacy" not in s for s in sciezki)
+
+
+def test_redakcja_jest_niewrazliwa_na_wielkosc_liter() -> None:
+    dane = {"nazwa": "tablica zdzisławy... nie, ZDZISŁAWA WĄCHOCKAŃSKA"}
+
+    wynik, _ = zredaguj_pii(dane, [WpisPII("h", "Zdzisława Wąchockańska", None)])
+
+    assert "ZDZISŁAWA WĄCHOCKAŃSKA" not in wynik["nazwa"]
+    assert "[OSOBA:h]" in wynik["nazwa"]
+
+
+def test_redakcja_bez_wpisow_nic_nie_robi() -> None:
+    dane = {"nazwa": "cokolwiek"}
+    assert zredaguj_pii(dane, []) == (dane, [])
+
+
+def test_redakcja_zostawia_liczby_i_bool_w_spokoju() -> None:
+    dane = {"ile": 5, "czy": True, "brak": None}
+    assert zredaguj_pii(dane, [WpisPII("h", "Jan Kowalski", None)])[0] == dane
+
+
+def test_redakcja_nie_wchodzi_w_srodek_dluzszego_slowa() -> None:
+    """Zmierzone na CXLABS: konto „AI Agent" psuło workspace „monday AI Agents".
+
+    Bez granic słów redakcja zamieniała 105 rekordów na „monday [OSOBA:...]s".
+    """
+    dane = {"workspace_nazwa": "monday AI Agents"}
+
+    wynik, sciezki = zredaguj_pii(dane, [WpisPII("h", "AI Agent", None)])
+
+    assert wynik == dane
+    assert sciezki == []
+
+
+def test_walidator_tez_nie_lapie_nazwy_w_liczbie_mnogiej() -> None:
+    """Walidator musi mieć ten sam warunek, inaczej przerwie run na fałszywce."""
+    waliduj_brak_pii('{"workspace_nazwa": "monday AI Agents"}', [WpisPII("h", "AI Agent", None)])
+
+
+def test_redakcja_dziala_gdy_imie_konczy_slowo() -> None:
+    dane = {"nazwa": "tablica: Bonifacy Krzeptowski"}
+
+    wynik, _ = zredaguj_pii(dane, [WpisPII("h", "Bonifacy Krzeptowski", None)])
+
+    assert wynik["nazwa"] == "tablica: [OSOBA:h]"
