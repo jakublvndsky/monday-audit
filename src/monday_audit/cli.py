@@ -26,7 +26,7 @@ from monday_audit.konfiguracja import Ustawienia, sol_z_ustawien, wczytaj
 from monday_audit.konto import Zakres
 from monday_audit.logi import MAKS_STRON_LOGOW, TOP_PO_ITEMACH, Z_OGONA
 from monday_audit.postep import LicznikKonsolowy
-from monday_audit.przebieg import RaportRunu, wykonaj_run
+from monday_audit.przebieg import BUDZET_STARTOWY, RaportRunu, wykonaj_run
 
 KATALOG_EKSPORTU = Path("snapshoty")
 
@@ -63,7 +63,13 @@ def zbuduj_parser() -> argparse.ArgumentParser:
         metavar="PLIK",
         help="skąd wziąć sekrety; domyślnie MONDAY_AUDIT_ENV_FILE albo ./.env",
     )
-    parser.add_argument("--budzet-wywolan", type=int, default=400)
+    parser.add_argument(
+        "--budzet-wywolan",
+        type=int,
+        default=None,
+        metavar="N",
+        help="twardy sufit wywołań; bez tej flagi sufit wynika z planu konta",
+    )
     parser.add_argument("--dni-okna", type=int, default=90)
     parser.add_argument("--maks-sond", type=int, default=10, help="sufit sond automatyzacji")
     parser.add_argument(
@@ -75,6 +81,12 @@ def zbuduj_parser() -> argparse.ArgumentParser:
         type=int,
         default=MAKS_STRON_LOGOW,
         help="sufit stron logu na tablicę (100 wpisów na stronę)",
+    )
+    parser.add_argument(
+        "--wszystkie-logi",
+        action="store_true",
+        help="bez próbkowania: activity logs z KAŻDEJ tablicy w zakresie "
+        "(unieważnia --top-logow i --z-ogona)",
     )
     parser.add_argument(
         "--bez-eksportu",
@@ -154,11 +166,13 @@ async def uruchom(
             zakres=zbuduj_zakres(argumenty.zakres, argumenty.id),
             sol=sol,
             postep=licznik,
-            budzet_wywolan=argumenty.budzet_wywolan,
+            # Podany ręcznie budżet jest hamulcem — plan nie ma prawa go zwolnić.
+            budzet_wywolan=argumenty.budzet_wywolan or BUDZET_STARTOWY,
+            budzet_z_planu=argumenty.budzet_wywolan is None,
             dni_okna=argumenty.dni_okna,
             maks_sond=argumenty.maks_sond,
-            top_logow=argumenty.top_logow,
-            z_ogona=argumenty.z_ogona,
+            top_logow=None if argumenty.wszystkie_logi else argumenty.top_logow,
+            z_ogona=None if argumenty.wszystkie_logi else argumenty.z_ogona,
             maks_stron_logow=argumenty.maks_stron_logow,
         )
     finally:

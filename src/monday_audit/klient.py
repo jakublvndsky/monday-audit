@@ -404,7 +404,13 @@ class MondayClient:
         await self._http.aclose()
 
     def ustaw_budzet(self, budzet: int) -> None:
-        """Zmienia limit wywołań w trakcie runu — po rozpoznaniu planu (3.3)."""
+        """Zmienia limit wywołań w trakcie runu — po rozpoznaniu planu (3.3).
+
+        Podnosi albo obniża, bez własnego zdania: decyzję, czy plan ma w ogóle
+        prawo ruszyć budżet, podejmuje wywołujący przez `dostosuj_budzet`
+        w `rozpoznaj_konto`. Budżet podany ręcznie jest hamulcem i wtedy ten
+        przełącznik stoi na `False`.
+        """
         if budzet < self.liczba_wywolan:
             raise BudzetWyczerpanyError(
                 f"nowy budżet {budzet} jest niższy od liczby już wykonanych wywołań "

@@ -192,6 +192,21 @@ async def test_plan_pro_podnosi_budzet_wywolan(zbuduj: Any) -> None:
     assert klient.budzet_wywolan == 5_000
 
 
+async def test_budzet_recznie_podany_jest_nienaruszalny(zbuduj: Any) -> None:
+    """Hamulec człowieka wygrywa z planem konta.
+
+    Zmierzone 2026-07-31: `--budzet-wywolan 2` na koncie enterprise kończyło się
+    sufitem 12500, bo plan podnosił wartość zaraz po rozpoznaniu konta. Flaga
+    bezpieczeństwa, która nie hamowała — a właśnie na nią liczy człowiek, gdy
+    boi się kosztu runu na cudzym koncie.
+    """
+    klient = zbuduj(lambda _: odpowiedz(plan=PLAN_PRO), budzet_wywolan=3)
+
+    await rozpoznaj_konto(klient, Zakres.cale_konto(), dostosuj_budzet=False)
+
+    assert klient.budzet_wywolan == 3
+
+
 async def test_brak_planu_zostawia_budzet_i_dopisuje_zastrzezenie(zbuduj: Any) -> None:
     """Zmierzone na CXLABS: `account.plan` zwraca null przy tokenie bez admina."""
     klient = zbuduj(lambda _: odpowiedz(is_admin=False, plan=None), budzet_wywolan=400)

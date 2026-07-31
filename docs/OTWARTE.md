@@ -535,6 +535,86 @@ podelementów, zanim policzy cokolwiek. Rozpoznanie po nazwie
 `hierarchy_type` (oba są w schemacie, patrz O12) odróżniają je wprost.
 Jeśli tak, collector powinien te pola zbierać w 3.5.
 
+**ZMIERZONE 2026-07-31 — nazwa jest LOKALIZOWANA.** Sondując workspace 6576039
+trafiłem na tablicę **„Elementy podrzędne tablicy Lista pomysłów Agentów AI"**,
+czyli polski odpowiednik `Subitems of ...`. Filtr po angielskim przedrostku
+przepuściłby ją bez śladu. To przeważa sprawę na rzecz `Board.type` /
+`hierarchy_type`: filtr po nazwie wymagałby listy tłumaczeń dla każdego języka
+interfejsu klienta, a błąd byłby cichy — tablica techniczna po prostu
+wylądowałaby w raporcie jako martwa.
+
 **Dlaczego to ważne:** to dokładnie ten rodzaj fałszywki, którą rubryka
 nazywa najgroźniejszą — klient sprawdzi takie znalezisko pierwsze
 i zobaczy, że narzędzie nie rozumie jego konta.
+
+---
+
+## O15. Wersja API monday nie jest zapinana
+
+**Status:** zmierzone 2026-07-31
+**Blokuje:** odtwarzalność snapshotów (D7), stabilność collectora
+
+API monday jest wersjonowane (`2024-01`, `2024-10`, …) i wybiera się je
+nagłówkiem `API-Version`. Collector **nie wysyła tego nagłówka**, więc dostaje
+**wersję domyślną konta**, a tę monday przesuwa w czasie.
+
+To nie jest teoretyczne. Zmierzone na koncie CXLABS: w wersji `2024-10` pole
+`Board.created_at` **nie istnieje** — zapytanie kończy się `Cannot query field
+"created_at" on type "Board"`. W wersji domyślnej konta istnieje i collector
+z niego korzysta (`tablice.py`). Czyli ta sama komenda na tym samym koncie
+przestanie działać, gdy monday przestawi domyślną wersję.
+
+Dwa różne skutki i drugi jest gorszy:
+- pole **usunięte** → twardy błąd, widoczny natychmiast
+- semantyka pola **zmieniona** → run przechodzi, snapshot jest inny, a różnica
+  wygląda jak zmiana na koncie klienta
+
+`05-deploy.md` wymaga zapinania czterech rzeczy (model, rubryka, prompt,
+collector), żeby audyt sprzed trzech miesięcy był odtwarzalny. Wersja API jest
+piątą i jej brak podkopuje pozostałe cztery: bez niej nie da się odpowiedzieć,
+czy różnica między snapshotem #1 i #4 to zmiana u klienta, czy u monday.
+
+**Do decyzji człowieka:** czy przypiąć wersję na sztywno (`MondayClient` ma już
+parametr `wersja_api`, dziś nieużywany) i zapisywać ją w `meta` snapshotu.
+Koszt to jedna stała i jedno pole. Cena zwłoki to niepowtarzalny audyt.
+
+---
+
+## O16. Głębokość warstwy aktywności — gdzie jest sufit API
+
+**Status:** zmierzone 2026-07-31, po podniesieniu pokrętła próbki
+
+Introspekcja `ActivityLogType` daje **dokładnie 7 pól**: `id`, `event`,
+`entity`, `created_at`, `user_id`, `account_id`, `data`. Bierzemy 5. Pomijamy
+`account_id` (stały, bezużyteczny) i `data`, opisane w schemacie jako
+„the item's column values in string form" — czyli treść tablic klienta, wprost
+pod zakaz PII i D5.
+
+Po zmianie z 2026-07-31 (`--wszystkie-logi`, sufit stron 5 → 10) snapshot #2
+na workspace 6576039: **105 tablic ze 105, 4431 wpisów, zero tablic z urwanym
+logiem**. Czyli w oknie 90 dni mamy KAŻDY wpis KAŻDEJ tablicy w zakresie.
+Koszt: 131 wywołań, 629k complexity z okna ~9,87M, 68 sekund. Same logi to
+109 wywołań i tylko 45k complexity — najdroższe jest `boards` (580k).
+
+**Sufit, którego nie ruszy żadne pokrętło:** `activity_logs` to log **zapisów**.
+Rejestruje zmiany, nie użycie. W API nie ma nic, co mówi „kto tę tablicę
+otwierał" — pole `Board.views` to konfiguracja widoków (Tabela, Kanban),
+nie licznik wyświetleń (sprawdzone: na tablicy 5097387646 puste).
+
+**Konsekwencja dla rubryki, nie dla collectora:** tablica czytana codziennie
+przez dwadzieścia osób, której nikt nie edytuje, jest nieodróżnialna od
+martwej. `BOARD_GHOST` musi więc mówić „nic się nie zmieniło w 90 dni",
+a nie „nikt tego nie używa" — drugie zdanie jest twierdzeniem bez dowodu,
+a rubryka wymaga `dowod`.
+
+**Czego NIE udało się zmierzyć:** retencji logów. Cały workspace 6576039
+powstał ~1 czerwca 2026, więc najstarsza tablica ma dwa miesiące i jej pełna
+historia siedzi w oknie 90 dni. Dla CXLABS okno pokrywa 100% istnienia konta.
+Dla klienta z tablicami trzyletnimi retencja jest **nieznana** — sondowanie
+`from` sprzed 1, 3 i 6 lat musi wejść do discovery przed pierwszym audytem.
+
+**Klasyfikacja zdarzeń do dokończenia:** przy pełnej próbce lista
+`nieznane_zdarzenia` wzrosła z 3 do 11 pozycji (m.in. `archive_pulse`,
+`board_view_added`, `move_pulse_from_group`, `change_column_settings`).
+Wszystkie są policzone w `po_event`, ale żadne nie trafia do klasy, więc
+`po_klasie` zaniża sygnał. Do rozstrzygnięcia w 3.9.

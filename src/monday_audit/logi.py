@@ -65,12 +65,19 @@ query ($ids: [ID!], $limit: Int!, $p: Int!, $od: ISO8601DateTime, $do: ISO8601Da
 # `created_at` w logach to liczba jednostek 100 ns od epoki Unixa.
 JEDNOSTEK_NA_SEKUNDE = 10_000_000
 
-# Sufity samplingu. Wracamy do liczb ze specyfikacji 3.7 („top 30 + 20
-# z ogona"), bo 10 + 5 dawało health score liczony na 14% tablic.
-TOP_PO_ITEMACH = 30
-Z_OGONA = 20
+# Sufity samplingu. Specyfikacja 3.7 mówiła „top 30 + 20 z ogona"; podniesione
+# na wyraźną prośbę człowieka (2026-07-31), bo 50 tablic to było około połowy
+# workspace'u 6576039, a health score liczony na połowie tablic nie odpowiada
+# na pytanie „co w tym koncie jest martwe".
+#
+# Koszt jest niższy, niż wygląda: większość tablic ma w oknie 90 dni mniej niż
+# 100 wpisów i domyka się na PIERWSZEJ stronie, bo pętla przerywa przy
+# `len(partia) < limit`, nie dobija pustej strony. Sufit stron dotyczy więc
+# tylko tablic naprawdę aktywnych.
+TOP_PO_ITEMACH = 60
+Z_OGONA = 40
 LIMIT_WPISOW = 100
-MAKS_STRON_LOGOW = 5
+MAKS_STRON_LOGOW = 10
 
 # Ile ostatnich wpisów decyduje o odpowiedzi „żywa czy pozornie żywa".
 OKNO_OSTATNICH = 5
@@ -279,10 +286,14 @@ class WynikLogow:
 def wybierz_probke(
     tablice: Sequence[Tablica],
     *,
-    top: int = TOP_PO_ITEMACH,
-    z_ogona: int = Z_OGONA,
+    top: int | None = TOP_PO_ITEMACH,
+    z_ogona: int | None = Z_OGONA,
 ) -> tuple[tuple[Tablica, ...], int]:
     """Top po `items_count` plus ogon. Zwraca próbkę i liczbę pominiętych.
+
+    `top=None` znaczy **bez próbkowania** — wszystkie tablice w zakresie. Wtedy
+    liczba pominiętych jest zerem i snapshot nie musi się z niczego tłumaczyć.
+    To jedyny tryb, w którym `BOARD_GHOST` mówi o całym koncie, a nie o próbce.
 
     Specyfikacja mówi „20 **losowych** z ogona". Świadomie deterministycznie:
     bierzemy tablice o NAJMNIEJSZEJ liczbie itemów, bo celem ogona jest
@@ -290,8 +301,11 @@ def wybierz_probke(
     wymaga, żeby dwa runy na tym samym koncie dały snapshoty różniące się
     tylko znacznikami czasu.
     """
-    if top < 0 or z_ogona < 0:
+    if top is None:
+        return tuple(sorted(tablice, key=lambda t: t.board_id)), 0
+    if top < 0 or (z_ogona or 0) < 0:
         raise LogiError("sufity próbki nie mogą być ujemne")
+    z_ogona = z_ogona or 0
 
     posortowane = sorted(tablice, key=lambda t: (-(t.items_count or 0), t.board_id))
     czolo = posortowane[:top]
@@ -442,14 +456,15 @@ async def zbierz_logi(
     od: str | None = None,
     do: str | None = None,
     limit_wpisow: int = LIMIT_WPISOW,
-    top: int = TOP_PO_ITEMACH,
-    z_ogona: int = Z_OGONA,
+    top: int | None = TOP_PO_ITEMACH,
+    z_ogona: int | None = Z_OGONA,
     maks_stron: int = MAKS_STRON_LOGOW,
     teraz: datetime | None = None,
 ) -> WynikLogow:
     """Sampluje activity logs i wyciąga z nich sygnały, nie treść.
 
     `znane_hashe` to pseudonimy użytkowników konta z 3.4 (`WynikOsob.hashe`).
+    `top=None` wyłącza próbkowanie i bierze wszystkie tablice z zakresu.
     """
     teraz = teraz or datetime.now(tz=UTC)
     probka, pominietych = wybierz_probke(tablice, top=top, z_ogona=z_ogona)
@@ -463,6 +478,8 @@ async def zbierz_logi(
             z_ogona,
             pominietych,
         )
+    else:
+        logger.info("logi ze WSZYSTKICH %d tablic w zakresie — bez próbkowania", len(probka))
 
     sygnaly: list[SygnalyTablicy] = []
     znane = {str(h) for h in znane_hashe}

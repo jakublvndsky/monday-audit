@@ -297,6 +297,30 @@ def test_probka_bierze_najwieksze_i_najmniejsze() -> None:
     assert pominietych == 15
 
 
+def test_brak_sufitu_bierze_wszystkie_tablice() -> None:
+    """`top=None` to tryb „bez próbkowania" — jedyny, w którym nic nie ginie.
+
+    Zero pominiętych jest tu równie ważne jak pełna próbka: snapshot z zerem
+    znaczy „pokrycie kompletne", a detektor `BOARD_GHOST` może wtedy mówić
+    o całym zakresie, nie o wycinku.
+    """
+    tablice = [tablica(str(n), items_count=n) for n in range(1, 151)]
+
+    probka, pominietych = wybierz_probke(tablice, top=None)
+
+    assert len(probka) == 150
+    assert pominietych == 0
+
+
+def test_brak_sufitu_jest_deterministyczny() -> None:
+    """Bez sortowania po `items_count` kolejność musi trzymać się board_id."""
+    tablice = [tablica(str(n), items_count=None) for n in (3, 1, 2)]
+
+    probka, _ = wybierz_probke(tablice, top=None)
+
+    assert [t.board_id for t in probka] == ["1", "2", "3"]
+
+
 def test_probka_jest_deterministyczna() -> None:
     """Specyfikacja mówi „losowych z ogona"; losowanie łamie powtarzalność.
 

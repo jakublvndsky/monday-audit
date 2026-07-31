@@ -73,14 +73,33 @@ def test_parser_ma_sufity_z_wartosciami_domyslnymi() -> None:
     argumenty = zbuduj_parser().parse_args(["--klient", "x", "--zakres", "cale_konto"])
 
     assert argumenty.maks_sond == 10
-    assert argumenty.top_logow == TOP_PO_ITEMACH == 30
-    assert argumenty.z_ogona == Z_OGONA == 20
-    assert argumenty.maks_stron_logow == MAKS_STRON_LOGOW
+    # Sufity trzymają się stałych z `logi`, żeby CLI i biblioteka nie rozjechały
+    # się po podniesieniu próbki (2026-07-31: 30+20 → 60+40, 5 → 10 stron).
+    assert argumenty.top_logow == TOP_PO_ITEMACH == 60
+    assert argumenty.z_ogona == Z_OGONA == 40
+    assert argumenty.maks_stron_logow == MAKS_STRON_LOGOW == 10
     assert argumenty.dni_okna == 90
-    # Oba `None`, bo źródłem jest konfiguracja, nie argparse — inaczej flaga
-    # z wartością domyślną przebijałaby `.env` i zmienne środowiskowe.
+    assert argumenty.wszystkie_logi is False
+    # Trzy `None`, bo źródłem jest konfiguracja albo plan konta, nie argparse.
+    # Flaga z wartością domyślną przebijałaby `.env`, a przy budżecie
+    # udawałaby hamulec, którego nikt nie zaciągnął.
     assert argumenty.baza is None
     assert argumenty.plik_env is None
+    assert argumenty.budzet_wywolan is None
+
+
+def test_wszystkie_logi_przekladaja_sie_na_brak_sufitu() -> None:
+    """Flaga ma unieważnić sufity, a nie dodać się do nich.
+
+    Samo zachowanie `wybierz_probke(top=None)` sprawdza `test_logi.py` —
+    tutaj tylko tłumaczenie flagi na `None`, bo to robi CLI.
+    """
+    argumenty = zbuduj_parser().parse_args(
+        ["--klient", "x", "--zakres", "cale_konto", "--wszystkie-logi", "--top-logow", "5"]
+    )
+
+    assert argumenty.wszystkie_logi is True
+    assert (None if argumenty.wszystkie_logi else argumenty.top_logow) is None
 
 
 def test_parser_odrzuca_nieznany_zakres() -> None:

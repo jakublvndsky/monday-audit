@@ -48,6 +48,12 @@ logger = logging.getLogger(__name__)
 
 DNI_OKNA = 90
 
+# Sufit na pierwsze wywołania, dopóki plan konta nie jest znany. Potem podnosi
+# go `rozpoznaj_konto` — chyba że budżet podał człowiek (`budzet_z_planu=False`).
+# Musi wystarczyć na rozpoznanie konta i użytkowników, bo inaczej run przerwałby
+# się przed poznaniem planu, który miał ten limit ustalić.
+BUDZET_STARTOWY = 400
+
 
 def collector_ver() -> str:
     """Wersja collectora do snapshotu — jeden z czterech elementów pinowania.
@@ -173,14 +179,21 @@ async def wykonaj_run(
     run_id: str | None = None,
     postep: Callable[[Postep], None] | None = None,
     dni_okna: int = DNI_OKNA,
-    top_logow: int = TOP_PO_ITEMACH,
-    z_ogona: int = Z_OGONA,
+    top_logow: int | None = TOP_PO_ITEMACH,
+    z_ogona: int | None = Z_OGONA,
     maks_stron_logow: int = MAKS_STRON_LOGOW,
     maks_sond: int = MAKS_SOND,
-    budzet_wywolan: int = 400,
+    budzet_wywolan: int = BUDZET_STARTOWY,
+    budzet_z_planu: bool = True,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> RaportRunu:
-    """Przepuszcza cały collector i zapisuje snapshot. Zwraca raport z runu."""
+    """Przepuszcza cały collector i zapisuje snapshot. Zwraca raport z runu.
+
+    `budzet_z_planu=False` znaczy „budżet podał człowiek i jest nienaruszalny".
+    Bez tego przełącznika `--budzet-wywolan 2` na koncie enterprise kończyło się
+    sufitem 12500, bo plan podnosił wartość zaraz po rozpoznaniu konta —
+    czyli flaga bezpieczeństwa nie hamowała.
+    """
     start = time.monotonic()
     teraz = datetime.now(tz=UTC)
     run_at = teraz.isoformat()
@@ -197,7 +210,7 @@ async def wykonaj_run(
         postep=postep,
         transport=transport,
     ) as klient:
-        konto = await rozpoznaj_konto(klient, zakres)
+        konto = await rozpoznaj_konto(klient, zakres, dostosuj_budzet=budzet_z_planu)
         osoby = await zbierz_osoby(klient, client_id=client_id, sol=sol, mapowanie=mapowanie)
         tablice = await zbierz_tablice(klient, zakres, client_id=client_id, sol=sol)
         automaty = await zbierz_automatyzacje(
