@@ -4,7 +4,19 @@
       "Edit(STATUS.md)",
       "Edit(./STATUS.md)",
       "Write(STATUS.md)",
-      "Write(./STATUS.md)"
+      "Write(./STATUS.md)",
+      "Read(.env)",
+      "Read(./.env)",
+      "Read(.env.*)",
+      "Read(./.env.*)",
+      "Edit(.env)",
+      "Edit(./.env)",
+      "Edit(.env.*)",
+      "Edit(./.env.*)",
+      "Write(.env)",
+      "Write(./.env)",
+      "Write(.env.*)",
+      "Write(./.env.*)"
     ]
   }
 }

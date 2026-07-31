@@ -24,6 +24,10 @@ htmlcov/
 # settings.local.json to prywatne nadpisania i zostaje lokalnie
 .claude/settings.local.json
 
+# Wyeksportowane snapshoty do ręcznego przeglądu (BRAMA po 3.8).
+# Zawierają nazwy tablic i kolumn klienta, czyli jego treść biznesową.
+snapshoty/
+
 # Dane runów — snapshoty są niemutowalne i nieodtwarzalne (D7), ale nie należą do repo.
 # Kopie zapasowe idą poza Mikrusa (etap 5), nie do gita.
 *.db
