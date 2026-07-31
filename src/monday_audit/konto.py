@@ -66,14 +66,21 @@ class Zakres:
     konta tokenem, który go nie widzi, bo intencja musi być zapisana wprost.
     """
 
-    typ: Literal["cale_konto", "workspace"]
+    typ: Literal["cale_konto", "workspace", "tablice"]
     workspace_ids: tuple[str, ...] = ()
+    board_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.typ == "workspace" and not self.workspace_ids:
             raise ZakresError("zakres `workspace` bez ani jednego workspace_id nic nie audytuje")
-        if self.typ == "cale_konto" and self.workspace_ids:
-            raise ZakresError("zakres `cale_konto` nie przyjmuje listy workspace_ids")
+        if self.typ == "tablice" and not self.board_ids:
+            raise ZakresError("zakres `tablice` bez ani jednego board_id nic nie audytuje")
+        if self.typ == "cale_konto" and (self.workspace_ids or self.board_ids):
+            raise ZakresError("zakres `cale_konto` nie przyjmuje listy identyfikatorów")
+        if self.typ == "workspace" and self.board_ids:
+            raise ZakresError("zakres `workspace` nie przyjmuje board_ids — wybierz jeden tryb")
+        if self.typ == "tablice" and self.workspace_ids:
+            raise ZakresError("zakres `tablice` nie przyjmuje workspace_ids — wybierz jeden tryb")
 
     @classmethod
     def cale_konto(cls) -> Zakres:
@@ -83,10 +90,26 @@ class Zakres:
     def workspace(cls, *workspace_ids: str | int) -> Zakres:
         return cls(typ="workspace", workspace_ids=tuple(str(w) for w in workspace_ids))
 
+    @classmethod
+    def tablice(cls, *board_ids: str | int) -> Zakres:
+        """Najwęższy możliwy zakres: wskazane tablice i nic poza nimi.
+
+        Dodane na wyraźne życzenie: przy audycie cudzego konta chcemy móc
+        pokazać, że run dotknął dokładnie tych obiektów, które wskazał
+        właściciel — ani jednego więcej.
+        """
+        return cls(typ="tablice", board_ids=tuple(str(b) for b in board_ids))
+
+    @property
+    def zawezony(self) -> bool:
+        return self.typ != "cale_konto"
+
     def opis(self) -> str:
         if self.typ == "cale_konto":
             return "całe konto"
-        return f"{len(self.workspace_ids)} workspace'ów"
+        if self.typ == "workspace":
+            return f"{len(self.workspace_ids)} workspace'ów"
+        return f"{len(self.board_ids)} tablic"
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,7 +144,11 @@ class Konto:
             if self.tier is None
             else {"tier": self.tier, "period": self.period, "max_users": self.max_users},
             "uprawnienia": {"is_admin": self.is_admin, "is_guest": self.is_guest},
-            "zakres": {"typ": self.zakres.typ, "workspace_ids": list(self.zakres.workspace_ids)},
+            "zakres": {
+                "typ": self.zakres.typ,
+                "workspace_ids": list(self.zakres.workspace_ids),
+                "board_ids": list(self.zakres.board_ids),
+            },
             "pokrycie_pelne": self.pokrycie_pelne,
             "zastrzezenia": list(self.zastrzezenia),
         }
@@ -166,11 +193,8 @@ def _zastrzezenia(
         )
     if is_guest:
         lista.append("token gościa — zakres jeszcze węższy niż zwykłego członka konta")
-    if zakres.typ == "workspace":
-        lista.append(
-            f"audyt zawężony do {len(zakres.workspace_ids)} workspace'ów — "
-            "reszta konta nie była sprawdzana"
-        )
+    if zakres.zawezony:
+        lista.append(f"audyt zawężony do {zakres.opis()} — reszta konta nie była sprawdzana")
     if tier is None:
         lista.append(
             "plan konta niedostępny — dzienny limit wywołań nieznany, "

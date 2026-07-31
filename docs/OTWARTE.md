@@ -208,6 +208,10 @@ Wnioski:
    oknem (Free?) i przed droższymi zapytaniami, nie przed tym, co widzimy.
 3. Nie zakładaj 5 mln ani 10 mln na sztywno. Klient czyta `after`
    i `reset_in_x_seconds` z każdej odpowiedzi i nie potrzebuje tej stałej.
+4. **Pusta strona domykająca paginację kosztuje 0 complexity** (zmierzone
+   przy 3.5). Nie żądaj więc dodatniego kosztu od każdego wywołania —
+   konwencja z 3.2 pozostaje: `NULL` w `wywolania.complexity` znaczy próbę
+   nieudaną, a `0` to poprawna odpowiedź bez wyników.
 
 ---
 
@@ -228,6 +232,14 @@ kategoria (moja rekomendacja: tak, zbieramy i oznaczamy, ale detektory
 liczą tylko `active` + `archived`), czy odfiltrowujemy je już w collectorze.
 Pierwsze jest droższe o ~12 wywołań, ale kosz sam potrafi być znaleziskiem —
 1 216 usuniętych tablic mówi coś o higienie konta.
+
+**Zaimplementowane w 3.5 jako domyślne, do potwierdzenia:** jeden przelot
+`state: all`, do listy w snapshocie wchodzą `active` i `archived`, a `deleted`
+jest **tylko liczony** (`usunietych_pominietych` w podsumowaniu). Parametr
+`zbieraj_usuniete=True` odwraca decyzję bez zmiany kodu. Powód takiego
+domyślnego ustawienia: przy 38% kosza każda liczba w raporcie klienta byłaby
+zawyżona o zawartość śmietnika, a `BOARD_GHOST` liczyłby tablice, których
+nikt już nie ma.
 
 ---
 

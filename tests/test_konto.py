@@ -234,7 +234,7 @@ async def test_metadane_konta_laduja_w_snapshocie(zbuduj: Any) -> None:
     assert fragment["konto"] == {"id": "12345", "nazwa": "CXLABS", "slug": "cxlabsdigital"}
     assert fragment["plan"] == {"tier": "pro", "period": "monthly", "max_users": 25}
     assert fragment["uprawnienia"] == {"is_admin": True, "is_guest": False}
-    assert fragment["zakres"] == {"typ": "cale_konto", "workspace_ids": []}
+    assert fragment["zakres"] == {"typ": "cale_konto", "workspace_ids": [], "board_ids": []}
 
 
 async def test_odpowiedz_bez_me_jest_bledem(zbuduj: Any) -> None:
