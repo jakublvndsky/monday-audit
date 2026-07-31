@@ -379,3 +379,76 @@ budżet wywołań zostawał na 400 przy koncie z limitem 25 000 dziennie.
 **`active_members_count = 19` przy 95 użytkownikach** to sygnał dla
 `ZOMBIE_ACCOUNT` i `PLAN_MISMATCH` — do wykorzystania w 3.9. Nie wiem,
 czy liczy licencje, czy aktywność; **do potwierdzenia**.
+
+---
+
+## O13. Activity logs — dwie pułapki i brak znacznika automatu
+
+**Status:** zmierzone przy 3.7, 2026-07-30
+**Blokuje:** `ENGAGEMENT_DROP`, `PROCESS_BYPASS`, `BOARD_GHOST`
+**Zakres rozpoznania:** workspace 6576039, 2 tablice, ~4 wywołania
+
+### Kształt API
+
+`Board.activity_logs(column_ids, from, group_ids, item_ids, limit, page, to, user_ids)`
+→ `ActivityLogType` z **siedmioma** polami:
+`account_id`, `created_at`, `data`, `entity`, `event`, `id`, `user_id` (wszystkie `String`).
+
+`from` i `to` są typu `ISO8601DateTime` — okno 90 dni działa. Nie ma logu
+na poziomie konta, więc każda tablica to osobne wywołanie. Koszt: ~12,6 tys.
+complexity na tablicę przy `limit: 25`.
+
+### Pułapka 1: `created_at` nie jest datą
+
+Log zwraca **`17830789794688296`** — liczbę jednostek 100 ns od epoki Unixa,
+nie ISO-8601, mimo że typ pola to `String`. Sprawdzone przez porównanie
+z `board.updated_at` tej samej tablicy: `17830789794688296 / 10^7 = 1783078979 s`
+→ 2026-07-03, zgodnie z `updated_at = 2026-07-03T11:44:39Z`.
+
+Naiwne `fromisoformat` albo porównanie stringów dają śmieci — a na tym polu
+stoi okno 90 dni w `ENGAGEMENT_DROP`. Konwersja siedzi w `logi.na_iso()`
+i ma test na prawdziwym znaczniku.
+
+### Pułapka 2: `data` to treść klienta
+
+Pole `data` (JSON w stringu) zawiera realne wartości. Zaobserwowane klucze:
+
+```
+action_record_uuid, board_id, board_name, column_id, column_title,
+column_type, group_color, group_id, group_title, is_column_with_hide_permissions,
+is_rollup_column, is_top_group, is_undo_action, parent_board_id, parent_item_id,
+previous_textual_value, previous_value, pulse_id, pulse_name, value
+```
+
+`value`, `previous_value`, `previous_textual_value` i `pulse_name` to wartości
+kolumn i nazwy itemów, czyli dokładnie to, czego zabrania D5 i granica PII.
+**Nie pobieramy tego pola wcale** — nie ma go w zapytaniu, żeby nie polegać
+na tym, że ktoś je potem odfiltruje. Test pilnuje treści zapytania.
+
+### Brak znacznika „to zrobiła automatyzacja"
+
+Żadne z siedmiu pól nie mówi, czy autorem wpisu był człowiek. A to jest
+**kluczowy sygnał z 3.7** — ten, który odróżnia tablicę żywą od pozornie
+żywej. Rozwiązanie: porównanie `user_id` z listą użytkowników konta z 3.4.
+Autor nieobecny na liście to najpewniej system, bot albo konto usunięte.
+
+**To heurystyka i jest tak oznaczona w snapshocie**
+(`rozroznienie_czlowiek_automat: "heurystyka: user_id nieobecny na liście konta"`).
+Bez listy użytkowników na wejściu każdy autor wyjdzie jako nieznany, więc
+sygnał byłby bezwartościowy — collector loguje wtedy ostrzeżenie.
+
+**Do sprawdzenia:** czy monday używa stałych, rozpoznawalnych identyfikatorów
+dla akcji systemowych (np. ujemnych). Na dwóch zbadanych tablicach był
+tylko jeden autor, więc nie było na czym tego zobaczyć.
+
+### Odstępstwo od specyfikacji: ogon deterministyczny, nie losowy
+
+3.7 mówi „20 **losowych** z ogona". Zaimplementowane deterministycznie:
+tablice o **najmniejszej** liczbie itemów. Powód: celem ogona jest wychwycenie
+martwych tablic, a losowanie łamałoby powtarzalność — 04-test.md wymaga,
+żeby dwa runy na tym samym koncie dały snapshoty różniące się **tylko
+znacznikami czasu**. Przy losowaniu różniłyby się też próbką.
+
+Sufity zmniejszone z „top 30 + 20" na **top 10 + 5 z ogona** na życzenie
+przy zawężeniu do jednego workspace. Zmiana zakresu, nie zasady — liczba
+tablic pominiętych ląduje w snapshocie.
