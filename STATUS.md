@@ -32,9 +32,9 @@ bez wpisania tu `✅` przez człowieka.
 - [x] 3.3 Collector: konto i plan
 - [x] 3.4 Collector: użytkownicy + pseudonimizacja
 - [x] 3.5 Collector: tablice i kolumny
-- [ ] 3.6 Collector: automatyzacje
-- [ ] 3.7 Collector: activity logs z samplingiem
-- [ ] 3.8 Zapis snapshotu + pierwszy prawdziwy run na koncie CXLABS
+- [x] 3.6 Collector: automatyzacje
+- [x] 3.7 Collector: activity logs z samplingiem
+- [x] 3.8 Zapis snapshotu + pierwszy prawdziwy run na koncie CXLABS
 - [ ] **BRAMA: snapshot istnieje i został przejrzany ręcznie**
 - [ ] 3.9 Detektory deterministyczne (sygnały wzbudzające hipotezy)
 - [ ] 3.10 Narzędzia agenta (read-only, z budżetami)
