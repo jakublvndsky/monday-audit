@@ -13,13 +13,20 @@ implementuj fallback.** Loguj wyniki: `[DISCOVERY] ✅ pole X dostępne`.
 
 ## O1. Czy API zwraca liczbę uruchomień automatyzacji
 
-**Status:** niepotwierdzone
+**Status: ROZSTRZYGNIĘTE 2026-07-30 — tak, na poziomie konta. Szczegóły w O12.**
 **Blokuje:** `AUTOMATION_DEAD` — sygnał "0 uruchomień w 90 dni"
-**Jeśli nie:** sygnał zwęża się do `is_active = false` i klasa traci
-około połowy wartości. Waga spada, bo nie odróżnisz śmiecia po testach
-od procesu przeniesionego na ręce.
-**Jak sprawdzić:** MCP udostępnia `get_automation_runs` i
-`get_automation_statistics`. Przetestuj oba na koncie CXLABS.
+
+Odpowiedź: `account_trigger_statistics` zwraca `success`, `failure`, `total`
+i **nie potrzebuje MCP** — czysty GraphQL, jedno wywołanie. Na koncie CXLABS:
+1 226 udanych, 11 nieudanych, 1 237 razem.
+
+**Ale sygnał jest węższy, niż zakładała rubryka.** Nie ma listy automatyzacji
+per tablica, więc „0 uruchomień konkretnej automatyzacji" jest nieosiągalne;
+osiągalne jest „ta tablica miała 0 zdarzeń automatyzacji w okresie".
+`AUTOMATION_DEAD` musi być na tym oparte i wiedzieć o zwężeniu — collector
+zapisuje `lista_automatyzacji_dostepna: false` w snapshocie.
+
+Pełne ustalenia, w tym zepsuty filtr `board_id`: **O12**.
 
 ---
 
@@ -299,3 +306,76 @@ jest skopiowanie przez nas pola `name` albo `email` — i to jest wykluczone
 konstrukcyjnie (snapshot budowany z listy dozwolonych pól). Przerywanie
 audytu na tym, że klient nazwał zespół słowem, które ktoś ma w nazwie konta,
 byłoby blokadą bez powodu.
+
+---
+
+## O12. Automatyzacje w API — specyfikacja 3.6 opisuje pola, których nie ma
+
+**Status:** rozstrzygnięte introspekcją schematu 2026-07-30
+**Blokuje:** `AUTOMATION_DEAD`, `AUTOMATION_ABSENT`, kształt 3.6
+**Zakres rozpoznania:** konto CXLABS, workspace 6576039, ~40 wywołań
+(introspekcja kosztuje 0 complexity)
+
+### Czego NIE ma, wbrew zapisowi 3.6
+
+| Zapis w 3.6 | Rzeczywistość |
+|---|---|
+| `automations` na `boards` | **nie istnieje** — w 39 polach typu `Board` nie ma nic o automatyzacjach ani workflow |
+| `account { usage { automations } }` | **nie istnieje** — `Account` ma 15 pól i `usage` nie jest jednym z nich |
+| korzeniowe `usage` | istnieje, ale to `CampaignsUsage` (e-maile marketingowe), nie automatyzacje |
+
+W API monday automatyzacje nazywają się **triggerami** i mają osobne zapytania
+w korzeniu schematu. Bez introspekcji nie było tego jak znaleźć.
+
+### Co działa
+
+1. **`account_trigger_statistics` → `{success, failure, total}`.**
+   Jedno wywołanie, całe konto. To odpowiedź na O1.
+2. **`account_triggers_statistics_by_entity_id(run_status:)`** → mapa
+   `automation_id → {total, powód_błędu: liczba}`. Kluczem jest
+   **automatyzacja**, nie tablica. Enum `TriggerEventState`:
+   `success`, `failure`, `exhausted`.
+3. **`trigger_events(filters: {boardId: String, dateRange: {startDate, endDate}})`**
+   → pojedyncze zdarzenia, 200 na stronę. Jedyna ścieżka per tablica.
+
+### Pułapka: filtr `board_id` jest zepsuty
+
+`AccountTriggerStatisticsFiltersInput.board_id` i
+`AccountTriggersByEntityIdFiltersInput.board_id` są typu **`Int`**, a GraphQL
+`Int` to 32 bity ze znakiem (maks 2 147 483 647). **Wszystkie identyfikatory
+tablic na koncie CXLABS mają 10 cyfr** (np. 5097387646) i przekraczają ten
+zakres. API odpowiada:
+
+```
+Int cannot represent non 32-bit signed integer value: 5097387646
+```
+
+Czyli statystyk triggerów **nie da się zawęzić do tablicy ani workspace'u**.
+Za to `TriggerEventsFiltersInput.boardId` jest **Stringiem** i przyjmuje pełny
+identyfikator — dlatego sonda per tablica idzie tą ścieżką.
+
+**Konsekwencja dla zakresu audytu:** trzy liczby uruchomień są z natury
+na poziomie konta. Zapytanie nie wylicza ani nie ujawnia żadnych tablic
+ani workspace'ów — zwraca trzy liczniki. Atrybucja per tablica wymaga
+osobnego wywołania na tablicę, i to jest jedyne miejsce w 3.6, które ma
+wolumen. Domyślny sufit: 10 tablic, a liczba pominiętych ląduje
+w snapshocie (`tablic_pominietych`).
+
+### Efekt uboczny: `account.tier` ratuje budżet z 3.3
+
+Introspekcja `Account` pokazała pole **`tier`** obok `plan`. Na koncie CXLABS:
+
+```
+account.plan = null        ← to samo co w O2
+account.tier = 'enterprise'
+account.active_members_count = 19
+```
+
+Czyli tier konta **jest** dostępny, tylko nie tam, gdzie 3.3 go szukało.
+Poprawione: `konto.py` czyta `plan.tier`, a gdy null — `account.tier`,
+i zapisuje w snapshocie, z którego pola wziął (`zrodlo_tieru`). Bez tego
+budżet wywołań zostawał na 400 przy koncie z limitem 25 000 dziennie.
+
+**`active_members_count = 19` przy 95 użytkownikach** to sygnał dla
+`ZOMBIE_ACCOUNT` i `PLAN_MISMATCH` — do wykorzystania w 3.9. Nie wiem,
+czy liczy licencje, czy aktywność; **do potwierdzenia**.

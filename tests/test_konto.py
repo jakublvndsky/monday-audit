@@ -40,6 +40,7 @@ def odpowiedz(
     is_admin: bool = True,
     is_guest: bool = False,
     plan: dict[str, Any] | None = None,
+    tier_konta: str | None = None,
 ) -> httpx.Response:
     return httpx.Response(
         200,
@@ -52,6 +53,7 @@ def odpowiedz(
                         "id": "12345",
                         "name": "CXLABS",
                         "slug": "cxlabsdigital",
+                        "tier": tier_konta,
                         "plan": plan,
                     },
                 },
@@ -215,6 +217,34 @@ async def test_nieznany_tier_zostawia_budzet(zbuduj: Any) -> None:
     assert any("nie jest potwierdzony" in z for z in konto.zastrzezenia)
 
 
+async def test_account_tier_ratuje_budzet_gdy_plan_jest_nullem(zbuduj: Any) -> None:
+    """Zmierzone przy 3.6: `account.plan` = null, ale `account.tier` = 'enterprise'.
+
+    Bez tego zapasowego źródła budżet zostawał na wartości domyślnej, mimo
+    że plan konta jest znany (`OTWARTE.md` O12).
+    """
+    klient = zbuduj(
+        lambda _: odpowiedz(is_admin=False, plan=None, tier_konta="enterprise"),
+        budzet_wywolan=400,
+    )
+
+    konto = await rozpoznaj_konto(klient, Zakres.workspace("1"))
+
+    assert konto.tier == "enterprise"
+    assert konto.tier_z_pola == "account.tier"
+    assert klient.budzet_wywolan == 12_500
+    assert not any("plan konta niedostępny" in z for z in konto.zastrzezenia)
+
+
+async def test_plan_tier_ma_pierwszenstwo_nad_account_tier(zbuduj: Any) -> None:
+    klient = zbuduj(lambda _: odpowiedz(plan=PLAN_PRO, tier_konta="enterprise"))
+
+    konto = await rozpoznaj_konto(klient, Zakres.cale_konto(), dostosuj_budzet=False)
+
+    assert konto.tier == "pro"
+    assert konto.tier_z_pola == "plan.tier"
+
+
 async def test_dostosuj_budzet_da_sie_wylaczyc(zbuduj: Any) -> None:
     klient = zbuduj(lambda _: odpowiedz(plan=PLAN_PRO), budzet_wywolan=400)
 
@@ -232,7 +262,12 @@ async def test_metadane_konta_laduja_w_snapshocie(zbuduj: Any) -> None:
     fragment = (await rozpoznaj_konto(klient, Zakres.cale_konto())).do_snapshotu()
 
     assert fragment["konto"] == {"id": "12345", "nazwa": "CXLABS", "slug": "cxlabsdigital"}
-    assert fragment["plan"] == {"tier": "pro", "period": "monthly", "max_users": 25}
+    assert fragment["plan"] == {
+        "tier": "pro",
+        "period": "monthly",
+        "max_users": 25,
+        "zrodlo_tieru": "plan.tier",
+    }
     assert fragment["uprawnienia"] == {"is_admin": True, "is_guest": False}
     assert fragment["zakres"] == {"typ": "cale_konto", "workspace_ids": [], "board_ids": []}
 

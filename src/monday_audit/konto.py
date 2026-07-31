@@ -33,12 +33,16 @@ logger = logging.getLogger(__name__)
 # czysty od pierwszego zapisu, nie od 3.4. Do walidacji zakresu wystarczą
 # `is_admin` i `is_guest`; tożsamość posiadacza tokena nie jest do niczego
 # potrzebna. `account.name` zostaje — to nazwa firmy, nie osoby.
+# `tier` obok `plan` NIE jest nadmiarowe. Zmierzone na CXLABS 2026-07-30:
+# `account.plan` zwraca **null**, a `account.tier` zwraca `'enterprise'`.
+# Bez tego pola budżet wywołań zostawał na wartości domyślnej, mimo że plan
+# konta jest znany. Kolejność źródeł: `plan.tier`, potem `account.tier`.
 ZAPYTANIE_KONTO = """
 query {
   me {
     is_admin
     is_guest
-    account { id name slug plan { period tier max_users } }
+    account { id name slug tier plan { period tier max_users } }
   }
 }
 """
@@ -126,6 +130,7 @@ class Konto:
     max_users: int | None
     zakres: Zakres
     zastrzezenia: tuple[str, ...] = ()
+    tier_z_pola: str | None = None
 
     @property
     def pokrycie_pelne(self) -> bool:
@@ -142,7 +147,13 @@ class Konto:
             "konto": {"id": self.account_id, "nazwa": self.nazwa, "slug": self.slug},
             "plan": None
             if self.tier is None
-            else {"tier": self.tier, "period": self.period, "max_users": self.max_users},
+            else {
+                "tier": self.tier,
+                "period": self.period,
+                "max_users": self.max_users,
+                # Skąd wzięliśmy tier — `plan` bywa null, a `tier` nie.
+                "zrodlo_tieru": self.tier_z_pola,
+            },
             "uprawnienia": {"is_admin": self.is_admin, "is_guest": self.is_guest},
             "zakres": {
                 "typ": self.zakres.typ,
@@ -226,14 +237,22 @@ async def rozpoznaj_konto(
 
     is_admin = bool(ja.get("is_admin"))
     is_guest = bool(ja.get("is_guest"))
-    plan = surowe_konto.get("plan")
-    plan = plan if isinstance(plan, dict) else None
-    tier = plan.get("tier") if plan else None
+    surowy_plan = surowe_konto.get("plan")
+    plan: dict[str, Any] | None = surowy_plan if isinstance(surowy_plan, dict) else None
+
+    # `plan.tier` jest pierwszym źródłem, `account.tier` zapasowym — na CXLABS
+    # tylko to drugie coś zwraca (O12).
+    z_planu = plan.get("tier") if plan else None
+    z_konta = surowe_konto.get("tier")
+    tier: str | None = str(z_planu or z_konta) if (z_planu or z_konta) else None
+    tier_z_pola: str | None = "plan.tier" if z_planu else ("account.tier" if z_konta else None)
 
     logger.info(
-        "[DISCOVERY] %s account.plan %s",
-        "✅" if plan else "❌",
-        f"tier={tier}" if plan else "= null, budżet zostaje domyślny",
+        "[DISCOVERY] %s tier konta: %s (źródło: %s), account.plan %s",
+        "✅" if tier else "❌",
+        tier,
+        tier_z_pola or "brak",
+        "obecny" if plan else "= null",
     )
 
     if zakres.typ == "cale_konto" and not is_admin:
@@ -255,6 +274,7 @@ async def rozpoznaj_konto(
         max_users=plan.get("max_users") if plan else None,
         zakres=zakres,
         zastrzezenia=_zastrzezenia(is_admin=is_admin, is_guest=is_guest, tier=tier, zakres=zakres),
+        tier_z_pola=tier_z_pola,
     )
 
     budzet = budzet_z_planu(tier)
