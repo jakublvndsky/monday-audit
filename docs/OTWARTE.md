@@ -22,9 +22,12 @@ a nie na twoim rozstrzygnięciu. Szczegóły w wskazanych pozycjach.
 | Kosz (`state: deleted`) w snapshocie | **O10** | zbieramy `all`, listujemy `active` + `archived`, kosz tylko liczony |
 | `is_verified` w rekordzie użytkownika | 3.4 mówi „WYŁĄCZNIE" i nie wymienia tego pola | pole JEST w snapshocie — sygnał dla `ZOMBIE_ACCOUNT` |
 | Tablice `Subitems of ...` | **O14** | nieodfiltrowane; zafałszują `BOARD_GHOST` w 3.9 |
-| Sandbox jako blokada `.env` | rozmowa 2026-07-31 | tylko `permissions.deny`; polecenia Basha nadal mogą czytać plik |
-| `pydantic-settings` jako źródło konfiguracji | zakaz dodawania zależności bez pytania | brak; sekrety przez `os.environ` |
+| Sandbox jako blokada `.env` | rozmowa 2026-07-31 | `permissions.deny` na `.env` i `.env.local`; polecenia Basha nadal mogą czytać plik |
 | Sól pseudonimizacji | wygenerowana przeze mnie 2026-07-30 | w `.env`; jej zmiana unieważnia porównywalność snapshotów |
+| **Prawa do pliku `.env`** | zmierzone 2026-07-31 | plik ma `-rw-r--r--`, czyli sól czyta każdy proces na maszynie; kod ostrzega, nie przerywa |
+
+Zamknięte: `pydantic-settings` jako źródło konfiguracji — zgoda ustna
+2026-07-31, szczegóły w **D12**.
 
 ---
 
@@ -489,10 +492,12 @@ zdarzył się już zepsuty filtr `board_id` (O12) — naiwna paginacja policzył
 te same zdarzenia po kilka razy i zawyżyła każdą metrykę. Powtórzona strona
 przerywa pętlę i ląduje w `discovery.paginacja_logow_dziala: false`.
 
-**Do sprawdzenia na żywym API:** czy `page` w `activity_logs` faktycznie
-stronicuje. Obecność argumentu w schemacie niczego nie gwarantuje — filtr
-`board_id` też był w schemacie i jest zepsuty. Zabezpieczenie jest na miejscu,
-ale flagi jeszcze nikt nie odczytał z prawdziwej odpowiedzi.
+**ROZSTRZYGNIĘTE 2026-07-31 — `page` stronicuje.** Run na tablicy 5097387646
+zwrócił `discovery.paginacja_logow_dziala: true`, czyli kolejna strona przyniosła
+inne `id` wpisów, a nie powtórzone. Obecność argumentu w schemacie niczego nie
+gwarantowała — filtr `board_id` też jest w schemacie i jest zepsuty (O12) —
+więc dedup po `id` zostaje jako zabezpieczenie, teraz już z potwierdzeniem,
+że w normalnym przypadku nic nie odsiewa.
 
 **Sufity próbki wrócone do liczb ze specyfikacji:** top 30 + 20 z ogona.
 Wcześniejsze 10 + 5 dawało health score liczony na 14% tablic workspace'u.

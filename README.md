@@ -42,9 +42,18 @@ deterministyczne. **Agent tylko czyta i tylko proponuje.**
 uv sync                      # środowisko + zależności z uv.lock
 uv run pre-commit install    # bramka lint/typy/sekrety przed commitem
 cp .env.example .env         # i wypełnij — opis każdego pola jest w środku
+chmod 600 .env               # sól to klucz prywatny, nie plik konfiguracyjny
 ```
 
 Albo jednym poleceniem: `make instalacja`.
+
+Wypełniony `.env` wystarcza — program czyta go sam (D12), więc `export` przed
+uruchomieniem nie jest potrzebny. Zmienna ustawiona w środowisku i tak przebija
+plik, a `MONDAY_AUDIT_ENV_FILE` albo `--plik-env` wskazuje go z innej lokalizacji:
+
+```bash
+uv run python -m monday_audit.cli --klient cxlabs --zakres workspace --id 6576039
+```
 
 ## Sprawdzenia
 

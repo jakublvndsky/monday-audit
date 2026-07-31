@@ -23,13 +23,10 @@ from monday_audit.automatyzacje import sonduj_tablice, statystyki_konta, zbierz_
 from monday_audit.baza import RejestrWywolan, polacz, zastosuj_migracje
 from monday_audit.klient import MondayClient
 
-pytestmark = [
-    pytest.mark.integracyjny,
-    pytest.mark.skipif(
-        not os.environ.get("MONDAY_TOKEN"),
-        reason="brak MONDAY_TOKEN — warstwa 2 wymaga tokena konta CXLABS",
-    ),
-]
+# Sekrety wstawia fixture `zrodlo_sekretow` z conftest.py — przez
+# `konfiguracja.wczytaj()`, czyli tą samą drogą co program (D12).
+# Brak sekretów pomija te testy, nie wywraca ich.
+pytestmark = pytest.mark.integracyjny
 
 WORKSPACE = "6576039"
 TABLICA = "5097387646"

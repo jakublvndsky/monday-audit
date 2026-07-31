@@ -1,7 +1,12 @@
 """Testy ręcznego uruchomienia (etap 3.8), warstwa 1 z 04-test.md.
 
-Najważniejsze: brak sekretu w środowisku ma dać jasny komunikat, a nie
-sięgnięcie po plik `.env`.
+Najważniejsze: brak sekretu ma dać jasny komunikat mówiący, czego brakuje
+i gdzie to wpisać. Same źródła sekretów i ich precedencja są sprawdzane
+w `test_konfiguracja.py` — tutaj tylko styk z CLI.
+
+Hermetyczność tych testów stoi na fixture `odetnij_env` z `conftest.py`:
+bez niej znajdowałyby prawdziwy `.env` w roocie repo i przechodziły, nie
+sprawdzając niczego.
 """
 
 from __future__ import annotations
@@ -14,7 +19,8 @@ from pathlib import Path
 import pytest
 
 from monday_audit.baza import polacz, zastosuj_migracje
-from monday_audit.cli import eksportuj, zbuduj_parser, zbuduj_zakres
+from monday_audit.cli import eksportuj, ustal_baze, zbuduj_parser, zbuduj_zakres
+from monday_audit.konfiguracja import Ustawienia
 from monday_audit.logi import MAKS_STRON_LOGOW, TOP_PO_ITEMACH, Z_OGONA
 from monday_audit.przebieg import RaportRunu, zapisz_snapshot
 
@@ -71,6 +77,10 @@ def test_parser_ma_sufity_z_wartosciami_domyslnymi() -> None:
     assert argumenty.z_ogona == Z_OGONA == 20
     assert argumenty.maks_stron_logow == MAKS_STRON_LOGOW
     assert argumenty.dni_okna == 90
+    # Oba `None`, bo źródłem jest konfiguracja, nie argparse — inaczej flaga
+    # z wartością domyślną przebijałaby `.env` i zmienne środowiskowe.
+    assert argumenty.baza is None
+    assert argumenty.plik_env is None
 
 
 def test_parser_odrzuca_nieznany_zakres() -> None:
@@ -78,57 +88,81 @@ def test_parser_odrzuca_nieznany_zakres() -> None:
         zbuduj_parser().parse_args(["--klient", "x", "--zakres", "wymyslony"])
 
 
-# ── sekrety wyłącznie ze środowiska ──────────────────────────────────────
+# ── styk z konfiguracją ──────────────────────────────────────────────────
 
 
-async def test_brak_tokena_daje_jasny_komunikat(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Bez tokena program tłumaczy, co zrobić — nie szuka pliku .env."""
+async def test_brak_sekretow_daje_jasny_komunikat(tmp_path: Path) -> None:
+    """Bez sekretów program mówi, czego brakuje i gdzie to wpisać."""
     from monday_audit.cli import uruchom
+    from monday_audit.konfiguracja import KonfiguracjaError
 
-    monkeypatch.delenv("MONDAY_TOKEN", raising=False)
     argumenty = zbuduj_parser().parse_args(
         ["--klient", "cxlabs", "--zakres", "cale_konto", "--baza", str(tmp_path / "b.db")]
     )
 
-    with pytest.raises(SystemExit, match=r"nie czyta pliku \.env"):
+    with pytest.raises(KonfiguracjaError) as blad:
         await uruchom(argumenty)
 
+    assert "MONDAY_TOKEN: brak" in str(blad.value)
+    assert "SOL_PSEUDONIMIZACJI: brak" in str(blad.value)
 
-async def test_brak_soli_przerywa_po_tokenie(
+
+async def test_brak_soli_przerywa_mimo_tokena(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """Token bez soli nie wystarcza — hashowanie bez soli jest pozorne."""
     from monday_audit.cli import uruchom
-    from monday_audit.osoby import PseudonimizacjaError
+    from monday_audit.konfiguracja import KonfiguracjaError
 
     monkeypatch.setenv("MONDAY_TOKEN", "atrapa-tokena")
-    monkeypatch.delenv("SOL_PSEUDONIMIZACJI", raising=False)
     argumenty = zbuduj_parser().parse_args(
         ["--klient", "cxlabs", "--zakres", "cale_konto", "--baza", str(tmp_path / "b.db")]
     )
 
-    with pytest.raises(PseudonimizacjaError, match="brak SOL_PSEUDONIMIZACJI"):
+    with pytest.raises(KonfiguracjaError, match="SOL_PSEUDONIMIZACJI: brak"):
         await uruchom(argumenty)
 
 
-def test_modul_nie_otwiera_pliku_env() -> None:
+def test_token_opuszcza_secretstr_dokladnie_raz() -> None:
     """Gwarancja mechaniczna, nie obietnica.
 
-    Sekret ze środowiska procesu jest w porządku (`os.environ`), sięganie
-    po PLIK `.env` nie jest. Test sprawdza to drugie: brak nazwy pliku jako
-    literału i brak bibliotek, które go czytają.
+    Token jest w `SecretStr` właśnie po to, żeby wyjęcie wartości było jawnym,
+    policzalnym zdarzeniem. Jedno wystąpienie `get_secret_value()` w tym module
+    i to na liście argumentów `wykonaj_run` — każde `print(token)`, każde
+    wstawienie tokena do argv (widocznego w `ps`) albo do komunikatu błędu
+    przewróci ten test.
     """
     from monday_audit import cli
 
-    zrodlo = Path(cli.__file__).read_text(encoding="utf-8")
+    wiersze = Path(cli.__file__).read_text(encoding="utf-8").splitlines()
+    uzycia = [w.strip() for w in wiersze if "get_secret_value()" in w]
 
-    assert '".env"' not in zrodlo, "nazwa pliku .env jako literał"
-    assert "'.env'" not in zrodlo, "nazwa pliku .env jako literał"
-    assert "env_file" not in zrodlo, "env_file czyta .env (np. pydantic-settings)"
-    assert "dotenv" not in zrodlo, "python-dotenv czyta .env"
-    # A sekret ze środowiska ma tu być — to jest właśnie dozwolona droga.
-    assert "os.environ" in zrodlo
+    assert uzycia == ["token=ustawienia.monday_token.get_secret_value(),"]
+
+
+# ── precedencja ścieżki bazy ─────────────────────────────────────────────
+
+
+def _ustawienia(baza: Path) -> Ustawienia:
+    return Ustawienia.model_construct(monday_audit_db=baza)
+
+
+def test_flaga_bazy_bije_konfiguracje(tmp_path: Path) -> None:
+    argumenty = zbuduj_parser().parse_args(
+        ["--klient", "x", "--zakres", "cale_konto", "--baza", str(tmp_path / "z-flagi.db")]
+    )
+
+    assert ustal_baze(argumenty, _ustawienia(Path("z-configu.db"))) == tmp_path / "z-flagi.db"
+
+
+def test_bez_flagi_baza_z_konfiguracji() -> None:
+    """`MONDAY_AUDIT_DB` na serwerze wskazuje bazę poza repo — bez żadnej flagi."""
+    argumenty = zbuduj_parser().parse_args(["--klient", "x", "--zakres", "cale_konto"])
+
+    assert argumenty.baza is None
+    assert ustal_baze(argumenty, _ustawienia(Path("/var/lib/audyt.db"))) == Path(
+        "/var/lib/audyt.db"
+    )
 
 
 # ── eksport do przeglądu ─────────────────────────────────────────────────

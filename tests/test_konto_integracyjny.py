@@ -24,13 +24,10 @@ from monday_audit.baza import RejestrWywolan, polacz, zastosuj_migracje
 from monday_audit.klient import MondayClient
 from monday_audit.konto import Zakres, ZakresError, rozpoznaj_konto
 
-pytestmark = [
-    pytest.mark.integracyjny,
-    pytest.mark.skipif(
-        not os.environ.get("MONDAY_TOKEN"),
-        reason="brak MONDAY_TOKEN — warstwa 2 wymaga tokena konta CXLABS",
-    ),
-]
+# Sekrety wstawia fixture `zrodlo_sekretow` z conftest.py — przez
+# `konfiguracja.wczytaj()`, czyli tą samą drogą co program (D12).
+# Brak sekretów pomija te testy, nie wywraca ich.
+pytestmark = pytest.mark.integracyjny
 
 PIERWSZY_WORKSPACE = "query { workspaces (limit: 1) { id } }"
 

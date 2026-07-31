@@ -26,13 +26,10 @@ import pytest
 from monday_audit.baza import RejestrWywolan, polacz, zastosuj_migracje
 from monday_audit.klient import BudzetWyczerpanyError, MondayClient
 
-pytestmark = [
-    pytest.mark.integracyjny,
-    pytest.mark.skipif(
-        not os.environ.get("MONDAY_TOKEN"),
-        reason="brak MONDAY_TOKEN — warstwa 2 wymaga tokena konta CXLABS",
-    ),
-]
+# Sekrety wstawia fixture `zrodlo_sekretow` z conftest.py — przez
+# `konfiguracja.wczytaj()`, czyli tą samą drogą co program (D12).
+# Brak sekretów pomija te testy, nie wywraca ich.
+pytestmark = pytest.mark.integracyjny
 
 ZAPYTANIE_KONTO = "query { me { id is_admin account { id slug plan { tier } } } }"
 ZAPYTANIE_TABLICE = "query ($p: Int!) { boards (limit: 2, page: $p, order_by: created_at) { id } }"

@@ -366,3 +366,44 @@ po audycie.
 
 **Co unieważni:** produktyzacja. Wtedy OAuth wraca jako wymóg,
 razem z szyfrowaniem at-rest i zapisem w umowie.
+
+---
+
+## D12. Konfiguracja przez pydantic-settings, precedencja env > plik
+
+**Decyzja:** jeden moduł `konfiguracja.py` jako wyłączne wejście do środowiska.
+Kolejność źródeł: argument wywołania → zmienna środowiskowa → plik `.env` →
+wartość domyślna. Sekrety mieszkają w `SecretStr`.
+
+**Powód:** pierwotnie sekrety szły wyłącznie przez `os.environ`, a program
+świadomie nie znał ścieżki do `.env`. To była pomyłka w rozumieniu granicy:
+zakaz czytania `.env` dotyczy **narzędzi Claude Code**, nie aplikacji. Skutkiem
+był wymóg `export` przed każdym uruchomieniem — nieodtwarzalny na serwerze,
+gdzie worker z etapu 5 leci jako proces jednorazowy z katalogu innego niż root
+repo, więc nie ma powłoki, w której ten `export` miałby się wykonać.
+
+Biblioteka zamiast własnego czytnika, bo daje dokładnie tę precedencję jako
+domyślną. Napisane ręcznie znaczy gałąź „a jeśli w env już coś stoi" w każdym
+miejscu odczytu osobno. Koszt jest zerowy: `pydantic-settings` był już
+w drzewie zależności tranzytywnie, przez `mcp` z Agent SDK — deklaracja
+w `pyproject.toml` tylko nazywa to, co i tak było instalowane.
+
+**Zmierzone, nie założone:** pydantic wkłada do `ValidationError.errors()[i]["input"]`
+**surowe** wejście pola, także wtedy gdy walidator jest `mode="after"` i sam
+dostaje już zamaskowany `SecretStr`. Czyli `str(ValidationError)` zawiera
+odrzucony sekret jawnym tekstem. Dlatego `wczytaj()` przechwytuje ten wyjątek,
+buduje komunikat wyłącznie z nazw pól i powodów, i urywa łańcuch przyczyn przez
+`from None`. Pilnuje tego test — bo `from blad` wygląda porządniej i ktoś to
+kiedyś „poprawi".
+
+**Konsekwencja, którą trzeba nazwać wprost:** skoro kod czyta `.env` sam, to
+testy integracyjne uderzające w prawdziwe monday nie wymagają już udziału
+człowieka — wystarczy, że plik istnieje. Kuba przyjął to świadomie
+(rozmowa 2026-07-31), odrzucając wariant z dodatkową bramką. Blokada
+`Read`/`Edit`/`Write` na `.env` w `.claude/settings.json` zostaje i jest inną
+granicą: dotyczy dostępu do pliku, nie uruchamiania programu.
+
+**Co unieważni:** wiele kont obsługiwanych w jednym procesie. Sól jest osobna
+per klient (05-deploy.md), a jedna zmienna `SOL_PSEUDONIMIZACJI` obsługuje jeden
+audyt naraz. Przy runach współbieżnych sól musi wejść jako parametr runu,
+nie jako element środowiska procesu.

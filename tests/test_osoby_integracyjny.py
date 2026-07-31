@@ -31,13 +31,10 @@ from monday_audit.baza import MapowanieOsob, polacz, zastosuj_migracje
 from monday_audit.klient import MondayClient
 from monday_audit.osoby import WZORZEC_EMAILA, zbierz_osoby
 
-pytestmark = [
-    pytest.mark.integracyjny,
-    pytest.mark.skipif(
-        not os.environ.get("MONDAY_TOKEN"),
-        reason="brak MONDAY_TOKEN — warstwa 2 wymaga tokena konta CXLABS",
-    ),
-]
+# Sekrety wstawia fixture `zrodlo_sekretow` z conftest.py — przez
+# `konfiguracja.wczytaj()`, czyli tą samą drogą co program (D12).
+# Brak sekretów pomija te testy, nie wywraca ich.
+pytestmark = pytest.mark.integracyjny
 
 # Sól wyłącznie na potrzeby testu. Produkcyjna nie jest tu potrzebna i nie ma
 # jej dotykać — hashe z tego testu i tak lecą do bazy tymczasowej.

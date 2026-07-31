@@ -7,7 +7,9 @@ Trzy mechanizmy, nie trzy zasady:
 
 1. **Sól jest obowiązkowa.** Identyfikatory monday to małe liczby, więc hash
    bez soli jest odwracalny tablicą tęczową w kilka sekund. Brak soli
-   przerywa run, a nie schodzi po cichu na hashowanie bez niej.
+   przerywa run, a nie schodzi po cichu na hashowanie bez niej. Sam odczyt
+   soli ze środowiska siedzi w `konfiguracja` (D12) — tutaj zostaje minimalna
+   długość i typ wyjątku, bo to reguła granicy PII, nie reguła configu.
 2. **Snapshot budowany z listy dozwolonych pól**, nie przez usuwanie
    zabronionych. Nowe pole w API nie wycieknie samo z siebie.
 3. **Walidacja antyprzeciekowa w czasie działania**, nie tylko w testach.
@@ -26,7 +28,6 @@ import hashlib
 import hmac
 import json
 import logging
-import os
 import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -161,26 +162,6 @@ class WynikOsob:
             "bez_title": sum(1 for o in self.osoby if not o.title),
             "bez_zespolu": sum(1 for o in self.osoby if not o.zespoly),
         }
-
-
-def sol_z_env(zmienna: str = "SOL_PSEUDONIMIZACJI") -> bytes:
-    """Czyta sól ze środowiska. Brak soli PRZERYWA run.
-
-    Świadomie bez wartości domyślnej i bez generowania w locie: sól losowana
-    per run dałaby za każdym razem inne hashe, czyli snapshoty tego samego
-    klienta przestałyby być porównywalne (a to sens D7).
-    """
-    surowa = os.environ.get(zmienna, "").strip()
-    if not surowa:
-        raise PseudonimizacjaError(
-            f"brak {zmienna} — bez soli hash identyfikatora monday jest odwracalny "
-            f"tablicą tęczową, więc pseudonimizacja byłaby pozorna"
-        )
-    if len(surowa) < MIN_DLUGOSC_SOLI:
-        raise PseudonimizacjaError(
-            f"{zmienna} ma {len(surowa)} znaków, wymagane minimum {MIN_DLUGOSC_SOLI}"
-        )
-    return surowa.encode("utf-8")
 
 
 def policz_hash(client_id: str, user_id: str | int, sol: bytes) -> str:

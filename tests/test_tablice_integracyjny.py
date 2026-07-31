@@ -30,13 +30,10 @@ from monday_audit.konto import Zakres
 from monday_audit.osoby import DLUGOSC_HASHA
 from monday_audit.tablice import zbierz_tablice
 
-pytestmark = [
-    pytest.mark.integracyjny,
-    pytest.mark.skipif(
-        not os.environ.get("MONDAY_TOKEN"),
-        reason="brak MONDAY_TOKEN — warstwa 2 wymaga tokena konta CXLABS",
-    ),
-]
+# Sekrety wstawia fixture `zrodlo_sekretow` z conftest.py — przez
+# `konfiguracja.wczytaj()`, czyli tą samą drogą co program (D12).
+# Brak sekretów pomija te testy, nie wywraca ich.
+pytestmark = pytest.mark.integracyjny
 
 # Tablica wskazana przez właściciela konta. Rozpoznana 2026-07-30:
 # „Lista pomysłów Agentów AI", workspace 6576039, active, public.

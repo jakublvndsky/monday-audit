@@ -23,13 +23,11 @@ from monday_audit.baza import MapowanieOsob, polacz, zastosuj_migracje
 from monday_audit.klient import MondayClient
 from monday_audit.osoby import (
     DLUGOSC_HASHA,
-    MIN_DLUGOSC_SOLI,
     Osoba,
     PseudonimizacjaError,
     WpisPII,
     policz_hash,
     policz_podejrzenia_pii,
-    sol_z_env,
     waliduj_brak_pii,
     zbierz_osoby,
     zredaguj_pii,
@@ -233,32 +231,9 @@ def test_hash_nie_zawiera_wejscia() -> None:
     assert "101" not in haszyk
 
 
-def test_brak_soli_przerywa(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Hash identyfikatora bez soli jest odwracalny tablicą tęczową."""
-    monkeypatch.delenv("SOL_PSEUDONIMIZACJI", raising=False)
-
-    with pytest.raises(PseudonimizacjaError, match="brak SOL_PSEUDONIMIZACJI"):
-        sol_z_env()
-
-
-def test_pusta_sol_przerywa(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SOL_PSEUDONIMIZACJI", "   ")
-
-    with pytest.raises(PseudonimizacjaError, match="brak SOL_PSEUDONIMIZACJI"):
-        sol_z_env()
-
-
-def test_krotka_sol_przerywa(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SOL_PSEUDONIMIZACJI", "x" * (MIN_DLUGOSC_SOLI - 1))
-
-    with pytest.raises(PseudonimizacjaError, match="wymagane minimum"):
-        sol_z_env()
-
-
-def test_poprawna_sol_wraca_jako_bajty(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SOL_PSEUDONIMIZACJI", "x" * MIN_DLUGOSC_SOLI)
-
-    assert sol_z_env() == b"x" * MIN_DLUGOSC_SOLI
+# Odczyt soli ze środowiska przeniósł się do `konfiguracja` (D12), więc jego
+# testy stoją w `test_konfiguracja.py`. Tutaj zostaje to, co jest regułą granicy
+# PII, a nie regułą configu: minimalna długość i typ wyjątku.
 
 
 # ── zawartość snapshotu ──────────────────────────────────────────────────
