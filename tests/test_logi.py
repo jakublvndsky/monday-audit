@@ -530,7 +530,10 @@ async def test_kubelki_czasowe_pokazuja_rozklad(zbuduj: Any) -> None:
         await zbierz_logi(klient, [tablica("1")], client_id=KLIENT, sol=SOL, teraz=teraz)
     ).sygnaly[0]
 
-    assert sygnal.kubelki_dni == {"0-30": 2, "31-60": 1, "61-90": 1, "starsze": 1}
+    # Wpisy z 5 i 20 dni wpadały wcześniej razem do `0-30`. Rozdzielenie ich
+    # jest sensem kubełka `0-7`: ENGAGEMENT_DROP pyta „czy przestali W TYM
+    # TYGODNIU", a nie „czy przestali w tym miesiącu".
+    assert sygnal.kubelki_dni == {"0-7": 1, "8-30": 1, "31-60": 1, "61-90": 1, "starsze": 1}
 
 
 async def test_podzial_zdarzen_oddziela_uprawnienia_od_uzywania(zbuduj: Any) -> None:

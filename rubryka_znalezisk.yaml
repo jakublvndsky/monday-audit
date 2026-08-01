@@ -9,8 +9,31 @@
 # Zasada nadrzędna: każde znalezisko musi wskazywać na fakt deterministyczny
 # ze snapshotu (pole `dowod`). Znalezisko bez dowodu odpada na walidacji
 # i nie dochodzi do renderera.
+#
+# ──────────────────────────────────────────────────────────────
+# 0.2 — 2026-08-01, przed 3.9. Sygnały dociągnięte do POMIARÓW
+# ──────────────────────────────────────────────────────────────
+#
+# Wersja 0.1 powstała przed zbudowaniem collectora, więc pięć klas opisywało
+# pola, których API nie oddaje, albo których zbierać nie wolno. Detektor
+# wzbudzałby wtedy hipotezy niemożliwe do domknięcia, bo finding bez `dowod`
+# odpada na walidacji — czyli klasa wyglądałaby na zaimplementowaną
+# i nie dawała ani jednego znaleziska.
+#
+# Zmienione, każde z odnośnikiem do pomiaru w `docs/OTWARTE.md`:
+#
+#   ZOMBIE_ACCOUNT     `enabled`/`is_pending` → `kind` + `status`        (O17)
+#   PLAN_MISMATCH      `max_users` bywa null → drugie źródło mianownika  (O2)
+#   BOARD_GHOST        `updated_at` → `najnowszy_at`; `type = board`     (O18, O14)
+#                      `rozklad_statusow` usunięty — łamał D5
+#   AUTOMATION_ABSENT  liczba automatyzacji → udział tablic bez zdarzeń  (O1, O12)
+#   AUTOMATION_DEAD    `is_active`/0 uruchomień → błędy i wyczerpania    (O1, O12)
+#
+# Czego NIE zmieniono: wag, wysiłków naprawy, budżetów i kolejności raportu.
+# To są decyzje biznesowe z etapu 1 i pomiary techniczne nie mają do nich nic
+# do powiedzenia.
 
-wersja: "0.1"
+wersja: "0.2"
 odbiorca_domyslny: wewnetrzny
 
 # ──────────────────────────────────────────────────────────────
@@ -68,41 +91,61 @@ klasy:
   - id: ZOMBIE_ACCOUNT
     nazwa: Konto nieaktywne, wciąż licencjonowane
     modul_zrodlowy: 2
-    sygnal: enabled = true AND last_activity > 90 dni
+    # Sygnał przepisany w 0.2 pod pomiar (OTWARTE.md O17). Pól `enabled`
+    # i `is_pending` nie ma w API 2026-10, a `kind` niesie więcej: rozdziela
+    # konta agentów AI i podglądowe od ludzi zajmujących płatne miejsca.
+    # Bez tego rozdzielenia sygnał zapalałby się na 95 rekordach zamiast 19.
+    sygnal: |
+      kind IN (admin, member) AND status = ACTIVE
+      AND (last_activity > 90 dni
+           OR (last_activity = null AND autor nieobecny w activity logach okna))
     rola_agenta: brak
     budzet_wywolan: 0
     warunki_odrzucenia:
-      - konto techniczne/serwisowe (rozpoznaj po nazwie lub braku zespołu)
-      - is_pending = true — to należy do NEVER_ACTIVATED, nie tutaj
+      - kind = personal_agent_member — konto agenta AI, nie człowiek
+      - kind IN (guest, view_only) — nie zajmuje płatnego miejsca, patrz GUEST_SPRAWL
+      - status = PENDING — to należy do NEVER_ACTIVATED, nie tutaj
+      - became_active_at nowsze niż 90 dni — konto świeże, nie martwe
     waga: wysoka
     wysilek_naprawy: niski
     typ_wyceny: oszczednosc_bezposrednia
     wzor: liczba_kont * koszt_licencji_mies * 12
     zmienne_od_klienta: [koszt_licencji_mies]
-    dowod: [user_hash, last_activity, enabled, plan_tier]
+    # `last_activity` jest puste u 37 z 95 osób i null znaczy „nie wiem", nie
+    # „martwy" — dlatego dowodem jest też brak autora w logach (3.7).
+    dowod: [user_hash, kind, status, last_activity, obecnosc_w_logach, plan_tier]
     widocznosc: klient
     trop_sprzedazowy: porządkowanie licencji — szybka wygrana budująca zaufanie
 
   - id: PLAN_MISMATCH
     nazwa: Plan nieadekwatny do realnego użycia
     modul_zrodlowy: 1
+    # `max_users` pochodzi z `account.plan`, a to zwraca NULL przy tokenie bez
+    # uprawnień admina (zmierzone na CXLABS, O2). Dlatego 0.2 dopuszcza drugie
+    # źródło mianownika: `active_members_count` z konta. To nie to samo — liczba
+    # miejsc KUPIONYCH kontra liczba miejsc ZAJĘTYCH — więc detektor musi
+    # zapisać, którego użył, a agent nie może mieszać jednego z drugim.
     sygnal: |
-      (max_users - aktywni_30d) / max_users > 0.3
-      OR wykorzystanie funkcji planu poniżej progu tieru
+      max_users znane:    (max_users - aktywni_30d) / max_users > 0.3
+      max_users nieznane: (active_members_count - aktywni_30d)
+                          / active_members_count > 0.3
     rola_agenta: |
       Ustal, czy nadwyżka miejsc jest zaplanowanym zapasem na rekrutację,
       czy pozostałością. Sprawdź daty utworzenia kont — jeśli nikt nowy
       nie doszedł od pół roku, to nie zapas, to nadpłata.
+      Jeśli podstawą był `active_members_count`, powiedz w findingu wprost,
+      że mówisz o miejscach ZAJĘTYCH, bo liczby kupionych nie dostaliśmy.
     budzet_wywolan: 3
     warunki_odrzucenia:
       - konta utworzone w ostatnich 60 dniach — konto rośnie
       - tier wymuszony jedną funkcją, której faktycznie używają
+      - brak i max_users, i active_members_count — nie ma mianownika, nie zgaduj
     waga: wysoka
     wysilek_naprawy: niski
     typ_wyceny: oszczednosc_bezposrednia
     wzor: nadwyzka_miejsc * koszt_licencji_mies * 12
     zmienne_od_klienta: [koszt_licencji_mies]
-    dowod: [plan_tier, max_users, aktywni_30d, daty_utworzenia_kont]
+    dowod: [plan_tier, podstawa_miejsc, liczba_miejsc, aktywni_30d, daty_utworzenia_kont]
     widocznosc: klient
     trop_sprzedazowy: przegląd licencji — argument, że audyt zwrócił się od razu
 
@@ -165,21 +208,40 @@ klasy:
   - id: BOARD_GHOST
     nazwa: Tablica porzucona
     modul_zrodlowy: 3
-    sygnal: state = active AND updated_at > 90 dni AND items_count > 0
+    # Dwie poprawki w 0.2, obie z pomiarów.
+    #
+    # 1. NIE `updated_at` (O18). Na 105 tablicach log aktywności był nowszy niż
+    #    `updated_at` w 94 przypadkach, zgodny w 11, starszy w ZERO, przy
+    #    rozbieżności do 40,6 dnia. `updated_at` śledzi metadane tablicy, nie
+    #    pracę na itemach, więc sygnał na nim uznawałby za martwe tablice,
+    #    na których pracowano trzy tygodnie temu. Rozstrzyga `najnowszy_at`.
+    # 2. `type = board` (O14). `boards` zwraca też tablice podelementów
+    #    i DOKUMENTY — zmierzone: board 92, document 5, sub_items_board 3.
+    #    Tablica podelementów jest służebna, a dokument nie jest tablicą.
+    #    Rozpoznanie po nazwie jest błędem: nazwa jest lokalizowana.
+    sygnal: |
+      type = board AND state = active AND items_count > 0
+      AND (najnowszy_at > 90 dni OR brak wpisów w logu okna)
     rola_agenta: |
-      Rozstrzygnij: archiwum czy porzucony proces. Sprawdź, czy itemy
-      zostały domknięte (statusy końcowe) — jeśli tak, to archiwum
-      i rekomendacja brzmi "zarchiwizuj". Jeśli itemy wiszą w stanach
-      pośrednich, to porzucona robota i sygnał do zbadania szerzej.
+      Rozstrzygnij: archiwum czy porzucony proces. Nie masz statusów itemów
+      (D5 — `items_count` to granica), więc oprzyj się na kształcie aktywności:
+      `po_klasie` mówi, czy ostatnia praca była operacyjna (ktoś wypełniał)
+      czy tylko strukturalna (ktoś porządkował), a `udzial_najaktywniejszego`
+      i `kubelki_dni` — czy proces gasł stopniowo, czy ucichł nagle.
+      Nagłe ucichnięcie jednej osoby to inna historia niż wygaszanie zespołem.
     budzet_wywolan: 4
     warunki_odrzucenia:
-      - tablica-szablon lub tablica referencyjna (rozpoznaj po nazwie)
-      - wszystkie itemy w statusach końcowych ORAZ nazwa wskazuje na rok/okres
+      - tablica-szablon lub referencyjna (rozpoznaj po nazwie)
+      - type != board — podelementy i dokumenty nie są kandydatami
+      - nazwa wskazuje na zamknięty rok lub okres
+      - created_at nowsze niż 90 dni — tablica świeża, nie porzucona
     waga: srednia
     wysilek_naprawy: niski
     typ_wyceny: ryzyko
     wzor: null
-    dowod: [board_id, nazwa, updated_at, items_count, rozklad_statusow]
+    # ŚWIADOMIE BEZ `rozklad_statusow` — wymagałby zejścia na poziom itemów,
+    # czego zabrania D5. Zastąpione kształtem aktywności z 3.7, który mamy.
+    dowod: [board_id, nazwa, typ, najnowszy_at, items_count, po_klasie, kubelki_dni]
     widocznosc: klient
     trop_sprzedazowy: porządkowanie workspace — wejście do szerszej przebudowy
 
@@ -293,24 +355,37 @@ klasy:
   - id: AUTOMATION_ABSENT
     nazwa: Konto nie korzysta z automatyzacji
     modul_zrodlowy: 4
+    # Przepisane w 0.2, bo poprzedni sygnał był NIEWYKONALNY (O1, O12).
+    # API monday **nie udostępnia listy automatyzacji** — ani per konto, ani per
+    # tablica. Nie ma więc `liczba_automatyzacji`, a bez licznika nie ma
+    # gęstości. Dostępne jest tylko to, co zmierzone:
+    #   - `account_trigger_statistics` — liczby uruchomień na POZIOMIE KONTA
+    #   - `trigger_events(filters: {boardId})` — zdarzenia per tablica
+    # Sygnał przenosi się więc z „ile automatyzacji istnieje" na „ile tablic
+    # nie widziało ANI JEDNEGO zdarzenia automatyzacji w oknie". To odpowiada
+    # na to samo pytanie biznesowe („robią ręcznie to, co mogłoby chodzić samo"),
+    # tylko liczy skutki zamiast konfiguracji.
     sygnal: |
-      liczba_automatyzacji = 0
-      OR gestosc (automatyzacje / aktywne_tablice) < 0.2
+      uruchomienia_konta = 0
+      OR udzial_tablic_bez_zdarzen_automatyzacji > 0.8
     rola_agenta: |
       Wskaż 3 najlepsze kandydatury na automatyzację. Szukaj tablic
       z kolumną statusu, właścicielem i datą — to gotowy wzorzec
       "zmiana statusu → powiadom właściciela → ustaw termin".
       Uzasadnij wyborem tablicy, nie ogólnikiem.
+      NIE twierdź, ile automatyzacji klient ma — tej liczby nie mamy z API.
+      Mów o tablicach bez śladu automatyzacji, bo to jest to, co zmierzyliśmy.
     budzet_wywolan: 8
     warunki_odrzucenia:
       - konto młodsze niż 60 dni — jeszcze się wdrażają
       - automatyzacja realizowana zewnętrznie (Make, Zapier) — sprawdź,
         czy w nazwach kolumn lub integracjach są tego ślady
+      - sondowanie tablic urwane sufitem próbki — udział policzony na wycinku
     waga: wysoka
     wysilek_naprawy: sredni
     typ_wyceny: ryzyko
     wzor: null
-    dowod: [liczba_automatyzacji, aktywne_tablice, gestosc, "kandydaci[]"]
+    dowod: [uruchomienia_konta, tablic_sondowanych, tablic_bez_zdarzen, udzial, "kandydaci[]"]
     widocznosc: klient
     trop_sprzedazowy: |
       NAJMOCNIEJSZY TROP HANDLOWY. Konto bez automatyzacji to konto,
@@ -318,24 +393,45 @@ klasy:
       z gotową listą trzech kandydatów to oferta, która sama się pisze.
 
   - id: AUTOMATION_DEAD
-    nazwa: Automatyzacja nieaktywna lub bez uruchomień
+    nazwa: Automatyzacja uruchamia się i nie działa
     modul_zrodlowy: 4
-    sygnal: is_active = false OR (is_active AND 0 uruchomień w 90 dni)
+    # Przepisane w 0.2. Poprzedni sygnał („is_active = false OR 0 uruchomień")
+    # był niewykonalny w obie strony: `is_active` nie istnieje w API, a
+    # automatyzacja z ZEROWĄ liczbą uruchomień po prostu nie pojawia się
+    # w statystykach, więc nie da się jej wyliczyć — nie ma listy automatyzacji
+    # do porównania (O1, O12).
+    #
+    # Zamiast tego pytamy o coś, co API oddaje wprost i co jest MOCNIEJSZYM
+    # znaleziskiem: automatyzacja, która się odpala i kończy błędem albo
+    # wyczerpaniem limitu. `account_triggers_statistics_by_entity_id` zwraca
+    # liczby per `automation_id` w rozbiciu na success / failure / exhausted,
+    # a przy błędach także ich POWODY. Zmierzone na CXLABS: 7 automatyzacji
+    # z błędami, 1056 udanych uruchomień na 1063.
+    #
+    # „Zbudowana i cicho psuje się od miesięcy" bije „skonfigurowana i nigdy
+    # nie odpalona", bo dotyczy procesu, na który ktoś liczy.
+    sygnal: |
+      failure > 0 OR exhausted > 0
+      OR (failure / (failure + success)) > 0.05
     rola_agenta: |
-      Rozstrzygnij: śmieć po testach czy proces przeniesiony na ręce.
-      Sprawdź, czy itemy na tej tablicy nadal zmieniają statusy —
-      jeśli tak, ktoś robi ręcznie to, co automat miał robić sam,
-      i to jest realne znalezisko. Jeśli tablica też jest martwa,
-      to zwykły śmieć — waga niska, zgłoś zbiorczo.
+      Rozstrzygnij, czy to psuje proces, czy tylko hałasuje. Powody błędów
+      są w snapshocie — przeczytaj je, zanim cokolwiek napiszesz.
+      NIE twierdź, na której tablicy stoi ta automatyzacja: API nie oddaje
+      przypisania automatyzacji do tablicy i tego nie zgadujemy.
+      Nie twierdź też, ile automatyzacji klient ma łącznie — widzimy tylko te,
+      które się uruchamiały.
     budzet_wywolan: 5
     warunki_odrzucenia:
-      - automatyzacja sezonowa (rozpoznaj po nazwie lub warunku daty)
-      - tablica również martwa — degraduj wagę do niskiej
+      - pojedynczy błąd przy tysiącach udanych uruchomień — to szum, nie awaria
+      - powód błędu wskazuje na dane wejściowe od człowieka, nie na konfigurację
+      - exhausted przy jednorazowej migracji — limit wyczerpany świadomie
     waga: srednia
     wysilek_naprawy: niski
     typ_wyceny: ryzyko
     wzor: null
-    dowod: [automation_id, board_id, is_active, uruchomienia_90d, aktywnosc_tablicy]
+    # BEZ `board_id` i BEZ `is_active` — API nie oddaje ani jednego, ani
+    # drugiego. Zamiast nich powody błędów, które są konkretniejsze.
+    dowod: [automation_id, failure, success, exhausted, powody_bledow]
     widocznosc: klient
     trop_sprzedazowy: audyt automatyzacji — wejście do warsztatu
 

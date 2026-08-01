@@ -84,7 +84,11 @@ OKNO_OSTATNICH = 5
 
 # Kubełki czasowe. Bez rozkładu w czasie nie ma `ENGAGEMENT_DROP` — spadek
 # zaangażowania widać w kształcie, nie w sumie.
-KUBELKI = ((30, "0-30"), (60, "31-60"), (90, "61-90"))
+#
+# Kubełek `0-7` istnieje dla ENGAGEMENT_DROP: rubryka porównuje udział
+# aktywności z 7 dni wobec 90 dni („używali, przestali"). Bez niego najkrótszym
+# oknem było 30 dni, czyli sygnał zapalałby się kilka tygodni za późno.
+KUBELKI = ((7, "0-7"), (30, "8-30"), (60, "31-60"), (90, "61-90"))
 KUBELEK_STARSZE = "starsze"
 
 # Podział zdarzeń. `subscribe` i `set_entity_board_role` to NIE używanie

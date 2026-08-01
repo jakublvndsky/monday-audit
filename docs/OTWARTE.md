@@ -520,9 +520,9 @@ tablic pominiętych ląduje w snapshocie.
 
 ---
 
-## O14. Tablice `Subitems of ...` zafałszują BOARD_GHOST
+## O14. Tablice podelementów i dokumenty — ROZSTRZYGNIĘTE przez `Board.type`
 
-**Status:** zauważone w snapshocie #1, 2026-07-31
+**Status: ROZSTRZYGNIĘTE 2026-08-01 — collector zbiera `type`, detektory filtrują**
 **Blokuje:** jakość `BOARD_GHOST`, pośrednio `DUPLICATE_STRUCTURE`
 
 W snapshocie #1 (workspace 6576039) osiem tablic ma `items_count = 0`, czyli
@@ -540,10 +540,24 @@ Jeśli tak, collector powinien te pola zbierać w 3.5.
 **ZMIERZONE 2026-07-31 — nazwa jest LOKALIZOWANA.** Sondując workspace 6576039
 trafiłem na tablicę **„Elementy podrzędne tablicy Lista pomysłów Agentów AI"**,
 czyli polski odpowiednik `Subitems of ...`. Filtr po angielskim przedrostku
-przepuściłby ją bez śladu. To przeważa sprawę na rzecz `Board.type` /
-`hierarchy_type`: filtr po nazwie wymagałby listy tłumaczeń dla każdego języka
-interfejsu klienta, a błąd byłby cichy — tablica techniczna po prostu
-wylądowałaby w raporcie jako martwa.
+przepuściłby ją bez śladu.
+
+**ROZSTRZYGNIĘCIE 2026-08-01: `Board.type`.** Pole rozwiązuje sprawę bez
+zgadywania po nazwie. Zmierzone na workspace 6576039 (snapshot #4):
+`board` 97, `document` 5, `sub_items_board` 3 — czyli **8 obiektów ze 105,
+które `boards` zwraca, nie jest tablicą**. Sprawdzone: polska „Elementy
+podrzędne tablicy ..." ma poprawnie `sub_items_board`.
+
+**Druga klasa fałszywek, o której nie wiedzieliśmy: DOKUMENTY.** Pięć obiektów
+ma `type = document`. Dokument nie ma itemów ani kolumn w sensie tablicy, więc
+w `BOARD_GHOST` wyglądałby na porzucony, a w `BOARD_OVERCOMPLEX` na pusty.
+Nikt tego nie przewidział w etapie 1, bo nikt nie zakładał, że `boards` zwraca
+coś, co tablicą nie jest.
+
+Collector zbiera `type` (3.5), rozkład idzie do `discovery.po_typie`, a rubryka
+0.2 ma w `BOARD_GHOST` warunek `type = board` i warunek odrzucenia. Wartości
+`hierarchy_type` (wszędzie `classic`) i `board_kind` (wszędzie `public`) NIE
+odróżniają tych obiektów — sprawdzone, są bezużyteczne do tego celu.
 
 **Dlaczego to ważne:** to dokładnie ten rodzaj fałszywki, którą rubryka
 nazywa najgroźniejszą — klient sprawdzi takie znalezisko pierwsze
