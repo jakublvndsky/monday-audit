@@ -25,7 +25,16 @@ from monday_audit.detektory import (
     DETEKTORY,
     DetektorError,
     Hipoteza,
+    automation_absent,
     automation_dead,
+    board_ghost,
+    board_no_owner,
+    board_overcomplex,
+    duplicate_structure,
+    engagement_drop,
+    guest_sprawl,
+    plan_mismatch,
+    process_bypass,
     uruchom_detektory,
     zombie_account,
 )
@@ -338,18 +347,20 @@ def test_ten_sam_snapshot_daje_ta_sama_liste(con: sqlite3.Connection) -> None:
         ),
     )
 
-    pierwsze, _ = uruchom_detektory(con, snapshot_id)
-    drugie, _ = uruchom_detektory(con, snapshot_id)
+    pierwsze, raport_a = uruchom_detektory(con, snapshot_id)
+    drugie, raport_b = uruchom_detektory(con, snapshot_id)
 
     assert [h.do_zapisu() for h in pierwsze] == [h.do_zapisu() for h in drugie]
-    # I kolejność jest ustalona, nie przypadkowa.
-    assert [(h.klasa_id, h.obiekt_id) for h in pierwsze] == [
-        ("AUTOMATION_DEAD", "a1"),
-        ("AUTOMATION_DEAD", "a2"),
-        ("ZOMBIE_ACCOUNT", "h1"),
-        ("ZOMBIE_ACCOUNT", "h2"),
-        ("ZOMBIE_ACCOUNT", "h3"),
-    ]
+    assert raport_a == raport_b
+
+    # Kolejność jest ustalona, nie przypadkowa — posortowana po (klasa, obiekt).
+    klucze = [(h.klasa_id, h.obiekt_id) for h in pierwsze]
+    assert klucze == sorted(klucze)
+    # I wejście było celowo podane w kolejności odwrotnej niż wynik.
+    zombie = [h.obiekt_id for h in pierwsze if h.klasa_id == "ZOMBIE_ACCOUNT"]
+    automaty = [h.obiekt_id for h in pierwsze if h.klasa_id == "AUTOMATION_DEAD"]
+    assert zombie == ["h1", "h2", "h3"]
+    assert automaty == ["a1", "a2"]
 
 
 def test_raport_wymienia_klasy_bez_detektora(con: sqlite3.Connection) -> None:
@@ -372,15 +383,63 @@ def test_budzet_bierze_sie_z_rubryki(con: sqlite3.Connection) -> None:
     hipotezy, raport = uruchom_detektory(con, snapshot_id)
 
     po_klasie = {h.klasa_id: h.budzet_wywolan for h in hipotezy}
+    rubryka = wczytaj_rubryke()
     # ZOMBIE_ACCOUNT ma `rola_agenta: brak`, więc zero — agent go nie bada.
     assert po_klasie["ZOMBIE_ACCOUNT"] == 0
     assert po_klasie["AUTOMATION_DEAD"] == 5
-    assert raport["budzet_zamowiony"] == 5
+    # Każda hipoteza niesie budżet swojej klasy, a raport ich sumę.
+    for h in hipotezy:
+        assert h.budzet_wywolan == rubryka.budzet(h.klasa_id)
+    assert raport["budzet_zamowiony"] == sum(h.budzet_wywolan for h in hipotezy)
 
 
 def test_brak_snapshotu_przerywa_jasno(con: sqlite3.Connection) -> None:
     with pytest.raises(DetektorError, match="nie istnieje"):
         zombie_account(con, 999, 0)
+
+
+def test_zapytania_sa_parametryzowane() -> None:
+    """Zastępuje regułę S608, wyciszoną dla tego modułu w pyproject.
+
+    Reguła zgłasza każde SQL składane z f-stringa i nie umie odróżnić stałej
+    modułowej od wejścia użytkownika. Ten test sprawdza to, co jest naprawdę
+    groźne: czy w zapytaniach nie ma WSTAWIONEJ wartości. Wolno składać
+    fragmenty (`{_TABLICE}`), nie wolno wstawiać danych.
+    """
+    import re
+
+    from monday_audit import detektory as modul
+
+    zrodlo = Path(modul.__file__).read_text(encoding="utf-8")
+    dozwolone = {"_TABLICE", "_AKTYWNOSC"}
+
+    # Tylko bloki f-stringowe, bo tylko one składają SQL. Zwykłe f-stringi
+    # w komunikatach błędów nie mają z tym nic wspólnego.
+    bloki = re.findall(r'f"""(.*?)"""', zrodlo, flags=re.DOTALL)
+    assert bloki, "test straciłby sens, gdyby nie było już składanych zapytań"
+    for blok in bloki:
+        if "SELECT" not in blok:
+            continue
+        for wstawka in re.findall(r"\{([a-zA-Z_][a-zA-Z_0-9]*)\}", blok):
+            assert wstawka in dozwolone, (
+                f"do SQL-a wstawiono `{wstawka}` — wartości idą przez parametry "
+                f"`:nazwa`, a składać wolno tylko {sorted(dozwolone)}"
+            )
+
+    # I żadna stała SQL nie została zepsuta komentarzem Pythona — SQLite zna
+    # `--`, nie `#`. Ten błąd zdarzył się raz, przy dopisywaniu `noqa`.
+    for nazwa in dir(modul):
+        wartosc = getattr(modul, nazwa)
+        if isinstance(wartosc, str) and "SELECT" in wartosc:
+            assert "#" not in wartosc, f"{nazwa}: komentarz Pythona wewnątrz SQL-a"
+            assert "{" not in wartosc, f"{nazwa}: nierozwiązana wstawka w SQL-u"
+
+
+def test_kazda_klasa_z_rubryki_ma_detektor() -> None:
+    """3.9 wymaga detektora dla każdej klasy poza `status: do_weryfikacji`."""
+    z_rubryki = {k.id for k in wczytaj_rubryke().do_detekcji()}
+
+    assert set(DETEKTORY) == z_rubryki, "rejestr rozjechał się z rubryką"
 
 
 def test_hipoteza_jest_niemutowalna() -> None:
@@ -397,3 +456,322 @@ def test_do_zapisu_jest_serializowalne(con: sqlite3.Connection) -> None:
     hipotezy, _ = uruchom_detektory(con, snapshot_id)
 
     assert json.loads(json.dumps([h.do_zapisu() for h in hipotezy], ensure_ascii=False))
+
+
+# ── klasy tablicowe: dane, które faktycznie wzbudzają ────────────────────
+
+
+def tablica(
+    board_id: str,
+    *,
+    nazwa: str = "Tablica",
+    typ: str = "board",
+    state: str = "active",
+    items_count: int = 10,
+    created_at: str = "2025-01-01T00:00:00Z",
+    updated_at: str = "2026-07-01T00:00:00Z",
+    workspace_id: str | None = "ws1",
+    owners: list[str] | None = None,
+    subscribers: list[str] | None = None,
+    kolumny: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    return {
+        "board_id": board_id,
+        "nazwa": nazwa,
+        "typ": typ,
+        "state": state,
+        "items_count": items_count,
+        "created_at": created_at,
+        "updated_at": updated_at,
+        "workspace_id": workspace_id,
+        "workspace_nazwa": "Workspace",
+        "owners": owners if owners is not None else ["wl1"],
+        "subscribers": subscribers if subscribers is not None else [],
+        "kolumny": kolumny if kolumny is not None else [{"title": "Status", "type": "status"}],
+        "grup": 1,
+    }
+
+
+def aktywnosc(
+    board_id: str,
+    *,
+    wpisow: int = 5,
+    najnowszy_at: str | None = NIEDAWNO,
+    autorzy: list[str] | None = None,
+    udzial: dict[str, int] | None = None,
+) -> dict[str, Any]:
+    return {
+        "board_id": board_id,
+        "wpisow": wpisow,
+        "najnowszy_at": najnowszy_at,
+        "autorzy": autorzy if autorzy is not None else [],
+        "udzial_autorow": udzial or {},
+        "po_klasie": {"operacyjne": wpisow},
+        "kubelki_dni": {"0-7": wpisow},
+    }
+
+
+def pelny(
+    *,
+    uzytkownicy: list[dict[str, Any]] | None = None,
+    tablice: list[dict[str, Any]] | None = None,
+    aktywnosci: list[dict[str, Any]] | None = None,
+    automatyzacje_sondy: dict[str, Any] | None = None,
+    okno_od: str = OKNO_OD,
+) -> dict[str, Any]:
+    """Snapshot ze wszystkimi sekcjami, których dotykają detektory tablicowe."""
+    return {
+        "meta": {"okno_od": okno_od, "run_at": RUN_AT, "okno_dni": 90},
+        "konto": {"konto": {"id": "27690228"}, "plan": {"tier": "enterprise", "max_users": None}},
+        "uzytkownicy": {"uzytkownicy": uzytkownicy or []},
+        "tablice": {"tablice": tablice or []},
+        "aktywnosc": {"aktywnosc_tablic": aktywnosci or []},
+        "automatyzacje": {
+            "statystyki_automatyzacji": [],
+            "uruchomienia": {"razem": 100},
+            "podsumowanie": automatyzacje_sondy
+            or {"tablic_sondowanych": 10, "tablic_bez_zdarzen": 1, "tablic_pominietych": 0},
+        },
+    }
+
+
+def test_board_ghost_stoi_na_logu_nie_na_updated_at(con: sqlite3.Connection) -> None:
+    """O18: `updated_at` był nowszy od logu w 94 na 105 tablic, do 40 dni.
+
+    Tablica ma świeże `updated_at`, ale log milczy od stycznia. Sygnał na
+    `updated_at` przegapiłby ją zupełnie.
+    """
+    snapshot_id = zapisz(
+        con,
+        pelny(
+            tablice=[tablica("b1", updated_at="2026-07-30T00:00:00Z")],
+            aktywnosci=[aktywnosc("b1", najnowszy_at=DAWNO)],
+        ),
+    )
+
+    hipotezy = board_ghost(con, snapshot_id, budzet("BOARD_GHOST"))
+
+    assert [h.obiekt_id for h in hipotezy] == ["b1"]
+    assert hipotezy[0].fakty["najnowszy_at"] == DAWNO
+    assert hipotezy[0].fakty["updated_at"] == "2026-07-30T00:00:00Z"
+
+
+@pytest.mark.parametrize("typ", ["sub_items_board", "document"])
+def test_board_ghost_pomija_podelementy_i_dokumenty(con: sqlite3.Connection, typ: str) -> None:
+    """O14: `boards` zwraca 8 obiektów ze 105, które tablicą nie są."""
+    snapshot_id = zapisz(
+        con,
+        pelny(
+            tablice=[tablica("b1", typ=typ)],
+            aktywnosci=[aktywnosc("b1", najnowszy_at=DAWNO)],
+        ),
+    )
+
+    assert board_ghost(con, snapshot_id, 0) == []
+
+
+def test_board_ghost_nie_orzeka_o_tablicy_bez_probki(con: sqlite3.Connection) -> None:
+    """„Nie próbkowano" i „brak aktywności" to dwie różne rzeczy."""
+    snapshot_id = zapisz(con, pelny(tablice=[tablica("b1")], aktywnosci=[]))
+
+    assert board_ghost(con, snapshot_id, 0) == []
+
+
+def test_board_no_owner_lapie_brak_i_nieaktywnych(con: sqlite3.Connection) -> None:
+    snapshot_id = zapisz(
+        con,
+        pelny(
+            uzytkownicy=[osoba("wl_martwy", status="INACTIVE"), osoba("wl_zywy")],
+            tablice=[
+                tablica("bez", owners=[]),
+                tablica("martwy", owners=["wl_martwy"]),
+                tablica("ok", owners=["wl_zywy"]),
+            ],
+            aktywnosci=[aktywnosc("bez", udzial={"top": 9, "inny": 2})],
+        ),
+    )
+
+    hipotezy = board_no_owner(con, snapshot_id, budzet("BOARD_NO_OWNER"))
+
+    assert sorted(h.obiekt_id for h in hipotezy) == ["bez", "martwy"]
+    bez = next(h for h in hipotezy if h.obiekt_id == "bez")
+    assert bez.fakty["podstawa"] == "brak właścicieli"
+    assert bez.fakty["top_kontrybutor_hash"] == "top"
+
+
+def test_board_overcomplex_nie_udaje_ze_zna_martwe_kolumny(con: sqlite3.Connection) -> None:
+    kolumny = [{"title": f"K{n}", "type": "text"} for n in range(16)]
+    snapshot_id = zapisz(con, pelny(tablice=[tablica("b1", kolumny=kolumny)]))
+
+    hipotezy = board_overcomplex(con, snapshot_id, budzet("BOARD_OVERCOMPLEX"))
+
+    assert hipotezy[0].fakty["liczba_kolumn"] == 16
+    assert hipotezy[0].fakty["kolumny_martwe"] is None, "wymaga próbki itemów (D5) — robota agenta"
+    assert hipotezy[0].fakty["typy_kolumn"] == {"text": 16}
+
+
+def test_duplicate_structure_liczy_jaccarda(con: sqlite3.Connection) -> None:
+    """Tablica-wycinek NIE jest duplikatem — dlatego suma, nie mniejszy zbiór."""
+    wspolne = [{"title": f"K{n}", "type": "text"} for n in range(8)]
+    snapshot_id = zapisz(
+        con,
+        pelny(
+            tablice=[
+                tablica("a", kolumny=wspolne),
+                tablica("b", kolumny=wspolne),
+                tablica("wycinek", kolumny=wspolne[:2]),
+            ]
+        ),
+    )
+
+    hipotezy = duplicate_structure(con, snapshot_id, budzet("DUPLICATE_STRUCTURE"))
+
+    assert [h.obiekt_id for h in hipotezy] == ["a+b"]
+    assert hipotezy[0].fakty["nakladanie_kolumn"] == 1.0
+
+
+def test_duplicate_structure_nie_lapie_roznych_workspace(con: sqlite3.Connection) -> None:
+    wspolne = [{"title": f"K{n}", "type": "text"} for n in range(8)]
+    snapshot_id = zapisz(
+        con,
+        pelny(
+            tablice=[
+                tablica("a", kolumny=wspolne, workspace_id="ws1"),
+                tablica("b", kolumny=wspolne, workspace_id="ws2"),
+            ]
+        ),
+    )
+
+    assert duplicate_structure(con, snapshot_id, 0) == []
+
+
+def test_process_bypass_wymaga_dwoch_nowych_tablic(con: sqlite3.Connection) -> None:
+    """Koniunkcja z rubryki: jedna nowa tablica to nie obejście procesu."""
+    wspolne = [{"title": f"K{n}", "type": "text"} for n in range(8)]
+    zamilkla = "2026-03-01T00:00:00Z"
+    snapshot_id = zapisz(
+        con,
+        pelny(
+            tablice=[
+                tablica("stara", kolumny=wspolne, created_at="2025-01-01T00:00:00Z"),
+                tablica("nowa1", kolumny=wspolne, created_at="2026-03-10T00:00:00Z"),
+            ],
+            aktywnosci=[aktywnosc("stara", najnowszy_at=zamilkla)],
+        ),
+    )
+
+    assert process_bypass(con, snapshot_id, 0) == [], "jedna nowa tablica nie wystarcza"
+
+
+def test_process_bypass_lapie_ucieczke(con: sqlite3.Connection) -> None:
+    wspolne = [{"title": f"K{n}", "type": "text"} for n in range(8)]
+    zamilkla = "2026-03-01T00:00:00Z"
+    snapshot_id = zapisz(
+        con,
+        pelny(
+            tablice=[
+                tablica("stara", kolumny=wspolne, created_at="2025-01-01T00:00:00Z"),
+                tablica("nowa1", kolumny=wspolne, created_at="2026-03-10T00:00:00Z"),
+                tablica("nowa2", kolumny=wspolne, created_at="2026-03-20T00:00:00Z"),
+            ],
+            aktywnosci=[aktywnosc("stara", najnowszy_at=zamilkla)],
+        ),
+    )
+
+    hipotezy = process_bypass(con, snapshot_id, budzet("PROCESS_BYPASS"))
+
+    assert [h.obiekt_id for h in hipotezy] == ["stara"]
+    assert sorted(hipotezy[0].fakty["boardy_nowe"]) == ["nowa1", "nowa2"]
+    assert hipotezy[0].fakty["data_zamilkniecia"] == zamilkla
+    assert hipotezy[0].fakty["hipoteza_przyczyny"] is None, "przyczyna to robota agenta"
+
+
+def test_process_bypass_pomija_tablice_powstale_poza_oknem(con: sqlite3.Connection) -> None:
+    """±30 dni od zamilknięcia. Tablice z zupełnie innego okresu to nie ucieczka."""
+    wspolne = [{"title": f"K{n}", "type": "text"} for n in range(8)]
+    snapshot_id = zapisz(
+        con,
+        pelny(
+            tablice=[
+                tablica("stara", kolumny=wspolne, created_at="2025-01-01T00:00:00Z"),
+                tablica("nowa1", kolumny=wspolne, created_at="2025-06-01T00:00:00Z"),
+                tablica("nowa2", kolumny=wspolne, created_at="2025-06-02T00:00:00Z"),
+            ],
+            aktywnosci=[aktywnosc("stara", najnowszy_at="2026-03-01T00:00:00Z")],
+        ),
+    )
+
+    assert process_bypass(con, snapshot_id, 0) == []
+
+
+def test_guest_sprawl_jedna_hipoteza_na_konto(con: sqlite3.Connection) -> None:
+    ludzie = [
+        osoba("g1", kind="guest", last_activity="2025-06-01T00:00:00Z"),
+        osoba("g2", kind="guest", last_activity=NIEDAWNO),
+        osoba("m1", kind="member"),
+    ]
+    snapshot_id = zapisz(
+        con, pelny(uzytkownicy=ludzie, tablice=[tablica("b1", subscribers=["g1"])])
+    )
+
+    hipotezy = guest_sprawl(con, snapshot_id, budzet("GUEST_SPRAWL"))
+
+    assert len(hipotezy) == 1
+    assert hipotezy[0].obiekt_id == "27690228"
+    fakty = hipotezy[0].fakty
+    assert fakty["liczba_guest"] == 2
+    assert fakty["liczba_members"] == 1
+    assert [g["user_hash"] for g in fakty["goscie_nieaktywni"]] == ["g1"]
+    assert fakty["goscie_nieaktywni"][0]["tablice_dostepne"] == ["b1"]
+
+
+def test_plan_mismatch_zapisuje_ktore_zrodlo_miejsc(con: sqlite3.Connection) -> None:
+    """Miejsca KUPIONE i ZAJĘTE to nie to samo — agent musi wiedzieć, co liczył."""
+    ludzie = [osoba(f"m{n}", kind="member") for n in range(10)]
+    ludzie[0] = osoba("m0", kind="member", last_activity=NIEDAWNO)
+    snapshot_id = zapisz(con, pelny(uzytkownicy=ludzie))
+
+    hipotezy = plan_mismatch(con, snapshot_id, budzet("PLAN_MISMATCH"))
+
+    assert len(hipotezy) == 1
+    assert "ZAJĘTE" in hipotezy[0].fakty["podstawa_miejsc"]
+    assert hipotezy[0].fakty["liczba_miejsc"] == 10
+    assert hipotezy[0].fakty["aktywni_30d"] == 1
+
+
+def test_automation_absent_liczy_udzial_i_odnotowuje_pominiete(con: sqlite3.Connection) -> None:
+    snapshot_id = zapisz(
+        con,
+        pelny(
+            tablice=[
+                tablica(
+                    "b1",
+                    kolumny=[
+                        {"title": "Status", "type": "status"},
+                        {"title": "Termin", "type": "date"},
+                    ],
+                )
+            ],
+            automatyzacje_sondy={
+                "tablic_sondowanych": 10,
+                "tablic_bez_zdarzen": 9,
+                "tablic_pominietych": 95,
+            },
+        ),
+    )
+
+    hipotezy = automation_absent(con, snapshot_id, budzet("AUTOMATION_ABSENT"))
+
+    assert hipotezy[0].fakty["udzial"] == 0.9
+    assert hipotezy[0].fakty["tablic_pominietych_w_sondowaniu"] == 95
+    assert [k["board_id"] for k in hipotezy[0].fakty["kandydaci"]] == ["b1"]
+
+
+def test_engagement_drop_wymaga_minimalnej_grupy(con: sqlite3.Connection) -> None:
+    """W zespole dwuosobowym jedna osoba na urlopie daje 50% spadku."""
+    mala = [osoba(f"m{n}", kind="member") for n in range(2)]
+    for czlowiek in mala:
+        czlowiek["zespoly"] = ["Mały zespół"]
+    snapshot_id = zapisz(con, pelny(uzytkownicy=mala))
+
+    assert engagement_drop(con, snapshot_id, 0) == []

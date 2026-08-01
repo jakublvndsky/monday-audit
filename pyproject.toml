@@ -103,6 +103,17 @@ ignore = [
     "S105",  # atrapy tokenów w testach
     "S106",
 ]
+# S608 zgłasza każde SQL składane z f-stringa i nie umie odróżnić stałej
+# modułowej od wejścia użytkownika. Detektory (3.9) składają zapytania WYŁĄCZNIE
+# ze stałych `_TABLICE` i `_AKTYWNOSC`, a wszystkie wartości idą przez parametry
+# `:nazwa`. Inline `noqa` tu nie działa: ruff zgłasza naruszenie na linii
+# otwierającej wielolinijkowy literał, więc komentarz wpada W ŚRODEK SQL-a
+# i staje się częścią zapytania (SQLite nie zna komentarzy `#`).
+#
+# W zamian regułę zastępuje test `test_zapytania_sa_parametryzowane`, który
+# sprawdza to, czego S608 sprawdzić nie umie: że w żadnej stałej SQL nie ma
+# wstawionej wartości, tylko nazwane parametry.
+"src/monday_audit/detektory.py" = ["S608"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
