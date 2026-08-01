@@ -346,6 +346,8 @@ async def test_snapshot_ma_dokladnie_dozwolone_pola(zbuduj: Any) -> None:
     assert set(wynik.do_snapshotu()["tablice"][0]) == {
         "board_id",
         "nazwa",
+        # `typ` odsiewa tablice podelementów i dokumenty przed detektorami (O14).
+        "typ",
         "state",
         "board_kind",
         "items_count",
@@ -385,6 +387,7 @@ def test_tablica_jest_niemutowalna() -> None:
     tablica = Tablica(
         board_id="1",
         nazwa="X",
+        typ="board",
         state="active",
         board_kind="public",
         items_count=0,

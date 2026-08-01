@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 _SZKIELET = """
 query ($p: Int!, $limit: Int!, $state: State!{deklaracje}) {{
   boards (limit: $limit, page: $p, state: $state{filtr}, order_by: created_at) {{
-    id name state board_kind items_count created_at updated_at
+    id name type state board_kind items_count created_at updated_at
     workspace {{ id name }}
     owners {{ id }}
     subscribers {{ id }}
@@ -66,6 +66,14 @@ class Tablica:
 
     board_id: str
     nazwa: str
+    # `type` odróżnia prawdziwą tablicę od tablicy podelementów i od dokumentu.
+    # Zmierzone 2026-08-01 na workspace 6576039: `board` 92, `document` 5,
+    # `sub_items_board` 3. Rozpoznanie po NAZWIE byłoby błędem — nazwa jest
+    # lokalizowana („Elementy podrzędne tablicy ..."), więc filtr po angielskim
+    # `Subitems of ` przepuściłby je na polskim koncie (O14). Bez tego pola
+    # BOARD_GHOST i BOARD_OVERCOMPLEX startują ze zafałszowanym wejściem:
+    # tablica podelementów jest służebna, a dokument nie jest tablicą.
+    typ: str | None
     state: str
     board_kind: str
     items_count: int | None
@@ -81,6 +89,7 @@ class Tablica:
         return {
             "board_id": self.board_id,
             "nazwa": self.nazwa,
+            "typ": self.typ,
             "state": self.state,
             "board_kind": self.board_kind,
             "items_count": self.items_count,
@@ -188,6 +197,7 @@ def _tablica(surowa: dict[str, Any], *, client_id: str, sol: bytes) -> Tablica:
             for k in kolumny
             if isinstance(k, dict)
         ),
+        typ=surowa.get("type") or None,
         created_at=surowa.get("created_at") or None,
         updated_at=surowa.get("updated_at") or None,
     )
@@ -222,11 +232,18 @@ async def zbierz_tablice(
         zebrane.append(tablica)
 
     bez_items_count = sum(1 for t in zebrane if t.items_count is None)
+    po_typie: dict[str, int] = {}
+    for tablica in zebrane:
+        klucz = tablica.typ or "brak"
+        po_typie[klucz] = po_typie.get(klucz, 0) + 1
     discovery: dict[str, Any] = {
         "items_count_dostepne": bez_items_count == 0,
         "tablic_bez_items_count": bez_items_count,
         "owners_dostepne": any(t.owners for t in zebrane),
         "stany_w_liscie": list(STANY_ZBIERANE) if not zbieraj_usuniete else ["all"],
+        # Rozkład typów idzie do snapshotu, bo detektory z 3.9 muszą odsiać
+        # tablice podelementów i dokumenty, a raport ma powiedzieć, ile ich było.
+        "po_typie": dict(sorted(po_typie.items())),
     }
 
     wynik = WynikTablic(

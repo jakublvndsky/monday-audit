@@ -66,6 +66,7 @@ def tablica(board_id: str, items_count: int | None = 10) -> Tablica:
     return Tablica(
         board_id=board_id,
         nazwa=f"Tablica {board_id}",
+        typ="board",
         state="active",
         board_kind="public",
         items_count=items_count,
