@@ -46,6 +46,26 @@ logger = logging.getLogger(__name__)
 
 URL_API = "https://api.monday.com/v2"
 
+# Przypięta wersja API — piąty element pinowania z 05-deploy.md, obok modelu,
+# rubryki, promptu i collectora (OTWARTE.md O15).
+#
+# Bez nagłówka `API-Version` monday oddaje wersję DOMYŚLNĄ konta i przesuwa ją
+# w czasie. Zmierzone 2026-07-31: w wersji `2024-10` pole `Board.created_at`
+# nie istnieje, a `tablice.py` o nie pyta. Ten sam kod, to samo konto, inna
+# wersja — i zapytanie się wywala. Groźniejszy jest wariant cichy: zmieniona
+# semantyka pola daje run, który przechodzi, i snapshot różny od poprzedniego
+# bez żadnej zmiany na koncie klienta.
+#
+# `2026-07` to wersja, która była domyślna w dniu przypięcia, czyli JEDYNA
+# przeciwko której cokolwiek tu zwalidowano. Podnoszenie idzie przez bramę
+# promocji jak każda inna zmiana: odpal run na obu wersjach, porównaj snapshoty,
+# potem zmień tę stałą. Nigdy nie podnoś jej „bo wyszła nowa".
+#
+# Wersje widziane 2026-08-01: 2025-04…2026-04 (maintenance), 2026-07 (current),
+# 2026-10 i 2027-01 (release_candidate). Monday trzyma wersję w maintenance
+# około roku, więc ta stała ma termin ważności i musi być przeglądana.
+WERSJA_API = "2026-07"
+
 POLE_COMPLEXITY = "complexity { query after reset_in_x_seconds }"
 
 # Limity chwilowe (minuta, complexity, współbieżność) — ponawiamy.
@@ -329,9 +349,10 @@ class MondayClient:
         budzet_wywolan: twardy limit wywołań na cały cykl życia klienta.
             Domyślne 400 to ~40% dziennego limitu planu Pro. Po rozpoznaniu
             planu (3.3) podnieś albo obniż przez `ustaw_budzet()`.
-        wersja_api: wartość nagłówka `API-Version`. `None` = wersja domyślna
-            konta. Przypięcie wersji jest wymogiem odtwarzalności z etapu 5,
-            ale konkretny numer wymaga potwierdzenia empirycznego (3.8).
+        wersja_api: wartość nagłówka `API-Version`. Domyślnie przypięta do
+            `WERSJA_API` — patrz komentarz przy tej stałej. `None` oddaje
+            sterowanie wersji domyślnej konta i jest trybem do zbadania
+            nowej wersji, nie trybem produkcyjnym.
         postep: wywoływany po każdym kroku. `None` = cisza.
         margines_complexity: mnożnik zapasu. Czekamy na reset, gdy pozostały
             zapas nie pokrywa szacowanego kosztu razy tyle. Szacunek bierzemy
@@ -345,7 +366,7 @@ class MondayClient:
         rejestr: Rejestr,
         *,
         budzet_wywolan: int = 400,
-        wersja_api: str | None = None,
+        wersja_api: str | None = WERSJA_API,
         maks_prob: int = 4,
         baza_czekania: float = 1.0,
         maks_czekanie: float = 60.0,

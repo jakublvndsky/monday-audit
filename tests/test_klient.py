@@ -24,6 +24,7 @@ import pytest
 from monday_audit import klient as klient_mod
 from monday_audit.baza import RejestrWywolan, polacz, zastosuj_migracje
 from monday_audit.klient import (
+    WERSJA_API,
     BudzetWyczerpanyError,
     LimitDziennyError,
     MondayClient,
@@ -158,6 +159,40 @@ async def test_token_idzie_w_naglowku_i_nie_w_repr(zbuduj: Any) -> None:
 
     assert naglowki == [TOKEN]
     assert TOKEN not in repr(egzemplarz)
+
+
+async def test_wersja_api_jest_przypieta_w_naglowku(zbuduj: Any) -> None:
+    """Piąty element pinowania (O15) — bez nagłówka monday przesuwa wersję sam.
+
+    Zmierzone: w wersji `2024-10` pole `Board.created_at` nie istnieje, a
+    `tablice.py` o nie pyta. Brak przypięcia znaczy, że ten sam kod przestanie
+    działać w dniu, w którym monday przestawi wersję domyślną konta.
+    """
+    wersje: list[str | None] = []
+
+    def uchwyt(zapytanie: httpx.Request) -> httpx.Response:
+        wersje.append(zapytanie.headers.get("api-version"))
+        return odpowiedz_ok({"me": {"id": "1"}})
+
+    egzemplarz, _ = zbuduj(uchwyt)
+    await egzemplarz.query("query { me { id } }")
+
+    assert wersje == [WERSJA_API]
+    assert WERSJA_API == "2026-07", "podnoszenie wersji idzie przez bramę promocji, nie mimochodem"
+
+
+async def test_wersja_api_none_oddaje_sterowanie_kontu(zbuduj: Any) -> None:
+    """Tryb do BADANIA nowej wersji, nie tryb produkcyjny."""
+    wersje: list[str | None] = []
+
+    def uchwyt(zapytanie: httpx.Request) -> httpx.Response:
+        wersje.append(zapytanie.headers.get("api-version"))
+        return odpowiedz_ok({"me": {"id": "1"}})
+
+    egzemplarz, _ = zbuduj(uchwyt, wersja_api=None)
+    await egzemplarz.query("query { me { id } }")
+
+    assert wersje == [None]
 
 
 # ── rozdział błędów: ponawiane ───────────────────────────────────────────

@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 
 from monday_audit.baza import polacz, zastosuj_migracje
+from monday_audit.klient import WERSJA_API
 from monday_audit.konfiguracja import Ustawienia, sol_z_ustawien, wczytaj
 from monday_audit.konto import Zakres
 from monday_audit.logi import MAKS_STRON_LOGOW, TOP_PO_ITEMACH, Z_OGONA
@@ -81,6 +82,13 @@ def zbuduj_parser() -> argparse.ArgumentParser:
         type=int,
         default=MAKS_STRON_LOGOW,
         help="sufit stron logu na tablicę (100 wpisów na stronę)",
+    )
+    parser.add_argument(
+        "--wersja-api",
+        default=WERSJA_API,
+        metavar="RRRR-MM",
+        help=f"wersja API monday; domyślnie przypięta {WERSJA_API}. Zmieniaj tylko "
+        f"po to, żeby PORÓWNAĆ snapshoty przed podniesieniem stałej w kodzie",
     )
     parser.add_argument(
         "--wszystkie-logi",
@@ -169,6 +177,7 @@ async def uruchom(
             # Podany ręcznie budżet jest hamulcem — plan nie ma prawa go zwolnić.
             budzet_wywolan=argumenty.budzet_wywolan or BUDZET_STARTOWY,
             budzet_z_planu=argumenty.budzet_wywolan is None,
+            wersja_api=argumenty.wersja_api,
             dni_okna=argumenty.dni_okna,
             maks_sond=argumenty.maks_sond,
             top_logow=None if argumenty.wszystkie_logi else argumenty.top_logow,

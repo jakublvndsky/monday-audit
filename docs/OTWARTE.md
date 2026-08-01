@@ -24,10 +24,12 @@ a nie na twoim rozstrzygnięciu. Szczegóły w wskazanych pozycjach.
 | Tablice `Subitems of ...` | **O14** | nieodfiltrowane; zafałszują `BOARD_GHOST` w 3.9 |
 | Sandbox jako blokada `.env` | rozmowa 2026-07-31 | `permissions.deny` na `.env` i `.env.local`; polecenia Basha nadal mogą czytać plik |
 | Sól pseudonimizacji | wygenerowana przeze mnie 2026-07-30 | w `.env`; jej zmiana unieważnia porównywalność snapshotów |
-| **Prawa do pliku `.env`** | zmierzone 2026-07-31 | plik ma `-rw-r--r--`, czyli sól czyta każdy proces na maszynie; kod ostrzega, nie przerywa |
+| **Flagi użytkownika giną w API 2026-10** | **O17** | kod używa `is_admin`/`enabled`/`is_guest`/`is_pending`/`is_verified`; wersja przypięta do `2026-07` kupuje czas, migracji na `kind`+`status` nie ma |
+| `board.updated_at` jako sygnał życia | **O18** | zaniża o do 40 dni; rozstrzyga `najnowszy_at` z logu |
 
-Zamknięte: `pydantic-settings` jako źródło konfiguracji — zgoda ustna
-2026-07-31, szczegóły w **D12**.
+Zamknięte: `pydantic-settings` jako źródło konfiguracji (**D12**, zgoda ustna
+2026-07-31), prawa do pliku `.env` (`chmod 600`, 2026-08-01) i przypięcie
+wersji API (**O15**, zgoda ustna 2026-08-01).
 
 ---
 
@@ -549,9 +551,9 @@ i zobaczy, że narzędzie nie rozumie jego konta.
 
 ---
 
-## O15. Wersja API monday nie jest zapinana
+## O15. Wersja API monday — PRZYPIĘTA 2026-08-01
 
-**Status:** zmierzone 2026-07-31
+**Status: ROZSTRZYGNIĘTE — `klient.WERSJA_API = "2026-07"`, zapisywana w `meta` snapshotu**
 **Blokuje:** odtwarzalność snapshotów (D7), stabilność collectora
 
 API monday jest wersjonowane (`2024-01`, `2024-10`, …) i wybiera się je
@@ -574,9 +576,17 @@ collector), żeby audyt sprzed trzech miesięcy był odtwarzalny. Wersja API jes
 piątą i jej brak podkopuje pozostałe cztery: bez niej nie da się odpowiedzieć,
 czy różnica między snapshotem #1 i #4 to zmiana u klienta, czy u monday.
 
-**Do decyzji człowieka:** czy przypiąć wersję na sztywno (`MondayClient` ma już
-parametr `wersja_api`, dziś nieużywany) i zapisywać ją w `meta` snapshotu.
-Koszt to jedna stała i jedno pole. Cena zwłoki to niepowtarzalny audyt.
+**Rozstrzygnięcie (zgoda ustna 2026-08-01):** przypięte do `2026-07`, czyli do
+wersji domyślnej w dniu przypięcia — jedynej, przeciwko której cokolwiek tu
+zwalidowano. Wersja idzie do `meta.wersja_api` każdego snapshotu. Flaga
+`--wersja-api` służy WYŁĄCZNIE do porównania snapshotów przed podniesieniem
+stałej; podnoszenie przechodzi przez bramę promocji jak każda inna zmiana.
+
+Wersje widziane 2026-08-01: `2025-04`…`2026-04` maintenance, **`2026-07` current**,
+`2026-10` i `2027-01` release_candidate, `dev`. Monday trzyma wersję
+w maintenance około roku, więc ta stała ma termin ważności.
+
+**Przypięcie natychmiast się opłaciło — patrz O17.**
 
 ---
 
@@ -618,3 +628,80 @@ Dla klienta z tablicami trzyletnimi retencja jest **nieznana** — sondowanie
 `board_view_added`, `move_pulse_from_group`, `change_column_settings`).
 Wszystkie są policzone w `po_event`, ale żadne nie trafia do klasy, więc
 `po_klasie` zaniża sygnał. Do rozstrzygnięcia w 3.9.
+
+---
+
+## O17. Wersja 2026-10 usuwa WSZYSTKIE flagi użytkownika, których używamy
+
+**Status:** zmierzone 2026-08-01, wprost po przypięciu wersji
+**Blokuje:** 3.3 (rozpoznanie zakresu), 3.4 (użytkownicy), `ZOMBIE_ACCOUNT`
+**Pilność:** `2026-10` jest już `release_candidate`
+
+Pierwszy run po przypięciu wersji, odpalony dla porównania na `2026-10`,
+przerwał się na `Cannot query field "is_admin" on type "User"`. Sprawdzone
+pole po polu:
+
+| Pole | 2026-07 | 2026-10 |
+|---|---|---|
+| `enabled` | OK | **BRAK** |
+| `is_admin` | OK | **BRAK** |
+| `is_guest` | OK | **BRAK** |
+| `is_pending` | OK | **BRAK** |
+| `is_verified` | OK | **BRAK** |
+| `created_at`, `last_activity`, `title` | OK | OK |
+| `kind`, `status`, `is_deleted`, `is_email_confirmed`, `became_active_at` | OK | OK |
+
+Czyli **wszystkie pięć flag, na których stoi 3.4**, znika w następnej wersji —
+a zamienniki działają już dziś, w wersji przypiętej. Migracja nie wymaga
+czekania na cokolwiek.
+
+**Pułapka, o której trzeba wiedzieć:** introspekcja `__type(name: "User")` NIE
+pokazuje `is_admin` ani żadnej z tych flag — w **żadnej** z obu wersji. Pola są
+w 2026-07 nieudokumentowane, ale działają. Wniosek na przyszłość: introspekcja
+nie jest tu wiarygodnym źródłem prawdy o dostępności pola, a brak pola
+w introspekcji nie znaczy, że go nie ma. Sprawdzaj zapytaniem.
+
+**Zmierzone rozkłady zamienników (95 użytkowników CXLABS, 2026-10):**
+
+- `kind`: `admin` 10, `member` 9, `guest` 12, `view_only` 28, `personal_agent_member` 36
+- `status`: `ACTIVE` 94, `PENDING` 1
+- `is_deleted`: `False` 95
+
+**To rozwiązuje starą zagadkę `active_members_count = 19` przy 95
+użytkownikach:** 19 = `admin` (10) + `member` (9). Pozostałe 76 to goście,
+konta tylko do podglądu i **36 kont agentów AI**. Dla `ZOMBIE_ACCOUNT` to
+zmienia wszystko — liczenie „nieaktywnych użytkowników" po 95 rekordach
+zawyżałoby wynik czterokrotnie i wystawiłoby klientowi rachunek za konta,
+które nie zajmują płatnych miejsc ani nie są ludźmi.
+
+**Do decyzji człowieka:** czy przepisać 3.4 na `kind` + `status` teraz.
+Argument za: zamienniki są bogatsze od flag (`view_only` i
+`personal_agent_member` są dziś nieodróżnialne od zwykłych członków), działają
+w przypiętej wersji, a migracja pod presją zepsutego runu będzie gorsza.
+Argument za zwłoką: zmienia kształt sekcji `uzytkownicy` w snapshocie, czyli
+snapshoty #1–#2 przestaną być wprost porównywalne z późniejszymi (D7).
+
+---
+
+## O18. `board.updated_at` systematycznie zaniża aktywność
+
+**Status:** zmierzone 2026-08-01 na 105 tablicach
+**Blokuje:** `BOARD_GHOST`, `ENGAGEMENT_DROP`
+
+Porównanie `board.updated_at` z najnowszym wpisem w activity logu tej samej
+tablicy, workspace 6576039:
+
+| | tablic |
+|---|---|
+| log **nowszy** niż `updated_at` | **94** |
+| zgodne do minuty | 11 |
+| log starszy niż `updated_at` | **0** |
+
+Największa rozbieżność: **40,6 dnia**. Kierunek jest jednostronny, więc to nie
+szum — `updated_at` śledzi zmiany metadanych tablicy, a nie pracę na itemach.
+
+**Konsekwencja dla 3.9:** detektor `BOARD_GHOST` oparty o `updated_at` uznałby
+za martwe tablice, na których pracowano jeszcze wczoraj, myląc się o ponad
+miesiąc. Sygnałem rozstrzygającym jest `najnowszy_at` z activity logu;
+`updated_at` wolno użyć najwyżej jako sygnału pomocniczego dla tablic **poza**
+próbką logów — a przy `--wszystkie-logi` poza próbką nie ma nikogo.

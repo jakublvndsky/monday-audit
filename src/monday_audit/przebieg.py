@@ -38,7 +38,7 @@ import httpx
 
 from monday_audit.automatyzacje import MAKS_SOND, zbierz_automatyzacje
 from monday_audit.baza import MapowanieOsob, RejestrWywolan
-from monday_audit.klient import MondayClient, Postep
+from monday_audit.klient import WERSJA_API, MondayClient, Postep
 from monday_audit.konto import Zakres, rozpoznaj_konto
 from monday_audit.logi import MAKS_STRON_LOGOW, TOP_PO_ITEMACH, Z_OGONA, zbierz_logi
 from monday_audit.osoby import waliduj_brak_pii, zbierz_osoby, zredaguj_pii
@@ -185,6 +185,7 @@ async def wykonaj_run(
     maks_sond: int = MAKS_SOND,
     budzet_wywolan: int = BUDZET_STARTOWY,
     budzet_z_planu: bool = True,
+    wersja_api: str | None = WERSJA_API,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> RaportRunu:
     """Przepuszcza cały collector i zapisuje snapshot. Zwraca raport z runu.
@@ -207,6 +208,7 @@ async def wykonaj_run(
         token,
         rejestr,
         budzet_wywolan=budzet_wywolan,
+        wersja_api=wersja_api,
         postep=postep,
         transport=transport,
     ) as klient:
@@ -242,6 +244,10 @@ async def wykonaj_run(
             "run_id": run_id,
             "run_at": run_at,
             "collector_ver": collector_ver(),
+            # Piąty element pinowania (O15). Bez tego nie da się odpowiedzieć,
+            # czy różnica między dwoma snapshotami to zmiana u klienta,
+            # czy zmiana w API monday.
+            "wersja_api": wersja_api or "domyślna konta (NIEPRZYPIĘTA)",
             "okno_dni": dni_okna,
             "okno_od": okno_od,
             "uwagi_o_zakresie": list(uwagi),
