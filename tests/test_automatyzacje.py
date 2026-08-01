@@ -137,12 +137,19 @@ async def test_statystyki_konta_to_jedno_wywolanie(zbuduj: Any) -> None:
     assert klient.liczba_wywolan == 1
 
 
-async def test_bez_tablic_kosztuje_trzy_wywolania(zbuduj: Any) -> None:
+async def test_bez_tablic_kosztuje_cztery_wywolania(zbuduj: Any) -> None:
+    """Koszt poziomu konta jest STAŁY, niezależny od wielkości konta.
+
+    Cztery, nie trzy: statystyki konta plus jedno zapytanie na każdy z trzech
+    stanów uruchomień. Wcześniej pytaliśmy tylko o `failure` i `success`,
+    a liczby sukcesów wyrzucaliśmy — przez co AUTOMATION_DEAD nie mógł policzyć
+    udziału błędów ani zobaczyć automatyzacji zatrzymanej limitem.
+    """
     klient = zbuduj(router())
 
     wynik = await zbierz_automatyzacje(klient)
 
-    assert klient.liczba_wywolan == 3
+    assert klient.liczba_wywolan == 4
     assert wynik.uruchomien_razem == 1237
     assert wynik.sondy == ()
 
@@ -367,6 +374,7 @@ def test_wynik_jest_niemutowalny() -> None:
         uruchomien_bledow=0,
         uruchomien_razem=1,
         automatyzacje_z_bledami=(),
+        statystyki=(),
         sondy=(),
         pominietych_tablic=0,
         discovery={},

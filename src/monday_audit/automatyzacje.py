@@ -10,8 +10,9 @@
 - automatyzacje nazywają się w API **triggerami** i mają własne zapytania
 
 Co z tego wynika dla kosztu: 3.6 ostrzega przed krokiem „liniowym per tablica,
-~200 wywołań". Poziom konta załatwiają **trzy wywołania**, niezależnie od
-wielkości konta. Sonda per tablica jest opcjonalna i twardo ograniczona.
+~200 wywołań". Poziom konta załatwiają **cztery wywołania**, niezależnie od
+wielkości konta — statystyki konta plus jedno na każdy z trzech stanów
+uruchomień. Sonda per tablica jest opcjonalna i twardo ograniczona.
 
 Trzy zapytania, które faktycznie działają:
 
@@ -29,8 +30,14 @@ Trzy zapytania, które faktycznie działają:
 
 **Czego nie ma i nie będzie z tego API:** listy automatyzacji per tablica.
 Nie da się powiedzieć „ta tablica ma 4 automatyzacje, z czego 2 martwe" —
-tylko „ta tablica miała 0 zdarzeń automatyzacji w okresie". Dlatego
-`AUTOMATION_DEAD` dostaje zwężony sygnał i musi to wiedzieć.
+tylko „ta tablica miała 0 zdarzeń automatyzacji w okresie".
+
+Widzimy natomiast liczby uruchomień **per automatyzacja** w rozbiciu na
+`success`, `failure` i `exhausted`, a przy błędach także ich powody. Na tym
+stoi `AUTOMATION_DEAD` w rubryce 0.2: pyta o automatyzację, która się odpala
+i kończy błędem, a nie o taką, która nigdy nie wystartowała — tej drugiej
+nie da się zobaczyć, bo automatyzacja bez uruchomień nie pojawia się
+w statystykach wcale.
 """
 
 from __future__ import annotations
@@ -108,6 +115,11 @@ class WynikAutomatyzacji:
     uruchomien_bledow: int | None
     uruchomien_razem: int | None
     automatyzacje_z_bledami: tuple[dict[str, Any], ...]
+    # Jeden rekord na automatyzację widzianą w DOWOLNYM stanie:
+    # {automation_id, success, failure, exhausted, powody_bledow?}. To wejście
+    # dla AUTOMATION_DEAD — bez liczby sukcesów nie da się policzyć udziału
+    # błędów, a bez `exhausted` nie widać automatyzacji zatrzymanej limitem.
+    statystyki: tuple[dict[str, Any], ...]
     sondy: tuple[SondaTablicy, ...]
     pominietych_tablic: int
     discovery: dict[str, Any]
@@ -120,6 +132,7 @@ class WynikAutomatyzacji:
                 "razem": self.uruchomien_razem,
             },
             "automatyzacje_z_bledami": [dict(a) for a in self.automatyzacje_z_bledami],
+            "statystyki_automatyzacji": [dict(a) for a in self.statystyki],
             "sondy_tablic": [s.do_snapshotu() for s in self.sondy],
             "podsumowanie": self.podsumowanie(),
             "discovery": dict(self.discovery),
@@ -128,6 +141,8 @@ class WynikAutomatyzacji:
     def podsumowanie(self) -> dict[str, Any]:
         return {
             "automatyzacji_z_bledami": len(self.automatyzacje_z_bledami),
+            "automatyzacji_widzianych": len(self.statystyki),
+            "automatyzacji_z_wyczerpaniem": sum(1 for a in self.statystyki if a.get("exhausted")),
             "tablic_sondowanych": len(self.sondy),
             "tablic_pominietych": self.pominietych_tablic,
             "tablic_bez_zdarzen": sum(1 for s in self.sondy if s.zdarzen == 0),
@@ -253,14 +268,34 @@ async def zbierz_automatyzacje(
     """
     liczby, discovery = await statystyki_konta(klient)
 
+    # Pytamy o WSZYSTKIE trzy stany i zachowujemy liczby per automatyzacja.
+    # Wcześniej `success` był pobierany i wyrzucany (zostawała sama liczba
+    # automatyzacji), a o `exhausted` nie pytaliśmy wcale — przez co
+    # AUTOMATION_DEAD nie mógł policzyć ani udziału błędów, ani wyczerpania
+    # limitu. Koszt pełnego obrazu to jedno wywołanie więcej.
     z_bledami: tuple[dict[str, Any], ...] = ()
-    for status in ("failure", "success"):
+    po_automatyzacji: dict[str, dict[str, Any]] = {}
+    for status in STANY_URUCHOMIEN:
         dane = await klient.query(PER_AUTOMATYZACJA, {"status": status}, etykieta="triggery")
         wpis = dane.get("account_triggers_statistics_by_entity_id") or {}
         rekordy = _rozbij_statystyki(wpis.get("automation_statistics"))
         if status == "failure":
             z_bledami = rekordy
         discovery[f"automatyzacji_ze_stanem_{status}"] = len(rekordy)
+
+        for rekord in rekordy:
+            identyfikator = str(rekord.get("automation_id"))
+            biezacy = po_automatyzacji.setdefault(
+                identyfikator,
+                {"automation_id": identyfikator, "success": 0, "failure": 0, "exhausted": 0},
+            )
+            biezacy[status] = int(rekord.get("total") or 0)
+            if status == "failure" and rekord.get("powody"):
+                # Powody to teksty od monday, nie treść klienta — ale i tak
+                # przechodzą przez walidację PII razem z resztą payloadu.
+                biezacy["powody_bledow"] = dict(rekord["powody"])
+
+    statystyki = tuple(sorted(po_automatyzacji.values(), key=lambda r: r["automation_id"]))
 
     sondy, pominietych = await sonduj_tablice(klient, board_ids, od=od, do=do, maks_sond=maks_sond)
 
@@ -280,6 +315,7 @@ async def zbierz_automatyzacje(
         uruchomien_bledow=liczby["bledow"],
         uruchomien_razem=liczby["razem"],
         automatyzacje_z_bledami=z_bledami,
+        statystyki=statystyki,
         sondy=sondy,
         pominietych_tablic=pominietych,
         discovery=discovery,
