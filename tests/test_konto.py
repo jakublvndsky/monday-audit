@@ -42,13 +42,16 @@ def odpowiedz(
     plan: dict[str, Any] | None = None,
     tier_konta: str | None = None,
 ) -> httpx.Response:
+    # API oddaje `kind`, nie flagi (O17). Parametry zostają boolowskie, bo
+    # w treści testów czyta się je lepiej niż literały „admin"/„guest",
+    # a mapowanie jest 1:1 (zmierzone na 95 rekordach CXLABS).
+    rodzaj = "admin" if is_admin else "guest" if is_guest else "member"
     return httpx.Response(
         200,
         json={
             "data": {
                 "me": {
-                    "is_admin": is_admin,
-                    "is_guest": is_guest,
+                    "kind": rodzaj,
                     "account": {
                         "id": "12345",
                         "name": "CXLABS",

@@ -43,12 +43,12 @@ LUDZIE: list[dict[str, Any]] = [
         "id": "101",
         "name": "Zdzisława Wąchockańska",
         "email": "zdzislawa@przyklad.test",
-        "enabled": True,
-        "is_admin": True,
-        "is_guest": False,
-        "is_pending": False,
-        "is_verified": True,
+        "kind": "admin",
+        "status": "ACTIVE",
+        "is_deleted": False,
+        "is_email_confirmed": True,
         "created_at": "2024-01-15T10:00:00Z",
+        "became_active_at": "2024-01-16T09:00:00Z",
         "last_activity": "2026-07-30T20:25:49Z",
         "title": "Dyrektor operacyjny",
         "teams": [{"id": "1", "name": "Zarząd"}],
@@ -57,12 +57,12 @@ LUDZIE: list[dict[str, Any]] = [
         "id": "102",
         "name": "Bonifacy Krzeptowski",
         "email": "bonifacy@przyklad.test",
-        "enabled": True,
-        "is_admin": False,
-        "is_guest": True,
-        "is_pending": False,
-        "is_verified": False,
+        "kind": "guest",
+        "status": "PENDING",
+        "is_deleted": False,
+        "is_email_confirmed": False,
         "created_at": "2025-06-01T08:30:00Z",
+        "became_active_at": None,
         "last_activity": None,
         "title": None,
         "teams": [],
@@ -248,12 +248,12 @@ async def test_snapshot_ma_dokladnie_dozwolone_pola(zbuduj: Any) -> None:
         "user_hash",
         "title",
         "zespoly",
-        "enabled",
-        "is_admin",
-        "is_guest",
-        "is_pending",
-        "is_verified",
+        "kind",
+        "status",
+        "is_deleted",
+        "is_email_confirmed",
         "created_at",
+        "became_active_at",
         "last_activity",
     }
 
@@ -277,15 +277,62 @@ async def test_podsumowanie_liczy_to_co_potrzebuja_detektory(zbuduj: Any) -> Non
 
     assert wynik.podsumowanie() == {
         "razem": 2,
-        "wlaczonych": 2,
+        # Jeden admin zajmuje płatne miejsce, gość NIE. Na tym stoi wycena
+        # w ZOMBIE_ACCOUNT — `razem` nie jest liczbą ludzi ani licencji.
+        "zajmujacych_miejsce": 1,
         "adminow": 1,
         "gosci": 1,
-        "oczekujacych": 0,
-        "niezweryfikowanych": 1,
+        "agentow": 0,
+        "tylko_podglad": 0,
+        "aktywnych": 1,
+        "nieaktywnych": 0,
+        "oczekujacych": 1,
+        "usunietych": 0,
+        "z_potwierdzonym_mailem": 1,
         "bez_last_activity": 1,
+        "bez_became_active_at": 1,
         "bez_title": 1,
         "bez_zespolu": 1,
     }
+
+
+async def test_agenci_i_podglad_nie_zajmuja_miejsca(zbuduj: Any) -> None:
+    """Zmierzone na CXLABS: 36 z 95 rekordów to konta agentów AI, 28 to view_only.
+
+    Flagi `is_admin`/`is_guest` pokazywały jedno i drugie jako zwykłego
+    członka, więc ZOMBIE_ACCOUNT liczyłby „nieaktywnych użytkowników" po
+    wszystkich rekordach i zawyżył wynik czterokrotnie.
+    """
+    ludzie = [
+        {**LUDZIE[0], "id": "201", "kind": "personal_agent_member"},
+        {**LUDZIE[0], "id": "202", "kind": "view_only"},
+        {**LUDZIE[0], "id": "203", "kind": "member"},
+    ]
+    klient = zbuduj(uchwyt_stronicowany(ludzie))
+
+    wynik = await zbierz_osoby(klient, client_id=KLIENT, sol=SOL, mapowanie=MapowanieTestowe())
+    podsumowanie = wynik.podsumowanie()
+
+    assert podsumowanie["razem"] == 3
+    assert podsumowanie["zajmujacych_miejsce"] == 1
+    assert podsumowanie["agentow"] == 1
+    assert podsumowanie["tylko_podglad"] == 1
+
+
+async def test_nieznany_rodzaj_jest_policzony_a_nie_wciśniety(zbuduj: Any) -> None:
+    """Zbiór wartości `kind` nie jest zamknięty — API nie deklaruje enuma.
+
+    Cicha zamiana nieznanego rodzaju na „member" wliczyłaby go do płatnych
+    miejsc i klient dostałby rachunek za coś, czego nie rozumiemy.
+    """
+    ludzie = [{**LUDZIE[0], "id": "301", "kind": "wymyslony_przez_monday"}]
+    klient = zbuduj(uchwyt_stronicowany(ludzie))
+
+    wynik = await zbierz_osoby(klient, client_id=KLIENT, sol=SOL, mapowanie=MapowanieTestowe())
+
+    assert wynik.discovery["nieznane_rodzaje"] == ["wymyslony_przez_monday"]
+    assert wynik.discovery["po_rodzaju"] == {"wymyslony_przez_monday": 1}
+    assert wynik.podsumowanie()["zajmujacych_miejsce"] == 0
 
 
 async def test_brak_last_activity_zostaje_nullem(zbuduj: Any) -> None:
@@ -301,6 +348,10 @@ async def test_brak_last_activity_zostaje_nullem(zbuduj: Any) -> None:
         "last_activity_dostepne": True,
         "last_activity_wypelnione": 1,
         "last_activity_razem": 2,
+        "po_rodzaju": {"admin": 1, "guest": 1},
+        "nieznane_rodzaje": [],
+        "bez_rodzaju": 0,
+        "is_verified_porzucone": "brak w API 2026-10; is_email_confirmed to inne pole",
         "podejrzenia_pii_w_tekstach": 0,
     }
 
@@ -391,12 +442,12 @@ def test_osoba_jest_niemutowalna() -> None:
         user_hash="abc",
         title=None,
         zespoly=(),
-        enabled=True,
-        is_admin=False,
-        is_guest=False,
-        is_pending=False,
-        is_verified=True,
+        kind="member",
+        status="ACTIVE",
+        is_deleted=False,
+        is_email_confirmed=False,
         created_at=None,
+        became_active_at=None,
         last_activity=None,
     )
 

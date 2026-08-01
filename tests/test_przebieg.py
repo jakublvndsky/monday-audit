@@ -45,12 +45,12 @@ LUDZIE = [
         "id": "101",
         "name": "Zdzisława Wąchockańska",
         "email": "z@przyklad.test",
-        "enabled": True,
-        "is_admin": True,
-        "is_guest": False,
-        "is_pending": False,
-        "is_verified": True,
+        "kind": "admin",
+        "status": "ACTIVE",
+        "is_deleted": False,
+        "is_email_confirmed": True,
         "created_at": "2024-01-15T10:00:00Z",
+        "became_active_at": "2024-01-16T09:00:00Z",
         "last_activity": "2026-07-30T20:00:00Z",
         "title": "Dyrektor",
         "teams": [],
@@ -90,8 +90,7 @@ def api(
         if "me {" in gql:
             dane: dict[str, Any] = {
                 "me": {
-                    "is_admin": True,
-                    "is_guest": False,
+                    "kind": "admin",
                     "account": {
                         "id": "12345",
                         "name": "CXLABS",

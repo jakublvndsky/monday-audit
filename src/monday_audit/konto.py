@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from monday_audit.klient import MondayClient, ZapytanieError
+from monday_audit.osoby import RODZAJ_ADMIN, RODZAJ_GOSC
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +32,12 @@ logger = logging.getLogger(__name__)
 # ŚWIADOMIE BEZ `me { id }` — przy audycie klienta to identyfikator konkretnej
 # osoby z jego konta, a pseudonimizacja powstaje dopiero w 3.4. Snapshot ma być
 # czysty od pierwszego zapisu, nie od 3.4. Do walidacji zakresu wystarczą
-# `is_admin` i `is_guest`; tożsamość posiadacza tokena nie jest do niczego
+# `kind`; tożsamość posiadacza tokena nie jest do niczego
 # potrzebna. `account.name` zostaje — to nazwa firmy, nie osoby.
+#
+# `kind` zamiast flag `is_admin`/`is_guest` (O17): tamte pola giną w API 2026-10.
+# Mapowanie zmierzone na 95 rekordach CXLABS jest 1:1 — `kind == "admin"`
+# pokrywa się z `is_admin` (10/10), `kind == "guest"` z `is_guest` (12/12).
 # `tier` obok `plan` NIE jest nadmiarowe. Zmierzone na CXLABS 2026-07-30:
 # `account.plan` zwraca **null**, a `account.tier` zwraca `'enterprise'`.
 # Bez tego pola budżet wywołań zostawał na wartości domyślnej, mimo że plan
@@ -40,8 +45,7 @@ logger = logging.getLogger(__name__)
 ZAPYTANIE_KONTO = """
 query {
   me {
-    is_admin
-    is_guest
+    kind
     account { id name slug tier plan { period tier max_users } }
   }
 }
@@ -235,8 +239,12 @@ async def rozpoznaj_konto(
     dane = await klient.query(ZAPYTANIE_KONTO, etykieta="konto")
     ja, surowe_konto = _wyluskaj_konto(dane)
 
-    is_admin = bool(ja.get("is_admin"))
-    is_guest = bool(ja.get("is_guest"))
+    # Rodzaj konta zamiast flag (O17). `None` traktujemy jak brak admina:
+    # przy nieznanym rodzaju wolimy odmówić pełnego zakresu niż zrobić audyt,
+    # który jest cicho niepełny.
+    rodzaj = ja.get("kind")
+    is_admin = rodzaj == RODZAJ_ADMIN
+    is_guest = rodzaj == RODZAJ_GOSC
     surowy_plan = surowe_konto.get("plan")
     plan: dict[str, Any] | None = surowy_plan if isinstance(surowy_plan, dict) else None
 

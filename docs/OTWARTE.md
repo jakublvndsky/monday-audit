@@ -20,16 +20,16 @@ a nie na twoim rozstrzygnięciu. Szczegóły w wskazanych pozycjach.
 |---|---|---|
 | Snapshot #1 przejrzany? | BRAMA w `03-build.md` | snapshot 1 zapisany, zakres = workspace 6576039; #2 na pełnym koncie **czeka na zatwierdzenie #1** |
 | Kosz (`state: deleted`) w snapshocie | **O10** | zbieramy `all`, listujemy `active` + `archived`, kosz tylko liczony |
-| `is_verified` w rekordzie użytkownika | 3.4 mówi „WYŁĄCZNIE" i nie wymienia tego pola | pole JEST w snapshocie — sygnał dla `ZOMBIE_ACCOUNT` |
 | Tablice `Subitems of ...` | **O14** | nieodfiltrowane; zafałszują `BOARD_GHOST` w 3.9 |
 | Sandbox jako blokada `.env` | rozmowa 2026-07-31 | `permissions.deny` na `.env` i `.env.local`; polecenia Basha nadal mogą czytać plik |
 | Sól pseudonimizacji | wygenerowana przeze mnie 2026-07-30 | w `.env`; jej zmiana unieważnia porównywalność snapshotów |
-| **Flagi użytkownika giną w API 2026-10** | **O17** | kod używa `is_admin`/`enabled`/`is_guest`/`is_pending`/`is_verified`; wersja przypięta do `2026-07` kupuje czas, migracji na `kind`+`status` nie ma |
 | `board.updated_at` jako sygnał życia | **O18** | zaniża o do 40 dni; rozstrzyga `najnowszy_at` z logu |
 
 Zamknięte: `pydantic-settings` jako źródło konfiguracji (**D12**, zgoda ustna
-2026-07-31), prawa do pliku `.env` (`chmod 600`, 2026-08-01) i przypięcie
-wersji API (**O15**, zgoda ustna 2026-08-01).
+2026-07-31), prawa do pliku `.env` (`chmod 600`, 2026-08-01), przypięcie
+wersji API (**O15**) i model użytkownika `kind`+`status` (**O17**) — oba
+2026-08-01. Pozycja „`is_verified` w rekordzie użytkownika" zniknęła razem
+z polem: patrz O17.
 
 ---
 
@@ -631,9 +631,9 @@ Wszystkie są policzone w `po_event`, ale żadne nie trafia do klasy, więc
 
 ---
 
-## O17. Wersja 2026-10 usuwa WSZYSTKIE flagi użytkownika, których używamy
+## O17. Flagi użytkownika — PRZEPISANE na `kind` + `status` 2026-08-01
 
-**Status:** zmierzone 2026-08-01, wprost po przypięciu wersji
+**Status: ROZSTRZYGNIĘTE — zgoda ustna, model przepisany, collector działa na `2026-07`, `2026-10` i `2027-01`**
 **Blokuje:** 3.3 (rozpoznanie zakresu), 3.4 (użytkownicy), `ZOMBIE_ACCOUNT`
 **Pilność:** `2026-10` jest już `release_candidate`
 
@@ -674,12 +674,33 @@ zmienia wszystko — liczenie „nieaktywnych użytkowników" po 95 rekordach
 zawyżałoby wynik czterokrotnie i wystawiłoby klientowi rachunek za konta,
 które nie zajmują płatnych miejsc ani nie są ludźmi.
 
-**Do decyzji człowieka:** czy przepisać 3.4 na `kind` + `status` teraz.
-Argument za: zamienniki są bogatsze od flag (`view_only` i
-`personal_agent_member` są dziś nieodróżnialne od zwykłych członków), działają
-w przypiętej wersji, a migracja pod presją zepsutego runu będzie gorsza.
-Argument za zwłoką: zmienia kształt sekcji `uzytkownicy` w snapshocie, czyli
-snapshoty #1–#2 przestaną być wprost porównywalne z późniejszymi (D7).
+**Rozstrzygnięcie:** przepisane. `Osoba` stoi na `kind` + `status` +
+`is_deleted` + `is_email_confirmed` + `became_active_at`, z właściwościami
+`jest_adminem`, `jest_gosciem`, `jest_agentem` i `zajmuje_miejsce`.
+`rozpoznaj_konto` pyta o `me { kind }`, nie o flagi.
+
+**Weryfikacja:** ten sam run na `2026-07`, `2026-10` i `2027-01` daje identyczny
+wynik — `{admin: 10, guest: 12, member: 9, personal_agent_member: 36,
+view_only: 28}`, `zajmujacych_miejsce: 19 z 95`. Podniesienie wersji API jest
+teraz zmianą jednej stałej, z dowodem, że przechodzi. Snapshot #3 na workspace
+6576039 jest już w nowym modelu.
+
+**`zajmujacych_miejsce: 19` zgadza się co do jednego z `active_members_count`
+zwracanym przez API** — niezależne potwierdzenie, że mapowanie jest poprawne.
+
+**Czego świadomie NIE ma: `is_verified`.** Pole istnieje w `2026-07` i ginie
+w `2026-10`, a `is_email_confirmed` **nie jest** jego zamiennikiem (zmierzone:
+58 z 95 osób ma `is_verified=True` przy `is_email_confirmed=False`). To
+rezygnacja, nie przemianowanie, i była decyzją: sygnał był prawdziwy u 94 z 95
+rekordów, czyli nie nosił informacji, a actionable przypadek („zaproszony, nie
+wszedł") łapie `status == PENDING`. Utrzymanie go blokowałoby cały collector na
+następnej wersji API za jedno pole bez wartości. Fakt utraty siedzi
+w `discovery.is_verified_porzucone`, żeby raport nie udawał, że
+„niezweryfikowanych" po prostu nie było.
+
+**Konsekwencja dla D7:** sekcja `uzytkownicy` zmieniła kształt, więc snapshoty
+#1–#2 nie są wprost porównywalne z #3 i późniejszymi. `meta.collector_ver`
+i `meta.wersja_api` pozwalają to rozpoznać maszynowo.
 
 ---
 
