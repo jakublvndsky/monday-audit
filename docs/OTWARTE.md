@@ -740,3 +740,43 @@ za martwe tablice, na których pracowano jeszcze wczoraj, myląc się o ponad
 miesiąc. Sygnałem rozstrzygającym jest `najnowszy_at` z activity logu;
 `updated_at` wolno użyć najwyżej jako sygnału pomocniczego dla tablic **poza**
 próbką logów — a przy `--wszystkie-logi` poza próbką nie ma nikogo.
+
+---
+
+## O19. Flaga `--read-only` w MCP monday nie blokuje zapisu
+
+**Status:** zmierzone 2026-08-03 na `@mondaydotcomorg/monday-api-mcp@3.3.0`
+**Skutek:** D4 przepisane, MCP wypadło z architektury (etap 3.10)
+
+Pierwotne D4 wybierało lokalny MCP nad hostowanym **wyłącznie** z powodu tej
+flagi i opisywało ją jako „mechanizm, nie polityka — model nie ma go jak
+obejść, nawet przy prompt injection". Sprawdzone protokołem MCP, z atrapą
+tokena:
+
+| Sprawdzenie | Wynik |
+|---|---|
+| `tools/list` z `--read-only` | **92 narzędzia, identycznie jak bez flagi** |
+| wśród nich | `create_item`, `create_board`, `delete_item`, `change_item_column_values`, `all_api_write`, `execute_code` |
+| `tools/call create_board` | **serwer zbudował `mutation createBoard` i wysłał do api.monday.com** |
+| `tools/call all_api_write` z mutacją | **wysłane do api.monday.com** |
+
+Oba wywołania zakończyły się `401 Not authenticated` **tylko dlatego, że token
+był atrapą**. Z prawdziwym tokenem powstałaby tablica.
+
+Trzech innych narzędzi zapisujących nie rozstrzygnięto — odrzuciła je walidacja
+argumentów (`-32602`), zanim doszło do warstwy read-only. Nie zmienia to
+wniosku: jedno z dwóch potwierdzonych to `all_api_write`, czyli przepustka
+na dowolną mutację.
+
+**Czego to NIE znaczy:** że MCP monday jest bezużyteczny. Znaczy, że nie jest
+mechanizmem bezpieczeństwa i nie wolno na nim oprzeć zakazu twardego.
+
+**Ścieżka odtworzenia** (gdyby trzeba było zgłosić monday albo sprawdzić po
+aktualizacji): uruchom serwer z `--read-only`, w `initialize` → `tools/list`
+policz narzędzia, potem `tools/call` na `create_board` z atrapą tokena
+i sprawdź, czy w odpowiedzi jest `mutation createBoard` oraz status 401.
+Obecność mutacji w odpowiedzi jest dowodem, że zapytanie wyszło.
+
+**Uwaga wdrożeniowa:** `isolated-vm`, zależność natywna MCP, nie kompiluje się
+na Node 25 (`node-gyp` przerywa). Zbudowało się na Node 22. Gdyby MCP kiedyś
+wracał, Mikrus potrzebuje Node 20–22, nie najnowszego.

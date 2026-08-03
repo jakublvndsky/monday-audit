@@ -25,12 +25,18 @@ Dwie warstwy:
 Naruszenie któregokolwiek = błąd krytyczny, zatrzymaj się i zapytaj.
 
 - **Agent nie dostaje żadnego narzędzia zapisującego.** Nigdzie: ani do monday,
-  ani do bazy, ani do plików. MCP monday odpalany zawsze z `--read-only`.
+  ani do bazy, ani do plików. Narzędzia idą przez `MondayClient`, którego
+  `przygotuj_zapytanie()` odrzuca `mutation` i `subscription` — w tej ścieżce
+  kodu nie ma jak wysłać zapisu.
+- **NIE używamy MCP monday.** Flaga `--read-only` nie działa: sprawdzone
+  2026-08-03 na wersji 3.3.0, `create_board` i `all_api_write` z surową mutacją
+  **przeszły do API**. Nie wracaj do MCP bez ponownego pomiaru — szczegóły w D4.
 - **Nie schodzimy na poziom itemów** poza jawnie oznaczonym samplingiem
   w klasie `BOARD_OVERCOMPLEX`. `items_count` to granica.
 - **Żadnych imion, nazwisk i e-maili w kontekście modelu.** Pseudonimizacja
   przed wywołaniem, tabela mapowania bez narzędzia dostępowego.
-- **Token klienta nigdy w kontekście modelu.** Żyje w env procesu MCP.
+- **Token klienta nigdy w kontekście modelu ani w argv.** Żyje w konfiguracji
+  procesu (D12), wczytywanej z `.env` albo ze środowiska.
 - **Finding bez pola `dowod` nie przechodzi walidacji.** Bez wyjątków.
 - **Nie dodawaj zależności bez pytania.** Szczególnie: Postgres, Redis,
   Celery, Langfuse. Każda była rozważona i odrzucona — powody w
@@ -38,8 +44,9 @@ Naruszenie któregokolwiek = błąd krytyczny, zatrzymaj się i zapytaj.
 
 ## Stack
 
-Python 3.12, `uv`, `httpx` (collector), Agent SDK (analityk), SQLite,
-FastAPI, Caddy. Node 20 tylko jako podproces MCP. Bez frontu w v1.
+Python 3.12, `uv`, `httpx` (collector **i** narzędzia agenta), Agent SDK
+(analityk), SQLite, FastAPI, Caddy. Node tylko pod Agent SDK — po rezygnacji
+z MCP nie ma już podprocesu MCP. Bez frontu w v1.
 
 ## Gdzie co jest
 

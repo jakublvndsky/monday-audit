@@ -58,26 +58,50 @@ Migracja = wymiana warstwy dostępu, nie przepisywanie.
 
 ---
 
-## D4. Collector bez MCP, agent z MCP
+## D4. Bez MCP monday. Collector I agent na własnym kliencie
+
+**ZMIENIONE 2026-08-03.** Pierwotna decyzja brzmiała „collector bez MCP, agent
+z MCP `--read-only`" i jej jedyne uzasadnienie okazało się nieprawdziwe.
 
 **Decyzja:**
 - Collector (faza 1): czysty GraphQL przez `httpx`
-- Agent (faza 2): lokalny serwer `@mondaydotcomorg/monday-api-mcp`
-  z flagą `--read-only`, podproces na jeden run
+- Agent (faza 2): **te same** `httpx` i `MondayClient`, narzędzia w
+  `monday_audit.narzedzia`. Żadnego MCP, żadnego podprocesu Node.
 
-**Powód:**
-- Collector potrzebuje paginacji, budżetowania complexity, retry z backoffem
-  i logowania każdego zapytania. MCP to abstrahuje — a to jest właśnie
-  warstwa, którą chcemy kontrolować.
-- Lokalny MCP nad hostowanym **wyłącznie z powodu flagi `--read-only`**.
-  Hostowany `mcp.monday.com` przyjmie bearer token, ale nie ma tej flagi.
-  Read-only wymuszony na poziomie serwera to mechanizm, nie polityka —
-  model nie ma go jak obejść, nawet przy prompt injection.
+**Powód zmiany — zmierzony, nie estetyczny.** Pierwotne D4 mówiło: „Read-only
+wymuszony na poziomie serwera to mechanizm, nie polityka — model nie ma go jak
+obejść, nawet przy prompt injection". Sprawdzone na
+`@mondaydotcomorg/monday-api-mcp@3.3.0`:
 
-**Uwaga:** dynamiczne narzędzia API (pełny schemat) nie są kompatybilne
-z `--read-only`. Nie szkodzi, nie chcemy ich.
+| Sprawdzenie | Wynik |
+|---|---|
+| lista narzędzi z `--read-only` | **92, te same co bez flagi** — z `create_item`, `delete_item`, `create_board`, `all_api_write`, `execute_code` |
+| `create_board` z `--read-only` | **przeszło do API monday** (serwer zbudował `mutation createBoard` i wysłał) |
+| `all_api_write` z surową mutacją | **przeszło do API monday** |
 
-**Koszt:** Node 20 na Mikrusie, ~50 MB.
+Oba nie powiodły się WYŁĄCZNIE dlatego, że token był atrapą — odpowiedź to
+`401 Not authenticated`. Z prawdziwym tokenem powstałaby tablica. Flaga nie
+filtruje listy narzędzi ani nie blokuje wywołania.
+
+**Co daje własny klient, czego MCP nie dawał:**
+- `przygotuj_zapytanie()` **odrzuca `mutation` i `subscription`** niezależnie od
+  wielkości liter i wiodących spacji. To jest odebranie możliwości z D6:
+  w tej ścieżce kodu nie ma jak wysłać zapisu, a nie „serwer powinien odmówić".
+- licznik wywołań i hamulec complexity — MCP nie liczył ani jednego
+- zapis KAŻDEGO wywołania do tabeli `wywolania` (D10) — MCP nie zapisywał
+- brak 92-narzędziowej powierzchni, w tym `execute_code`
+
+**Koszt:** trzeba było napisać narzędzia samemu. Wyszło ich dwa do API monday,
+bo przy mapowaniu `rola_agenta` wszystkich 11 klas okazało się, że resztę
+pytań odpowiada snapshot.
+
+**Zysk uboczny:** z drogi runtime znika Node 20 jako zależność MCP (Agent SDK
+nadal go potrzebuje). Przy okazji: `isolated-vm`, zależność natywna MCP,
+nie kompiluje się na Node 25.
+
+**Co unieważni:** naprawa `--read-only` po stronie monday. Wtedy MCP wraca
+do rozważenia — ale już nie jako mechanizm bezpieczeństwa, tylko jako wygoda,
+i bez budżetów oraz `wywolania` nadal przegrywa.
 
 ---
 
@@ -104,11 +128,11 @@ z akceptacją kosztu PII.
 | Granica | Mechanizm |
 |---|---|
 | **Dane niezaufane** | nazwy tablic, kolumn, itemów i treść updateów pisał klient — mogą zawierać prompt injection |
-| **Obrona** | nie filtrowanie, a **odebranie możliwości**: agent nie ma narzędzi zapisujących, MCP na `--read-only` |
+| **Obrona** | nie filtrowanie, a **odebranie możliwości**: `przygotuj_zapytanie()` odrzuca `mutation` i `subscription`, więc w kodzie narzędzi nie ma ścieżki zapisu. **NIE polegamy na `--read-only` w MCP — sprawdzone, nie blokuje (D4)** |
 | **Maksymalna szkoda** | fałszywe znalezisko w raporcie. Nie wyciek, nie modyfikacja |
 | **Wyjście** | strukturalny JSON, każdy finding z obowiązkowym `dowod` wskazującym na fakt ze snapshotu. Bez dowodu — odpada na walidacji |
 | **PII** | pseudonimizacja przed modelem, tabela mapowania bez żadnego narzędzia dostępowego |
-| **Poświadczenia** | token klienta w env procesu MCP, nigdy w kontekście modelu |
+| **Poświadczenia** | token klienta w konfiguracji procesu workera (D12), nigdy w kontekście modelu ani w argv |
 | **Koszt** | budżet wywołań per hipoteza (z rubryki) + bezpiecznik globalny 600/run |
 
 Wszystkie granice składają się w jedną zasadę: **agent tylko czyta
