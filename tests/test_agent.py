@@ -12,7 +12,7 @@ którego zakaz twardy zabrania wprost.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -23,8 +23,8 @@ from monday_audit.agent import (
     SCIEZKA_PROMPTU,
     WBUDOWANE_ZAKAZANE,
     AgentError,
+    _brama_narzedzi,
     _inwentarz,
-    _pozwolenie,
     _tekst_promptu,
     _wyluskaj_json,
 )
@@ -37,21 +37,41 @@ from monday_audit.agent import (
     ["Write", "Edit", "Bash", "Read", "WebFetch", "Task", "mcp__inny__cokolwiek"],
 )
 async def test_kazde_narzedzie_poza_nasza_lista_jest_odrzucone(narzedzie: str) -> None:
-    """Trzecia warstwa odcięcia — w procesie, poza zasięgiem modelu.
+    """Trzecia warstwa odcięcia — hook `PreToolUse`, w procesie."""
+    surowy = await _brama_narzedzi({"tool_name": narzedzie}, None, None)  # type: ignore[arg-type]
+    wynik = cast("dict[str, Any]", surowy)
 
-    Biała i czarna lista to konfiguracja przekazywana podprocesowi.
-    `can_use_tool` to kod, który wykonujemy sami, i ma ostatnie słowo.
-    """
-    wynik = await _pozwolenie(narzedzie, {}, None)  # type: ignore[arg-type]
-
-    assert type(wynik).__name__ == "PermissionResultDeny"
+    decyzja = wynik["hookSpecificOutput"]
+    assert decyzja["permissionDecision"] == "deny"
+    assert narzedzie in decyzja["permissionDecisionReason"]
 
 
 @pytest.mark.parametrize("narzedzie", NASZE_NARZEDZIA)
 async def test_nasze_narzedzia_przechodza(narzedzie: str) -> None:
-    wynik = await _pozwolenie(narzedzie, {}, None)  # type: ignore[arg-type]
+    surowy = await _brama_narzedzi({"tool_name": narzedzie}, None, None)  # type: ignore[arg-type]
 
-    assert type(wynik).__name__ == "PermissionResultAllow"
+    assert surowy == {}, "nasze narzędzia przechodzą bez decyzji hooka"
+
+
+def test_brama_jest_podlaczona_jako_hook_a_nie_callback() -> None:
+    """Test, którego brakowało i który kosztował nas fałszywą pewność.
+
+    Pierwsza wersja podłączała odcięcie przez `can_use_tool`, a SDK ostrzegł
+    przy pierwszym pełnym runie, że callback NIE jest wołany dla narzędzi
+    z `allowed_tools`. Poprzedni test sprawdzał samą funkcję w izolacji, więc
+    przechodził — mimo że w praktyce nic nie gatował.
+
+    Ten test patrzy na WIRING: hook musi być w opcjach, a `can_use_tool` nie
+    ma prawa tam wrócić.
+    """
+    from monday_audit import agent as modul
+
+    zrodlo = Path(modul.__file__).read_text(encoding="utf-8")
+
+    assert 'hooks={"PreToolUse"' in zrodlo, "brama musi być podłączona jako hook PreToolUse"
+    assert "can_use_tool=" not in zrodlo, (
+        "can_use_tool nie jest wołany przy allowed_tools — SDK ostrzega o tym wprost"
+    )
 
 
 def test_wbudowane_zapisujace_sa_na_czarnej_liscie() -> None:

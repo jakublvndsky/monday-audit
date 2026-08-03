@@ -25,8 +25,17 @@ wprost („ani do monday, ani do bazy, ani do plików"):
 1. `allowed_tools` wymienia WYŁĄCZNIE nasze narzędzia
 2. `disallowed_tools` wymienia wbudowane z nazwy — jawnie, nie licząc na to,
    że biała lista wystarczy
-3. `can_use_tool` odrzuca w procesie wszystko, czego nie ma na naszej liście.
-   To jedyna warstwa, którą kontrolujemy w całości i której model nie widzi
+3. **hook `PreToolUse`** odrzuca w procesie wszystko, czego nie ma na naszej
+   liście. To jedyna warstwa, którą kontrolujemy w całości i której model
+   nie widzi
+
+   Pierwotnie tą warstwą był `can_use_tool` i **to nie działało**. SDK ostrzegł
+   wprost przy pierwszym pełnym runie: „an allowed_tools entry that allows
+   a whole tool auto-approves it before the callback is consulted". Czyli
+   callback NIE był wołany dla narzędzi, które faktycznie się wykonują —
+   dokładnie ta sama klasa błędu co flaga `--read-only` w MCP (O19):
+   udokumentowany mechanizm, który nie chodzi. Test też tego nie wyłapał, bo
+   sprawdzał samą funkcję w izolacji, a nie to, czy jest podłączona
 
 Do tego `setting_sources=[]`: agent nie wczytuje `CLAUDE.md` z tego repo ani
 ustawień użytkownika. Bez tego jego zachowanie zależałoby od plików, które
@@ -47,14 +56,15 @@ from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKClient,
-    PermissionResultAllow,
-    PermissionResultDeny,
+    HookContext,
+    HookInput,
+    HookMatcher,
     ResultMessage,
     TextBlock,
-    ToolPermissionContext,
     create_sdk_mcp_server,
     tool,
 )
+from claude_agent_sdk.types import SyncHookJSONOutput
 
 from monday_audit.detektory import Hipoteza
 from monday_audit.narzedzia import Narzedzia, NarzedziaHipotezy, NarzedzieError
@@ -88,6 +98,9 @@ WBUDOWANE_ZAKAZANE = (
     "Read",
     "Task",
     "TodoWrite",
+    # Dopisane po tym, jak hook złapał je na żywo — nie było ich na liście,
+    # a agent próbował ich użyć. Dowód, że trzecia warstwa nie jest ozdobą.
+    "ToolSearch",
     "WebFetch",
     "WebSearch",
     "Write",
@@ -257,25 +270,34 @@ NASZE_NARZEDZIA = tuple(
 )
 
 
-async def _pozwolenie(
-    narzedzie: str, dane: dict[str, Any], kontekst: ToolPermissionContext
-) -> PermissionResultAllow | PermissionResultDeny:
-    """Trzecia warstwa odcięcia — w procesie, poza zasięgiem modelu.
+async def _brama_narzedzi(
+    wejscie: HookInput, narzedzie_id: str | None, kontekst: HookContext
+) -> SyncHookJSONOutput:
+    """Trzecia warstwa odcięcia — hook `PreToolUse`, w procesie.
 
-    Biała lista w opcjach i czarna lista wbudowanych to konfiguracja, którą
-    przekazujemy podprocesowi. To jest kod, który wykonujemy sami, i on ma
-    ostatnie słowo. Cokolwiek poza naszymi czterema narzędziami jest odrzucane
-    z komunikatem, nie po cichu.
+    Hook, a NIE `can_use_tool`. Pierwsza wersja używała callbacka i SDK
+    ostrzegł, że nie zostanie wywołany: wpis w `allowed_tools` zatwierdza
+    narzędzie, zanim callback dojdzie do słowa. Hook `PreToolUse` widzi
+    KAŻDE wywołanie, także to z białej listy.
+
+    Zwracamy `deny` dla wszystkiego poza naszymi czterema narzędziami,
+    z komunikatem, nie po cichu — model ma się dowiedzieć, czym dysponuje,
+    zamiast próbować w kółko.
     """
+    narzedzie = str(dict(wejscie).get("tool_name") or "")
     if narzedzie in NASZE_NARZEDZIA:
-        return PermissionResultAllow()
+        return {}
     logger.warning("ODRZUCONE narzędzie %s — agent ma tylko narzędzia czytające", narzedzie)
-    return PermissionResultDeny(
-        message=(
-            f"Narzędzie {narzedzie} nie jest dostępne. Masz wyłącznie narzędzia czytające: "
-            f"{', '.join(n.split('__')[-1] for n in NASZE_NARZEDZIA)}."
-        )
-    )
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": (
+                f"Narzędzie {narzedzie} nie jest dostępne. Masz wyłącznie narzędzia "
+                f"czytające: {', '.join(n.split('__')[-1] for n in NASZE_NARZEDZIA)}."
+            ),
+        }
+    }
 
 
 ZADANIE = """\
@@ -359,7 +381,9 @@ async def zbadaj_hipoteze(
         mcp_servers={SERWER: serwer},
         allowed_tools=list(NASZE_NARZEDZIA),
         disallowed_tools=list(WBUDOWANE_ZAKAZANE),
-        can_use_tool=_pozwolenie,
+        # Hook widzi KAŻDE wywołanie, także to z białej listy — inaczej niż
+        # `can_use_tool`, który przy `allowed_tools` nie jest wołany wcale.
+        hooks={"PreToolUse": [HookMatcher(hooks=[_brama_narzedzi])]},
         max_turns=MAKS_OBROTOW,
         # Bez ustawień z repo ani od użytkownika: zachowanie agenta nie może
         # zależeć od plików, które zmieniamy przy każdym etapie.

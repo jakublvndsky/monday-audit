@@ -37,7 +37,7 @@ bez wpisania tu `✅` przez człowieka.
 - [x] 3.8 Zapis snapshotu + pierwszy prawdziwy run na koncie CXLABS
 - [x] **BRAMA: snapshot istnieje i został przejrzany ręcznie**
 - [x] 3.9 Detektory deterministyczne (sygnały wzbudzające hipotezy)
-- [ ] 3.10 Narzędzia agenta (read-only, z budżetami)
+- [x] 3.10 Narzędzia agenta (read-only, z budżetami)
 - [ ] 3.11 Pętla agenta + walidacja kontraktu wyjściowego
 - [ ] 3.12 Renderer + publikacja raportu
 
