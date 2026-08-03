@@ -115,7 +115,7 @@ class WynikHipotezy:
     finding: dict[str, Any] | None = None
     odrzucona: dict[str, Any] | None = None
     wywolania_narzedzi: list[str] = field(default_factory=list)
-    zuzycie: dict[str, int] = field(default_factory=dict)
+    zuzycie: dict[str, float] = field(default_factory=dict)
     blad: str | None = None
 
 
@@ -144,16 +144,16 @@ def _inwentarz(narzedzia: Narzedzia) -> str:
     narzędziem, gdy jest mu potrzebny.
     """
     sekcje = {
-        "meta": narzedzia._payload("$.meta"),
-        "konto": narzedzia._payload("$.konto"),
-        "uzytkownicy": narzedzia._payload("$.uzytkownicy.podsumowanie"),
-        "uzytkownicy_discovery": narzedzia._payload("$.uzytkownicy.discovery"),
-        "tablice": narzedzia._payload("$.tablice.podsumowanie"),
-        "tablice_discovery": narzedzia._payload("$.tablice.discovery"),
-        "automatyzacje": narzedzia._payload("$.automatyzacje.podsumowanie"),
-        "automatyzacje_uruchomienia": narzedzia._payload("$.automatyzacje.uruchomienia"),
-        "aktywnosc": narzedzia._payload("$.aktywnosc.podsumowanie"),
-        "aktywnosc_discovery": narzedzia._payload("$.aktywnosc.discovery"),
+        "meta": narzedzia.wycinek("$.meta"),
+        "konto": narzedzia.wycinek("$.konto"),
+        "uzytkownicy": narzedzia.wycinek("$.uzytkownicy.podsumowanie"),
+        "uzytkownicy_discovery": narzedzia.wycinek("$.uzytkownicy.discovery"),
+        "tablice": narzedzia.wycinek("$.tablice.podsumowanie"),
+        "tablice_discovery": narzedzia.wycinek("$.tablice.discovery"),
+        "automatyzacje": narzedzia.wycinek("$.automatyzacje.podsumowanie"),
+        "automatyzacje_uruchomienia": narzedzia.wycinek("$.automatyzacje.uruchomienia"),
+        "aktywnosc": narzedzia.wycinek("$.aktywnosc.podsumowanie"),
+        "aktywnosc_discovery": narzedzia.wycinek("$.aktywnosc.discovery"),
     }
     return json.dumps(sekcje, ensure_ascii=False, indent=1)
 
@@ -415,17 +415,44 @@ async def zbadaj_hipoteze(
     return wynik
 
 
-def _zuzycie(wiadomosc: ResultMessage) -> dict[str, int]:
-    """Tokeny z `ResultMessage`. D8 wymaga ich w `zuzycie`."""
-    surowe = getattr(wiadomosc, "usage", None) or {}
-    if not isinstance(surowe, dict):
-        return {}
-    return {
-        "tokens_in": int(surowe.get("input_tokens") or 0),
-        "tokens_out": int(surowe.get("output_tokens") or 0),
-        "tokens_cache_read": int(surowe.get("cache_read_input_tokens") or 0),
-        "tokens_cache_write": int(surowe.get("cache_creation_input_tokens") or 0),
+def _zuzycie(wiadomosc: ResultMessage) -> dict[str, float]:
+    """Zużycie z `ResultMessage`. D8 wymaga go w `zuzycie`.
+
+    Liczymy z `model_usage`, nie z `usage`. Powód jest zmierzony: pierwszy run
+    pokazał `tokens_in: 10` przy prompcie systemowym rzędu pięciu tysięcy
+    znaków, bo `usage.input_tokens` NIE obejmuje tokenów obsłużonych z cache —
+    a przy D2 (caching na inwentarzu) to właśnie tam siedzi prawie całe
+    wejście. Sumowanie samego `input_tokens` pokazywałoby koszt bliski zeru
+    i uczyłoby nas fałszywej pewności.
+
+    `costUSD` bierzemy z SDK, zamiast mnożyć tokeny przez cennik zaszyty
+    u nas — cennik jest po stronie dostawcy i to on wie, ile policzył.
+    """
+    modele = getattr(wiadomosc, "model_usage", None) or {}
+    zuzycie = {
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "tokens_cache_read": 0,
+        "tokens_cache_write": 0,
+        "koszt_usd": 0.0,
     }
+    for uzycie in modele.values():
+        if not isinstance(uzycie, dict):
+            continue
+        zuzycie["tokens_in"] += int(uzycie.get("inputTokens") or 0)
+        zuzycie["tokens_out"] += int(uzycie.get("outputTokens") or 0)
+        zuzycie["tokens_cache_read"] += int(uzycie.get("cacheReadInputTokens") or 0)
+        zuzycie["tokens_cache_write"] += int(uzycie.get("cacheCreationInputTokens") or 0)
+
+    # `total_cost_usd` jest wiarygodniejsze niż suma po modelach, bo obejmuje
+    # też to, czego `model_usage` nie rozbija.
+    calosc = getattr(wiadomosc, "total_cost_usd", None)
+    zuzycie["koszt_usd"] = (
+        float(calosc)
+        if calosc
+        else sum(float(u.get("costUSD") or 0) for u in modele.values() if isinstance(u, dict))
+    )
+    return zuzycie
 
 
 async def zbadaj_hipotezy(
@@ -452,7 +479,14 @@ async def zbadaj_hipotezy(
     findings: list[dict[str, Any]] = []
     odrzucone: list[dict[str, Any]] = []
     bledy: list[dict[str, str]] = []
-    zuzycie = {"wywolania": 0, "tokens_in": 0, "tokens_out": 0}
+    zuzycie: dict[str, float] = {
+        "wywolania": 0,
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "tokens_cache_read": 0,
+        "tokens_cache_write": 0,
+        "koszt_usd": 0.0,
+    }
 
     for numer, hipoteza in enumerate(hipotezy, start=1):
         logger.info(
@@ -473,8 +507,9 @@ async def zbadaj_hipotezy(
             biezace=biezace,
             model=model,
         )
-        zuzycie["tokens_in"] += wynik.zuzycie.get("tokens_in", 0)
-        zuzycie["tokens_out"] += wynik.zuzycie.get("tokens_out", 0)
+        for klucz in ("tokens_in", "tokens_out", "tokens_cache_read", "tokens_cache_write"):
+            zuzycie[klucz] += wynik.zuzycie.get(klucz, 0)
+        zuzycie["koszt_usd"] += wynik.zuzycie.get("koszt_usd", 0.0)
         zuzycie["wywolania"] += sum(
             1 for w in wynik.wywolania_narzedzi if w.startswith(("probka_kolumn", "log_tablicy"))
         )
@@ -504,5 +539,115 @@ async def zbadaj_hipotezy(
         "findings": findings,
         "hipotezy_odrzucone": odrzucone,
         "hipotezy_nierozstrzygniete": bledy,
-        "zuzycie": zuzycie,
+        "zuzycie": {**zuzycie, "koszt_usd": round(float(zuzycie["koszt_usd"]), 6)},
     }
+
+
+# ── zapis do przeglądu przez człowieka ───────────────────────────────────
+
+KATALOG_RAPORTOW = Path("raporty")
+
+
+def zapisz_do_pliku(
+    odpowiedz: dict[str, Any],
+    wynik_walidacji: Any,
+    *,
+    katalog: Path = KATALOG_RAPORTOW,
+) -> Path:
+    """Wynik runu agenta jako czytelny plik tekstowy.
+
+    To NIE jest renderer z 3.12 — ten produkuje raport dla klienta. To zapis
+    do przeglądu przez człowieka na etapie budowy: co agent powiedział, co
+    walidacja odrzuciła i za ile.
+
+    Katalog jest w `.gitignore`: findingi zawierają nazwy tablic i kolumn
+    klienta. Świadomie w repo, nie w katalogu tymczasowym — po pierwszym
+    snapshocie okazało się, że `/private/tmp` jest niewidoczne w Finderze
+    i nieodtwarzalne.
+    """
+    katalog.mkdir(parents=True, exist_ok=True)
+    cel = katalog / f"agent_{odpowiedz['run_id']}.txt"
+
+    linie: list[str] = [
+        "=" * 72,
+        f"RUN AGENTA: {odpowiedz['run_id']}",
+        "=" * 72,
+        f"snapshot       : {odpowiedz['snapshot_id']}",
+        f"model          : {odpowiedz['model']}",
+        f"rubryka        : {odpowiedz['rubric_version']}",
+        "",
+        "ZUŻYCIE",
+        "-" * 72,
+    ]
+    for klucz, wartosc in sorted(odpowiedz["zuzycie"].items()):
+        linie.append(f"  {klucz:24} {wartosc:>10,}".replace(",", " "))
+
+    linie += ["", "WALIDACJA", "-" * 72, f"  {wynik_walidacji.opis()}"]
+    for odrzucony in wynik_walidacji.odrzucone:
+        linie += [
+            f"  ODRZUCONY  klasa={odrzucony.klasa_id}",
+            f"    reguła : {odrzucony.regula}",
+            f"    powód  : {odrzucony.powod}",
+        ]
+
+    linie += ["", f"FINDINGI PRZYJĘTE ({len(wynik_walidacji.przyjete)})", "=" * 72]
+    for numer, finding in enumerate(wynik_walidacji.przyjete, start=1):
+        linie += [
+            "",
+            f"[{numer}] {finding['klasa_id']}  "
+            f"waga={finding['waga']}  pewność={finding['pewnosc']}  "
+            f"kwota={finding['kwota_pln']}",
+            "",
+            "  OPIS",
+            *_zawin(str(finding["opis"]), "    "),
+            "",
+            "  REKOMENDACJA",
+            *_zawin(str(finding["rekomendacja"]), "    "),
+            "",
+            "  DOWÓD",
+            *[
+                f"    {k}: {json.dumps(v, ensure_ascii=False)}"
+                for k, v in sorted(finding["dowod"].items())
+            ],
+            "-" * 72,
+        ]
+
+    linie += [
+        "",
+        f"HIPOTEZY ODRZUCONE PRZEZ AGENTA ({len(odpowiedz['hipotezy_odrzucone'])})",
+        "=" * 72,
+    ]
+    for odrzucona in odpowiedz["hipotezy_odrzucone"]:
+        linie += [
+            f"  {odrzucona.get('klasa_id')} / {odrzucona.get('obiekt_id')}",
+            *_zawin(str(odrzucona.get("powod")), "    "),
+            "",
+        ]
+
+    nierozstrzygniete = odpowiedz.get("hipotezy_nierozstrzygniete") or []
+    if nierozstrzygniete:
+        linie += [
+            "",
+            f"HIPOTEZY NIEROZSTRZYGNIĘTE ({len(nierozstrzygniete)})",
+            "=" * 72,
+            "  To NIE to samo co odrzucone — tych agent nie zdołał zbadać.",
+            "",
+        ]
+        for blad in nierozstrzygniete:
+            linie.append(f"  {blad['klasa_id']} / {blad['obiekt_id']}: {blad['blad']}")
+
+    linie += [
+        "",
+        "SUROWA ODPOWIEDŹ AGENTA (do porównania z walidacją)",
+        "=" * 72,
+        json.dumps(odpowiedz, ensure_ascii=False, indent=1),
+    ]
+
+    cel.write_text("\n".join(linie) + "\n", encoding="utf-8")
+    return cel
+
+
+def _zawin(tekst: str, wciecie: str, szerokosc: int = 68) -> list[str]:
+    import textwrap
+
+    return [wciecie + w for w in textwrap.wrap(tekst, szerokosc)] or [wciecie + "(puste)"]

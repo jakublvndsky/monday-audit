@@ -171,7 +171,15 @@ class Narzedzia:
             budzet=Budzet(limit=hipoteza.budzet_wywolan),
         )
 
-    def _payload(self, sciezka: str) -> Any:
+    def wycinek(self, sciezka: str) -> Any:
+        """Fragment payloadu snapshotu po ścieżce JSON.
+
+        PUBLICZNA celowo: `agent._inwentarz()` buduje z niej stały prefiks
+        kontekstu, więc metoda jest częścią interfejsu, nie szczegółem
+        implementacji. Wcześniej nazywała się `_payload` i była wołana
+        z zewnątrz klasy, co jest dokładnie tym rodzajem drobnicy, która
+        później zamienia się w „nie wiem, kto tego używa".
+        """
         wiersz = self.con.execute(
             "SELECT json_extract(payload, ?) AS wycinek FROM snapshots WHERE id = ?",
             (sciezka, self.snapshot_id),
@@ -206,7 +214,7 @@ class NarzedziaHipotezy:
         if zakres not in dozwolone:
             raise NarzedzieError(f"nieznany zakres {zakres!r}; dozwolone: {', '.join(dozwolone)}")
 
-        sekcja = self.zestaw._payload(f"$.{zakres}") or {}
+        sekcja = self.zestaw.wycinek(f"$.{zakres}") or {}
         dane: dict[str, Any] = {"zakres": zakres}
         for klucz in ("podsumowanie", "discovery", "plan", "konto", "zakres", "zastrzezenia"):
             if isinstance(sekcja, dict) and klucz in sekcja and klucz != zakres:
@@ -233,13 +241,13 @@ class NarzedziaHipotezy:
         return metoda(obiekt_id) if wymaga_id else metoda()
 
     def _tablice(self) -> list[dict[str, Any]]:
-        return self.zestaw._payload("$.tablice.tablice") or []
+        return self.zestaw.wycinek("$.tablice.tablice") or []
 
     def _aktywnosc(self) -> list[dict[str, Any]]:
-        return self.zestaw._payload("$.aktywnosc.aktywnosc_tablic") or []
+        return self.zestaw.wycinek("$.aktywnosc.aktywnosc_tablic") or []
 
     def _osoby(self) -> list[dict[str, Any]]:
-        return self.zestaw._payload("$.uzytkownicy.uzytkownicy") or []
+        return self.zestaw.wycinek("$.uzytkownicy.uzytkownicy") or []
 
     def _pytanie_tablica(self, board_id: str) -> Wynik:
         tablica = next(
@@ -333,7 +341,7 @@ class NarzedziaHipotezy:
         )
 
     def _pytanie_automatyzacja(self, automation_id: str) -> Wynik:
-        statystyki = self.zestaw._payload("$.automatyzacje.statystyki_automatyzacji") or []
+        statystyki = self.zestaw.wycinek("$.automatyzacje.statystyki_automatyzacji") or []
         rekord = next(
             (a for a in statystyki if str(a.get("automation_id")) == str(automation_id)), None
         )
@@ -375,12 +383,12 @@ class NarzedziaHipotezy:
     def _pytanie_podsumowanie(self) -> Wynik:
         return Wynik(
             dane={
-                "meta": self.zestaw._payload("$.meta"),
-                "konto": self.zestaw._payload("$.konto.plan"),
-                "uzytkownicy": self.zestaw._payload("$.uzytkownicy.podsumowanie"),
-                "tablice": self.zestaw._payload("$.tablice.podsumowanie"),
-                "automatyzacje": self.zestaw._payload("$.automatyzacje.podsumowanie"),
-                "aktywnosc": self.zestaw._payload("$.aktywnosc.podsumowanie"),
+                "meta": self.zestaw.wycinek("$.meta"),
+                "konto": self.zestaw.wycinek("$.konto.plan"),
+                "uzytkownicy": self.zestaw.wycinek("$.uzytkownicy.podsumowanie"),
+                "tablice": self.zestaw.wycinek("$.tablice.podsumowanie"),
+                "automatyzacje": self.zestaw.wycinek("$.automatyzacje.podsumowanie"),
+                "aktywnosc": self.zestaw.wycinek("$.aktywnosc.podsumowanie"),
             },
             budzet_zostalo=self.budzet.zostalo,
         )

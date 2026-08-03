@@ -169,14 +169,14 @@ def test_odpowiedz_bez_json_przerywa_hipoteze(tekst: str) -> None:
 
 
 class _ZestawAtrapa:
-    """Atrapa `Narzedzia` — sam `_payload`, bo tylko tego używa `_inwentarz`."""
+    """Atrapa `Narzedzia` — sam `wycinek`, bo tylko tego używa `_inwentarz`."""
 
     snapshot_id = 5
 
     def __init__(self, sekcje: dict[str, Any]) -> None:
         self.sekcje = sekcje
 
-    def _payload(self, sciezka: str) -> Any:
+    def wycinek(self, sciezka: str) -> Any:
         return self.sekcje.get(sciezka)
 
 
