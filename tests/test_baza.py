@@ -63,8 +63,13 @@ def con_z_runem(con: sqlite3.Connection) -> sqlite3.Connection:
 
 
 def test_migracje_aplikuja_sie_od_zera(tmp_path: Path) -> None:
+    """Numery migracji, nie ich liczba — kolejność jest częścią kontraktu.
+
+    002 doszła w 3.11: tabela `findings_odrzucone`, bo `runy.odrzuconych_walidacja`
+    to sam licznik, a D8 nazywa odsetek odrzuconych główną metryką etapu 4.
+    """
     con = polacz(tmp_path / "nowa.db")
-    assert zastosuj_migracje(con) == [1]
+    assert zastosuj_migracje(con) == [1, 2]
     con.close()
 
 
@@ -75,6 +80,7 @@ def test_wszystkie_tabele_powstaly(con: sqlite3.Connection) -> None:
         "snapshots",
         "runy",
         "findings",
+        "findings_odrzucone",
         "hipotezy_odrzucone",
         "osoby_mapowanie",
         "wywolania",
