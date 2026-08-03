@@ -64,17 +64,24 @@ class Ustawienia(BaseSettings):
 
     monday_token: SecretStr
     sol_pseudonimizacji: SecretStr
+    # Nazwę narzuca Agent SDK i nie wolno jej zmieniać — SDK czyta ją ze
+    # środowiska podprocesu sam. Trzymamy ją tutaj tylko po to, żeby brak
+    # klucza przerwał run PRZED pierwszym wywołaniem modelu, a nie w połowie
+    # pętli, po zapłaceniu za część hipotez.
+    anthropic_api_key: SecretStr | None = None
     monday_audit_db: Path = DOMYSLNA_BAZA
 
-    @field_validator("monday_token", "sol_pseudonimizacji", mode="after")
+    @field_validator("monday_token", "sol_pseudonimizacji", "anthropic_api_key", mode="after")
     @classmethod
-    def _bez_bialych_znakow(cls, wartosc: SecretStr) -> SecretStr:
+    def _bez_bialych_znakow(cls, wartosc: SecretStr | None) -> SecretStr | None:
         """Sekret skopiowany z panelu monday niesie ogon białych znaków.
 
         Walidator działa na `SecretStr`, nie na `str`, celowo: gdyby podniósł
         błąd na surowym wejściu, pydantic wstawiłby tę wartość do `input`
         w `ValidationError`, czyli sekret trafiłby do komunikatu.
         """
+        if wartosc is None:
+            return None
         return SecretStr(wartosc.get_secret_value().strip())
 
     @field_validator("sol_pseudonimizacji", mode="after")
@@ -190,3 +197,24 @@ def sol_z_ustawien(ustawienia: Ustawienia) -> bytes:
             f"sól ma {len(surowa)} znaków, wymagane minimum {MIN_DLUGOSC_SOLI}"
         )
     return surowa.encode("utf-8")
+
+
+def klucz_anthropic(ustawienia: Ustawienia) -> str:
+    """Klucz do Agent SDK. Brak PRZERYWA, zanim padnie pierwsze wywołanie.
+
+    Puste znaczy tyle samo co brak: `ANTHROPIC_API_KEY=` w `.env` to linia,
+    którą ktoś skopiował z szablonu i nie wypełnił, a nie świadoma decyzja.
+    Sprawdzenie samego `is None` przepuściłoby ją i run wywrócił się dopiero
+    przy modelu — po zapłaceniu za wywołania monday, których już nie odzyskamy.
+
+    Agent SDK czyta zmienną ze środowiska podprocesu sam. Ta funkcja istnieje
+    po to, żeby run przerwał się WCZEŚNIE i z czytelnym komunikatem.
+    """
+    surowy = ustawienia.anthropic_api_key
+    wartosc = surowy.get_secret_value().strip() if surowy else ""
+    if not wartosc:
+        raise KonfiguracjaError(
+            "brak ANTHROPIC_API_KEY — pętla agenta (3.11) go wymaga. Wpisz go "
+            "do .env albo wyeksportuj w środowisku; Agent SDK czyta tę zmienną sam"
+        )
+    return wartosc

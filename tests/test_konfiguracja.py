@@ -264,3 +264,43 @@ def test_log_mowi_wprost_o_braku_pliku(
         wczytaj(tmp_path / "nie-ma-mnie")
 
     assert "tylko środowisko procesu" in caplog.text
+
+
+# ── klucz Anthropic dla pętli agenta ─────────────────────────────────────
+
+
+def test_brak_klucza_anthropic_przerywa(tmp_path: Path) -> None:
+    from monday_audit.konfiguracja import klucz_anthropic
+
+    plik = zapisz_env(tmp_path, token="t", sol=SOL)
+
+    with pytest.raises(KonfiguracjaError, match="ANTHROPIC_API_KEY"):
+        klucz_anthropic(wczytaj(plik))
+
+
+def test_pusty_klucz_anthropic_to_to_samo_co_brak(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`ANTHROPIC_API_KEY=` w .env to niewypełniony szablon, nie decyzja.
+
+    Sprawdzenie samego `is None` przepuściłoby to i run wywrócił się dopiero
+    przy modelu — po zapłaceniu za wywołania monday.
+    """
+    from monday_audit.konfiguracja import klucz_anthropic
+
+    plik = zapisz_env(tmp_path, token="t", sol=SOL)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "   ")
+
+    with pytest.raises(KonfiguracjaError, match="ANTHROPIC_API_KEY"):
+        klucz_anthropic(wczytaj(plik))
+
+
+def test_klucz_anthropic_wraca_bez_bialych_znakow(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from monday_audit.konfiguracja import klucz_anthropic
+
+    plik = zapisz_env(tmp_path, token="t", sol=SOL)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "  sk-atrapa  ")
+
+    assert klucz_anthropic(wczytaj(plik)) == "sk-atrapa"
