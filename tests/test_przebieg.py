@@ -140,6 +140,13 @@ def api(
             }
         elif "trigger_events" in gql:
             dane = {"trigger_events": {"triggerEvents": []}}
+        elif "agents (" in gql or "agent_runs (" in gql:
+            # Realny dzisiejszy stan: pola nie ma w wersji przypiętej (O20).
+            # Sonda MUSI to przełknąć i nie przerwać runu.
+            return httpx.Response(
+                200,
+                json={"errors": [{"message": 'Cannot query field "agents" on type "Query".'}]},
+            )
         else:  # pragma: no cover
             raise AssertionError(f"nieobsłużone zapytanie: {gql[:120]}")
 
@@ -238,6 +245,7 @@ async def test_payload_ma_wszystkie_sekcje(con: sqlite3.Connection) -> None:
     assert set(payload) == {
         "meta",
         "konto",
+        "agenci",
         "uzytkownicy",
         "tablice",
         "automatyzacje",

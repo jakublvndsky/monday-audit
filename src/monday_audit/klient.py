@@ -552,15 +552,25 @@ class MondayClient:
         variables: Mapping[str, Any] | None = None,
         *,
         etykieta: str | None = None,
+        wersja_api: str | None = None,
     ) -> dict[str, Any]:
         """Wykonuje jedno zapytanie i zwraca `data` bez pola `complexity`.
 
         `etykieta` idzie do kolumny `wywolania.narzedzie` jako `graphql:<etykieta>`,
         żeby etap 6 umiał odpowiedzieć, które zapytanie jest drogie.
+
+        `wersja_api` nadpisuje przypiętą wersję dla TEGO JEDNEGO zapytania.
+        Istnieje wyłącznie dla sondy rozpoznawczej z `agenci`, która musi
+        sprawdzić, czy pole działa w wersji nowszej niż nasza. Dane z takiego
+        zapytania **nie mają prawa wejść do findingów**, dopóki wersja nie
+        zostanie przypięta — inaczej audyt przestaje być odtwarzalny
+        (05-deploy, D4). Licznik wywołań, hamulec complexity i zapis do
+        `wywolania` działają tak samo, bo to nadal wywołanie u klienta.
         """
         tresc = przygotuj_zapytanie(gql)
         narzedzie = _narzedzie(etykieta)
         ladunek = {"query": tresc, "variables": dict(variables or {})}
+        naglowki_zapytania = {"API-Version": wersja_api} if wersja_api else None
         ostatni: PrzejsciowyError | None = None
 
         for proba in range(self._maks_prob):
@@ -571,7 +581,7 @@ class MondayClient:
             start = time.monotonic()
 
             try:
-                odpowiedz = await self._http.post(URL_API, json=ladunek)
+                odpowiedz = await self._http.post(URL_API, json=ladunek, headers=naglowki_zapytania)
                 dane = _rozpakuj(odpowiedz)
             except httpx.RequestError as blad:
                 # Timeout, DNS, zerwane połączenie — nie wiemy, czy zapytanie

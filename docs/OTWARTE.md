@@ -24,6 +24,7 @@ a nie na twoim rozstrzygnięciu. Szczegóły w wskazanych pozycjach.
 | Sandbox jako blokada `.env` | rozmowa 2026-07-31 | `permissions.deny` na `.env` i `.env.local`; polecenia Basha nadal mogą czytać plik |
 | Sól pseudonimizacji | wygenerowana przeze mnie 2026-07-30 | w `.env`; jej zmiana unieważnia porównywalność snapshotów |
 | `board.updated_at` jako sygnał życia | **O18** | zaniża o do 40 dni; rozstrzyga `najnowszy_at` z logu |
+| **Śledzenie kredytów agentów monday** | **O20**, **O21** | sonda notuje dostępność; kredytów nie ma w stabilnym API, a Enterprise ich nie płaci — liczba musi przyjść od człowieka z panelu Admin |
 
 Zamknięte: `pydantic-settings` jako źródło konfiguracji (**D12**, zgoda ustna
 2026-07-31), prawa do pliku `.env` (`chmod 600`, 2026-08-01), przypięcie
@@ -52,9 +53,12 @@ Pełne ustalenia, w tym zepsuty filtr `board_id`: **O12**.
 
 ---
 
-## O2. Czy API zwraca zużycie kredytów AI
+## O2. Zużycie kredytów AI — ROZSTRZYGNIĘTE: API tego nie oddaje
 
-**Status:** niepotwierdzone, z nowym podejrzeniem co do przyczyny
+**Status: ROZSTRZYGNIĘTE 2026-08-04 — nie ma tego w wersji stabilnej.**
+Szczegóły powierzchni agentowej w **O20**, cennik w `docs/CENNIK_AI.md`.
+
+**Poprzedni status:** niepotwierdzone, z podejrzeniem co do przyczyny
 **Blokuje:** cała klasa `AI_UNUSED` (oznaczona `status: do_weryfikacji`)
 **Jeśli nie:** klasa zostaje wyłączona, ewentualnie zastąpiona ręcznym
 sprawdzeniem w Admin panel klienta.
@@ -68,11 +72,29 @@ Nie wiemy, czy to brak uprawnień, czy natura planu partnerskiego — ale jeśli
 tokenem bez admina i nie wyciągaj z null-a wniosku, że pola nie ma.**
 Rozstrzygnięcie wymaga porównania odpowiedzi tokena admina i członka.
 
+**ROZSTRZYGNIĘCIE 2026-08-04.** Sprawdzone zapytaniem na koncie CXLABS,
+nie samą introspekcją:
+
+- korzeniowe `usage` zwraca `CampaignsUsage`, czyli metryki marketingowe
+  (`email_sends`, `marketing_contacts`) — **nie ma tam AI**
+- `Account` ma tylko `plan` i `tier`, żadnego pola o kredytach
+- korzeń zapytania **nie ma ANI JEDNEGO pola** z `credit`, `usage` ani `agent`
+  w wersji `2026-07` ani `2026-10`
+- typy `AgentActivityRun.credits_used`, `ChatMessage.credits_used`
+  i `VibeQueries.ai_credits_billing_cycle` **istnieją w schemacie, ale nic
+  ich nie zwraca** — są nieosiągalne
+
+Czyli null przy `plan` nie był kwestią uprawnień: kredytów po prostu nie ma
+w publicznym API. `AI_UNUSED` zostaje `do_weryfikacji`, ale **z innego powodu
+niż dotąd** — nie „nie wiemy", a „wiemy, że nie ma". Jedyne źródło to panel
+Admin → AI governance → Credits, czyli droga ręczna, jak `koszt_licencji_mies`
+w O7.
+
 ---
 
-## O3. Sprawa kredytów AI przy zewnętrznych agentach — SPRZECZNE ŹRÓDŁA
+## O3. Kredyty AI przy zewnętrznych agentach — POTWIERDZONE u źródła
 
-**Status:** sprzeczność w dokumentacji monday
+**Status: ROZSTRZYGNIĘTE 2026-08-04 co do strony deweloperskiej**
 **Waga:** wysoka — to argument cenowy, nie tylko techniczny
 
 Support monday twierdzi, że rozumowanie zewnętrznego agenta zużywa
@@ -84,11 +106,21 @@ Da się to pogodzić (rozumowanie u dostawcy, akcje AI po stronie monday
 z kredytów monday), ale **nie prezentować jako argumentu cenowego
 przed potwierdzeniem.**
 
-**Jak sprawdzić:** zmierzyć kredyty na koncie CXLABS przed i po jednym
-runie agenta.
+**POTWIERDZENIE 2026-08-04.** Dokumentacja deweloperska monday (źródło
+pierwotne, [Build on monday.com with AI](https://developer.monday.com/api-reference/docs/build-on-monday-with-ai))
+mówi wprost, że podłączeni agenci „consume AI credits tracked under the
+account's usage dashboard". Strona dev z pierwotnej sprzeczności jest więc
+potwierdzona cytatem; twierdzenie supportu pozostaje nierozstrzygnięte
+i pogodzenie obu (rozumowanie u dostawcy, akcje AI z kredytów monday) nadal
+jest tylko hipotezą.
 
-**Uwaga:** to nie dotyczy v1 audytu (nie jest agentem BYO), ale dotyczy
-produktów, które pójdą tą ścieżką.
+**Ale ta sama strona NIE dokumentuje żadnego API do odczytu tego zużycia** —
+co jest zgodne z pomiarem z O2.
+
+**Czego nie da się zmierzyć na CXLABS:** konto jest na Enterprise, a tam
+agenci są darmowi (**O21**). Pomiar „kredyty przed i po runie agenta" da zero
+niezależnie od tego, co się stanie. Walidacja tej ścieżki wymaga konta
+na Pro albo niżej.
 
 ---
 
@@ -780,3 +812,78 @@ Obecność mutacji w odpowiedzi jest dowodem, że zapytanie wyszło.
 **Uwaga wdrożeniowa:** `isolated-vm`, zależność natywna MCP, nie kompiluje się
 na Node 25 (`node-gyp` przerywa). Zbudowało się na Node 22. Gdyby MCP kiedyś
 wracał, Mikrus potrzebuje Node 20–22, nie najnowszego.
+
+---
+
+## O20. Powierzchnia agentowa jest w wersjach przedprodukcyjnych
+
+**Status:** zmierzone 2026-08-04
+**Blokuje:** śledzenie kredytów agentów, `AI_UNUSED`
+**Sonda w kodzie:** `monday_audit.agenci.sonduj_agentow`
+
+Sprawdzone **zapytaniem**, nie introspekcją — bo introspekcja monday nie jest
+wiarygodnym źródłem prawdy o dostępności pola (O17):
+
+| Wersja | `agents` | `agent_runs` |
+|---|---|---|
+| `2026-07` (przypięta) | ❌ brak pola | ❌ brak pola |
+| `2026-10` | ❌ brak pola | ❌ brak pola |
+| `2027-01` (release candidate) | ✅ **działa**, 50 agentów na CXLABS | ❌ brak pola |
+| `dev` | ✅ działa | ⚠️ **`Internal server error`** |
+
+W `dev` istnieje pełna powierzchnia: `agent_runs`, `agent_run_event`,
+`agent_skills_catalog`, `agent_knowledge`, `agent_artifacts`, `custom_agents`,
+`external_provider_agents`, `agent_triggers_catalog`, `agent_active_triggers`.
+
+**Typ `AgentRun` w `dev` to komplet pod storytelling kosztowy:** `total_cost`,
+`total_tokens`, `duration_ms`, `steps_count`, `tool_calls_count`, `models_used`,
+`capabilities_used`, `mcp_servers_used`, `title`/`summary`/`short_summary`,
+`outcome_status`/`outcome_reason`, `feedback_rating`/`feedback_count` oraz
+`triggered_by_user_id`, `owner_user_id`, `agent_user_id`, `executed_as_user_id`.
+
+**Ale dziś nie da się z tego skorzystać.** `agent_runs` zwraca ISE przy każdym
+zestawie pól, jaki sprawdzono (minimalny `run_id status total_cost` też).
+
+**Dlaczego NIE budujemy na `dev`:** wersja zmienia się bez ostrzeżenia,
+a 05-deploy wymaga przypiętej wersji, żeby audyt sprzed trzech miesięcy dał
+się odtworzyć. Audyt na `dev` byłby nieodtwarzalny z definicji. Sonda ma prawo
+tam zaglądać jako rozpoznanie, a jej wynik jest oznaczony
+`zrodlo_nieprzypiete: true` i `NIE_DO_FINDINGOW` — pilnują tego testy.
+
+**Ścieżka odtworzenia:** `query { agents (limit: 5) { id } }` z nagłówkiem
+`API-Version: 2027-01`, potem `query { agent_runs (agent_id: "<id>", limit: 5)
+{ run_id status total_cost } }` z `API-Version: dev`. Sonda robi to sama przy
+każdym runie i zapisuje wynik do `agenci.dostepnosc_api` w snapshocie, więc
+pierwszy run po wypuszczeniu tego przez monday powie nam o tym bez pytania.
+
+**Uwaga na PII przy wdrożeniu:** `AgentRun` niesie CZTERY surowe identyfikatory
+osób. Wszystkie muszą przejść przez `policz_hash` z 3.4. Pola `title`,
+`summary`, `trigger_context` i `outputs` to treść pisana przez klienta, czyli
+i PII, i wektor prompt injection — sonda ich nie pobiera i nie wolno ich
+dodać bez `waliduj_brak_pii` oraz sufitu długości.
+
+---
+
+## O21. Enterprise nie płaci za agentów — pomiar kredytów na CXLABS da zero
+
+**Status:** ustalone 2026-08-04 ze źródeł zewnętrznych (support monday zwraca
+403 przy pobieraniu, treść z wyszukiwania)
+**Waga:** wysoka — przesądza, na jakim koncie da się cokolwiek zmierzyć
+
+Rozliczanie agentów kredytami wystartowało **8–9 czerwca 2026** dla planów Pro,
+Standard i Basic. **Enterprise jest zwolniony** i przejdzie na model kredytowy
+później; termin nie został ogłoszony.
+
+**Konsekwencja praktyczna:** konto CXLABS jest na Enterprise (`tier:
+enterprise`, zmierzone), więc kredyty za agentów będą tam **zerowe niezależnie
+od tego, co API kiedyś odsłoni**. Zero w tym miejscu NIE znaczy „agenci nie
+działają" ani „API nie działa" — i raport nie może tego pomylić. Sonda
+rozdziela te przypadki: `runy_dostepne` mówi o osiągalności, a
+`kredyty_dostepne` o obecności kwoty; test pilnuje, żeby jedno nie było
+wnioskiem z drugiego.
+
+**Do walidacji tej ścieżki potrzebne jest konto klienta na Pro albo niżej.**
+Dopóki go nie ma, kod jest napisany na podstawie schematu, nie pomiaru.
+
+**Skąd te liczby:** analizy zewnętrzne, nie dokumentacja monday. Pełny cennik
+z oznaczeniem wiarygodności każdej pozycji: `docs/CENNIK_AI.md`.

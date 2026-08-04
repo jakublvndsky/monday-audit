@@ -36,6 +36,7 @@ from typing import Any
 
 import httpx
 
+from monday_audit.agenci import sonduj_agentow
 from monday_audit.automatyzacje import MAKS_SOND, zbierz_automatyzacje
 from monday_audit.baza import MapowanieOsob, RejestrWywolan
 from monday_audit.klient import WERSJA_API, MondayClient, Postep
@@ -53,6 +54,46 @@ DNI_OKNA = 90
 # Musi wystarczyć na rozpoznanie konta i użytkowników, bo inaczej run przerwałby
 # się przed poznaniem planu, który miał ten limit ustalić.
 BUDZET_STARTOWY = 400
+
+
+def _sekcja_agentow(agenci: Any, osoby: Any, automaty: Any) -> dict[str, Any]:
+    """Agenci AI: co wiemy dziś plus wynik sondy o tym, co będzie można.
+
+    Rozdzielone świadomie na dwie części. `wolumen` to nasze POMIARY z danych,
+    które i tak zbieramy — działa dzisiaj i na każdym planie. `dostepnosc_api`
+    to wynik sondy, czyli odpowiedź na pytanie „czy da się już policzyć
+    kredyty" — dziś brzmi „nie" (O20).
+
+    Kredytów tu NIE MA i nie będzie, dopóki API ich nie odda. Przeliczniki
+    z `docs/CENNIK_AI.md` są dokumentacją do rozmowy, nie danymi do findingu:
+    wpisanie ich tutaj oznaczałoby kwotę wyliczoną z cudzego bloga, a to
+    dokładnie ten rodzaj liczby, którą rubryka zabrania podawać.
+    """
+    podsumowanie_osob = osoby.podsumowanie()
+    podsumowanie_automatow = automaty.podsumowanie()
+    return {
+        "wolumen": {
+            # Ponad jedna trzecia „kont" na CXLABS to agenci, nie ludzie (O17).
+            "kont_agentow": podsumowanie_osob.get("agentow", 0),
+            "kont_razem": podsumowanie_osob.get("razem", 0),
+            "uruchomien_automatyzacji": automaty.uruchomien_razem,
+            "uruchomien_nieudanych": automaty.uruchomien_bledow,
+            "automatyzacji_z_bledami": podsumowanie_automatow.get("automatyzacji_z_bledami", 0),
+            "automatyzacji_z_wyczerpaniem": podsumowanie_automatow.get(
+                "automatyzacji_z_wyczerpaniem", 0
+            ),
+            "tablic_bez_zdarzen_automatyzacji": podsumowanie_automatow.get("tablic_bez_zdarzen", 0),
+            "tablic_sondowanych": podsumowanie_automatow.get("tablic_sondowanych", 0),
+        },
+        "dostepnosc_api": agenci.do_snapshotu(),
+        "podsumowanie": agenci.podsumowanie(),
+        "uwaga_o_kredytach": (
+            "API nie oddaje zużycia kredytów AI w wersji przypiętej (O2, O20). "
+            "Jedyne źródło to panel Admin → AI governance → Credits. Przeliczniki "
+            "w docs/CENNIK_AI.md są rzędem wielkości do rozmowy, nie danymi "
+            "do wyceny — i pochodzą ze źródeł zewnętrznych, nie od monday."
+        ),
+    }
 
 
 def collector_ver() -> str:
@@ -222,6 +263,9 @@ async def wykonaj_run(
             do=run_at,
             maks_sond=maks_sond,
         )
+        # Sonda agentów AI. Trzy do pięciu wywołań, nie przerywa runu przy
+        # błędzie — brak tych pól to dziś normalny stan (O20), nie awaria.
+        agenci = await sonduj_agentow(klient)
         logi = await zbierz_logi(
             klient,
             tablice.tablice,
@@ -257,6 +301,10 @@ async def wykonaj_run(
         "tablice": tablice.do_snapshotu(),
         "automatyzacje": automaty.do_snapshotu(),
         "aktywnosc": logi.do_snapshotu(),
+        # Agenci AI mają własną sekcję, a nie są rozsypani po automatyzacjach
+        # i użytkownikach. Powód: to jest pytanie zadane osobno („ile kredytów
+        # zużywają agenci"), więc odpowiedź musi mieć jedno miejsce.
+        "agenci": _sekcja_agentow(agenci, osoby, automaty),
     }
 
     # Redakcja PRZED walidacją: klient potrafi nazwać tablicę albo zespół
