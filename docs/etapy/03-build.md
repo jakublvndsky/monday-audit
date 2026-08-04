@@ -151,8 +151,10 @@ konto większe niż jedna strona.
 Przetestuj i zaloguj wynik:
 1. `automations` na boards
 2. `account { usage { automations } }`
-3. Narzędzia MCP: `list_automations`, `get_automation_runs`,
-   `get_automation_statistics`
+3. ~~Narzędzia MCP: `list_automations`, `get_automation_runs`,
+   `get_automation_statistics`~~ — **odpada**, MCP nie jest już częścią
+   architektury (D4). Discovery zamknęło się na punktach 1–2; wynik
+   i faktyczne pola są w O1.
 
 To jest najdroższy krok (~200 wywołań, liniowo per tablica).
 Rozważ ograniczenie do tablic aktywnych.
@@ -247,17 +249,22 @@ a wynik jest powtarzalny (ten sam snapshot → ta sama lista).
 
 **Tylko czytające. Bez wyjątków.**
 
-Własne (do snapshotu):
+Wszystkie **własne**, wszystkie w `monday_audit.narzedzia`. Dwa czytają
+snapshot, dwa wchodzą do monday — i te dwa idą przez ten sam `MondayClient`,
+którego używa collector:
+
 ```python
-pobierz_inwentarz(zakres: str) -> dict
-zapytaj_snapshot(pytanie: str) -> dict   # predefiniowane zapytania, nie surowy SQL
+pobierz_inwentarz(zakres: str) -> dict   # ze snapshotu
+zapytaj_snapshot(pytanie: str) -> dict   # 8 predefiniowanych pytań, nie surowy SQL
+probka_kolumn(board_id: str) -> dict     # do monday: SAME LICZNIKI wypełnienia
+log_tablicy(board_id: str) -> dict       # do monday: activity log, autorzy pseudonimizowani
 ```
 
-MCP monday, podproces per run:
-```bash
-npx @mondaydotcomorg/monday-api-mcp@latest --read-only
-# token przez env MONDAY_TOKEN, nigdy w argv (widoczne w ps)
-```
+> **ZMIENIONE 2026-08-03.** Ta sekcja mówiła wcześniej „MCP monday, podproces
+> per run: `npx @mondaydotcomorg/monday-api-mcp@latest --read-only`". **Nie
+> rób tego.** Flaga nie blokuje zapisu — zmierzone na wersji 3.3.0, `create_board`
+> i surowa mutacja przez `all_api_write` przeszły do API (D4, O19). Podprocesu
+> MCP nie ma już w architekturze.
 
 Zasady:
 - **Każde narzędzie przycina wyjście.** Surowa odpowiedź API do kontekstu

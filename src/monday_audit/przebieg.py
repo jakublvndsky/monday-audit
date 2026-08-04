@@ -192,6 +192,38 @@ def domknij_run(
     con.commit()
 
 
+def przerwij_run(con: sqlite3.Connection, *, run_id: str, powod: str) -> bool:
+    """Oznacza run jako `przerwany`. Zwraca, czy naprawdę było co oznaczać.
+
+    Bez tego run, który padł, zostaje w `w_toku` NA ZAWSZE — i po kilku
+    nieudanych próbach nie da się odróżnić „chodzi teraz" od „padł w kwietniu".
+    Etap 6 opiera monitoring na tym polu, więc cisza w tym miejscu psuje
+    dane operacyjne, nie tylko estetykę tabeli.
+
+    Dwa ograniczenia w jednym `WHERE`, oba istotne:
+
+    - `status = 'w_toku'` — run już domknięty zostaje nietknięty. Inaczej błąd
+      w kodzie PO zapisie snapshotu przepisałby udany run na „przerwany".
+    - zwracany `bool` — wołający może stać w gałęzi błędu, zanim wiersz runu
+      w ogóle powstał. Wtedy nie ma czego przerywać i **nie wolno tego
+      zalogować jako przerwania**, bo log byłby nieprawdą.
+
+    Wyjątek NIE jest tu przechwytywany — obowiązek wołającego. Zamiatanie
+    błędu pod status w bazie to ostatnia rzecz, jakiej chcemy.
+    """
+    kursor = con.execute(
+        "UPDATE runy SET status = 'przerwany', finished_at = ? WHERE run_id = ? "
+        "AND status = 'w_toku'",
+        (datetime.now(tz=UTC).isoformat(), run_id),
+    )
+    con.commit()
+    if not kursor.rowcount:
+        logger.debug("run %s nie był w toku — nie ma czego przerywać (%s)", run_id, powod)
+        return False
+    logger.warning("run %s oznaczony jako przerwany: %s", run_id, powod)
+    return True
+
+
 def _uwagi_o_zakresie(zakres: Zakres) -> tuple[str, ...]:
     """Czego zawężenie zakresu NIE obejmuje — bo API nie pozwala.
 
@@ -245,6 +277,63 @@ async def wykonaj_run(
     mapowanie = MapowanieOsob(con, client_id)
     okno_od = (teraz - timedelta(days=dni_okna)).isoformat()
 
+    try:
+        return await _zbierz_i_zapisz(
+            con=con,
+            rejestr=rejestr,
+            mapowanie=mapowanie,
+            token=token,
+            client_id=client_id,
+            zakres=zakres,
+            sol=sol,
+            run_id=run_id,
+            run_at=run_at,
+            okno_od=okno_od,
+            start=start,
+            postep=postep,
+            dni_okna=dni_okna,
+            top_logow=top_logow,
+            z_ogona=z_ogona,
+            maks_stron_logow=maks_stron_logow,
+            maks_sond=maks_sond,
+            budzet_wywolan=budzet_wywolan,
+            budzet_z_planu=budzet_z_planu,
+            wersja_api=wersja_api,
+            transport=transport,
+        )
+    except BaseException as blad:
+        # Także `BaseException`, bo Ctrl+C w środku dwudziestominutowego runu
+        # collectora jest przypadkiem CZĘSTSZYM od wyjątku. Nie tłumimy:
+        # oznaczamy status i wypuszczamy dalej.
+        przerwij_run(con, run_id=run_id, powod=f"{type(blad).__name__}: {blad}")
+        raise
+
+
+async def _zbierz_i_zapisz(
+    *,
+    con: sqlite3.Connection,
+    rejestr: RejestrWywolan,
+    mapowanie: MapowanieOsob,
+    token: str,
+    client_id: str,
+    zakres: Zakres,
+    sol: bytes,
+    run_id: str,
+    run_at: str,
+    okno_od: str,
+    start: float,
+    postep: Callable[[Postep], None] | None,
+    dni_okna: int,
+    top_logow: int | None,
+    z_ogona: int | None,
+    maks_stron_logow: int,
+    maks_sond: int,
+    budzet_wywolan: int,
+    budzet_z_planu: bool,
+    wersja_api: str | None,
+    transport: httpx.AsyncBaseTransport | None,
+) -> RaportRunu:
+    """Ciało runu collectora. Wydzielone, żeby `wykonaj_run` był samym `try`."""
     async with MondayClient(
         token,
         rejestr,

@@ -4,8 +4,11 @@ Wewnętrzne narzędzie CXLABS. Audytuje konto monday.com klienta i produkuje rap
 ze znaleziskami. Odpalane ręcznie, jednorazowo per klient.
 Nie SaaS, nie abonament, nie self-service.
 
-> **Stan: etap 3 (Build), w toku.** Collector, detektory, agent i renderer jeszcze
-> nie istnieją. Aktualny postęp funkcja po funkcji: [`STATUS.md`](STATUS.md).
+> **Stan: etap 3 (Build), 3.1–3.11 zbudowane, 3.12 przed nami.** Collector,
+> detektory, narzędzia agenta, pętla agenta i walidacja kontraktu **działają na
+> prawdziwym koncie**. Brakuje renderera raportu. Aktualny postęp funkcja po
+> funkcji: [`STATUS.md`](STATUS.md); co dokładnie stoi i jak to uruchomić:
+> [`docs/ZBUDOWANE.md`](docs/ZBUDOWANE.md).
 
 ## Jak to działa
 
@@ -20,7 +23,7 @@ Dwie warstwy, świadomie rozdzielone:
 token klienta (read-only)
     → collector (httpx)         → snapshot w SQLite, niemutowalny
     → detektory (SQL, zero AI)  → lista hipotez
-    → agent (Agent SDK, MCP --read-only)
+    → agent (Agent SDK, narzędzia własne na MondayClient)
     → walidacja kontraktu (kod) → finding bez `dowod` odpada
     → renderer                  → wersja wewnętrzna + wersja klientowa
 ```
@@ -34,7 +37,7 @@ deterministyczne. **Agent tylko czyta i tylko proponuje.**
 |---|---|
 | Python | 3.12 |
 | [uv](https://docs.astral.sh/uv/) | menedżer zależności i środowiska |
-| Node 20 | podproces MCP monday oraz CLI Claude Code pod Agent SDK |
+| Node 20 | CLI pod Agent SDK — **nie** pod MCP, podprocesu MCP nie ma (D4) |
 
 ## Start
 
@@ -49,11 +52,27 @@ Albo jednym poleceniem: `make instalacja`.
 
 Wypełniony `.env` wystarcza — program czyta go sam (D12), więc `export` przed
 uruchomieniem nie jest potrzebny. Zmienna ustawiona w środowisku i tak przebija
-plik, a `MONDAY_AUDIT_ENV_FILE` albo `--plik-env` wskazuje go z innej lokalizacji:
+plik, a `MONDAY_AUDIT_ENV_FILE` albo `--plik-env` wskazuje go z innej lokalizacji.
+
+## Komendy
+
+Trzy wejścia, świadomie osobne — bo to trzy różne koszty i trzy różne momenty:
 
 ```bash
+# 1. Collector: spisuje konto do snapshotu. Kosztuje wywołania klienta.
 uv run python -m monday_audit.cli --klient cxlabs --zakres workspace --id 6576039
+
+# 2. Agent: bada hipotezy z zamrożonego snapshotu. Kosztuje pieniądze za model.
+uv run python -m monday_audit.cli_agent --klient cxlabs --snapshot 5 \
+    --koszt-licencji-mies 100 --zrodlo-stawki "faktura 07/2026"
+
+# 3. Cennik: odświeża stawki ze stron monday. NIGDY w trakcie audytu.
+uv run python -m monday_audit.cli_cennik --odswiez --pokaz
 ```
+
+Rozdzielenie 1 i 2 nie jest kosmetyczne: etap 4 wymaga przepuszczania **tego
+samego** snapshotu przez nową rubrykę i nowy prompt, więc analiza nie może
+wymagać ponownego zbierania danych.
 
 ## Sprawdzenia
 
@@ -68,6 +87,8 @@ make hooki      # wszystkie hooki pre-commit na całym repo
 ```
 
 Te same narzędzia odpalają się automatycznie przed każdym commitem.
+Testy integracyjne (uderzające w prawdziwe monday) są domyślnie odznaczone —
+`-m integracyjny` je włącza.
 
 ## Struktura
 
@@ -82,13 +103,18 @@ Te same narzędzia odpalają się automatycznie przed każdym commitem.
 ## Granice, których nie wolno przekroczyć
 
 Pełna lista z uzasadnieniami: [`CLAUDE.md`](CLAUDE.md) i
-[`docs/ARCHITEKTURA.md`](docs/ARCHITEKTURA.md) D5–D6.
+[`docs/ARCHITEKTURA.md`](docs/ARCHITEKTURA.md) D4–D6.
 
-- Agent nie ma żadnego narzędzia zapisującego. MCP zawsze z `--read-only`.
+- **Agent nie ma żadnego narzędzia zapisującego** — nigdzie: ani do monday, ani
+  do bazy, ani do plików. Narzędzia idą przez `MondayClient`, którego
+  `przygotuj_zapytanie()` odrzuca `mutation` i `subscription`.
+- **Nie używamy MCP monday.** Flaga `--read-only` nie blokuje zapisu —
+  zmierzone, nie założone (D4, O19).
 - Nie schodzimy na poziom itemów. `items_count` to granica.
 - Żadnych imion, nazwisk i e-maili w kontekście modelu. Pseudonimizacja przed wywołaniem.
-- Token klienta nigdy w kontekście modelu — żyje w env podprocesu MCP.
+- Token klienta nigdy w kontekście modelu ani w argv — żyje w konfiguracji procesu (D12).
 - Finding bez pola `dowod` nie przechodzi walidacji.
+- Kwota bez stawki albo na stawce przeterminowanej nie przechodzi walidacji (D13).
 
 Obrona polega na **odebraniu możliwości**, nie na filtrowaniu. Maksymalna szkoda
 przy prompt injection to fałszywe znalezisko w raporcie — nie wyciek, nie modyfikacja.
@@ -98,7 +124,9 @@ przy prompt injection to fałszywe znalezisko w raporcie — nie wyciek, nie mod
 | Plik | Kiedy czytać |
 |---|---|
 | [`STATUS.md`](STATUS.md) | zawsze, pierwszy |
-| [`docs/ARCHITEKTURA.md`](docs/ARCHITEKTURA.md) | decyzje D1–D11 z uzasadnieniami — przed zmianą architektury |
+| [`docs/ZBUDOWANE.md`](docs/ZBUDOWANE.md) | co faktycznie stoi, moduł po module, z pomiarami |
+| [`docs/ARCHITEKTURA.md`](docs/ARCHITEKTURA.md) | decyzje D1–D13 z uzasadnieniami — przed zmianą architektury |
 | [`docs/etapy/`](docs/etapy/) | pełna specyfikacja każdego etapu |
 | [`docs/OTWARTE.md`](docs/OTWARTE.md) | założenia niepotwierdzone — nie fakty |
 | [`docs/PROMPT_AGENTA.md`](docs/PROMPT_AGENTA.md) | prompt agenta produkcyjnego |
+| [`docs/CENNIK_AI.md`](docs/CENNIK_AI.md) | metodologia stawek; liczby są w tabeli `cennik`, nie tutaj |

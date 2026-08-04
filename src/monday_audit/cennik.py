@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -251,6 +252,31 @@ def aktualna(
         pobrano_at=str(wiersz["pobrano_at"]),
         wazna_do=wiersz["wazna_do"],
     )
+
+
+def stawki_dla(
+    con: sqlite3.Connection, pozycje: Iterable[str], *, client_id: str | None = None
+) -> dict[str, Stawka]:
+    """Stawki dla podanych pozycji. Brakujących NIE uzupełniamy niczym.
+
+    Pozycja bez stawki po prostu nie trafia do słownika — i wtedy walidacja
+    kontraktu odrzuci finding, który mimo to podał kwotę. Cichy fallback na
+    „jakąś" wartość jest tu groźniejszy od braku kwoty (O7).
+    """
+    znalezione = {p: aktualna(con, p, client_id=client_id) for p in pozycje}
+    return {p: s for p, s in znalezione.items() if s is not None}
+
+
+def wersja_uzytych(stawki: Mapping[str, Stawka]) -> str | None:
+    """Znacznik pinowania: najświeższy odczyt spośród stawek UŻYTYCH w runie.
+
+    Świadomie nie `wersja_cennika` — run, który nie policzył żadnej kwoty,
+    nie ma czego pinować, a wpisanie mu daty odświeżenia cennika sugerowałoby
+    wpływ, którego nie było.
+    """
+    if not stawki:
+        return None
+    return max(s.pobrano_at for s in stawki.values())
 
 
 def wersja_cennika(con: sqlite3.Connection) -> str | None:

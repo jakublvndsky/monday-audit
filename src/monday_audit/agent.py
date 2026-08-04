@@ -66,6 +66,7 @@ from claude_agent_sdk import (
 )
 from claude_agent_sdk.types import SyncHookJSONOutput
 
+from monday_audit.cennik import Stawka
 from monday_audit.detektory import Hipoteza
 from monday_audit.narzedzia import Narzedzia, NarzedziaHipotezy, NarzedzieError
 from monday_audit.rubryka import Klasa, Rubryka
@@ -171,6 +172,39 @@ def _inwentarz(narzedzia: Narzedzia) -> str:
     return json.dumps(sekcje, ensure_ascii=False, indent=1)
 
 
+def _opis_wyceny(klasa: Klasa, stawki: dict[str, Stawka]) -> str:
+    """Sekcja PARAMETRY WYCENY do zadania. Albo stawka, albo jawny zakaz.
+
+    Nigdy nie zostawiamy tego pola pustym: agent bez informacji dopuszcza
+    założenie, a założona stawka w raporcie klienta to najgorszy możliwy
+    błąd tego produktu.
+    """
+    if not klasa.ma_wycene:
+        return (
+            f"Ta klasa ma `typ_wyceny: {klasa.typ_wyceny}` i NIE PODAJE KWOTY. "
+            f"`kwota_pln` musi być `null`."
+        )
+
+    brakujace = [z for z in klasa.zmienne_od_klienta if z not in stawki]
+    if brakujace:
+        return (
+            f"Wzór: {klasa.wzor}\n"
+            f"BRAK STAWEK: {', '.join(brakujace)}. Nie podano ich przy tym runie, "
+            f"więc `kwota_pln` musi być `null`. NIE zakładaj żadnej stawki "
+            f"i nie bierz jej z pamięci — walidacja odrzuci taki finding."
+        )
+
+    linie = [f"Wzór: {klasa.wzor}", "Stawki dostępne w tym runie:"]
+    for nazwa in klasa.zmienne_od_klienta:
+        stawka = stawki[nazwa]
+        linie.append(
+            f"  {nazwa} = {stawka.wartosc} {stawka.waluta or stawka.jednostka} "
+            f"(źródło: {stawka.zrodlo})"
+        )
+    linie.append("Policz kwotę z tego wzoru i tych stawek. Nic nie zakładaj.")
+    return "\n".join(linie)
+
+
 def _opis_klasy(klasa: Klasa) -> str:
     """Definicja klasy z rubryki. To jest skill agenta, nie kontekst dodatkowy."""
     return json.dumps(
@@ -185,6 +219,11 @@ def _opis_klasy(klasa: Klasa) -> str:
             "typ_wyceny": klasa.typ_wyceny,
             "dowod_wymagany": list(klasa.dowod),
             "budzet_wywolan": klasa.budzet_wywolan,
+            # Wzór i zmienne. Bez nich agent nie ma czym policzyć kwoty —
+            # i dokładnie dlatego pełny run 19 hipotez dał `kwota_pln: null`
+            # nawet w klasach, gdzie kwota była przewidziana.
+            "wzor": klasa.wzor,
+            "zmienne_od_klienta": list(klasa.zmienne_od_klienta),
         },
         ensure_ascii=False,
         indent=1,
@@ -311,6 +350,10 @@ Rozstrzygnij DOKŁADNIE JEDNĄ hipotezę.
 
 {hipoteza}
 
+## PARAMETRY WYCENY
+
+{wycena}
+
 ## Co masz zwrócić
 
 Ostatnia wiadomość musi być SAMYM obiektem JSON, bez komentarza i bez bloku
@@ -368,6 +411,7 @@ async def zbadaj_hipoteze(
     inwentarz: str,
     serwer: Any,
     biezace: dict[str, NarzedziaHipotezy],
+    stawki: dict[str, Stawka] | None = None,
     model: str = MODEL,
 ) -> WynikHipotezy:
     """Jedna hipoteza, jedna sesja, budżet z rubryki."""
@@ -392,6 +436,7 @@ async def zbadaj_hipoteze(
     )
     zadanie = ZADANIE.format(
         klasa=_opis_klasy(klasa),
+        wycena=_opis_wyceny(klasa, stawki or {}),
         hipoteza=json.dumps(hipoteza.do_zapisu(), ensure_ascii=False, indent=1),
         klasa_id=klasa.id,
         waga=klasa.waga,
@@ -485,6 +530,7 @@ async def zbadaj_hipotezy(
     zestaw: Narzedzia,
     rubryka: Rubryka,
     run_id: str,
+    stawki: dict[str, Stawka] | None = None,
     model: str = MODEL,
     sciezka_promptu: Path = SCIEZKA_PROMPTU,
 ) -> dict[str, Any]:
@@ -529,6 +575,7 @@ async def zbadaj_hipotezy(
             inwentarz=inwentarz,
             serwer=serwer,
             biezace=biezace,
+            stawki=stawki,
             model=model,
         )
         for klucz in ("tokens_in", "tokens_out", "tokens_cache_read", "tokens_cache_write"):
@@ -563,6 +610,9 @@ async def zbadaj_hipotezy(
         "findings": findings,
         "hipotezy_odrzucone": odrzucone,
         "hipotezy_nierozstrzygniete": bledy,
+        # Stawki użyte w tym runie, z pochodzeniem. Kwota w raporcie klienta
+        # bez widocznej stawki jest nieweryfikowalna.
+        "parametry_wyceny": {n: s.do_snapshotu() for n, s in (stawki or {}).items()},
         "zuzycie": {**zuzycie, "koszt_usd": round(float(zuzycie["koszt_usd"]), 6)},
     }
 
@@ -599,6 +649,27 @@ def zapisz_do_pliku(
         f"snapshot       : {odpowiedz['snapshot_id']}",
         f"model          : {odpowiedz['model']}",
         f"rubryka        : {odpowiedz['rubric_version']}",
+        "",
+        "PARAMETRY WYCENY",
+        "-" * 72,
+    ]
+    parametry = odpowiedz.get("parametry_wyceny") or {}
+    if not parametry:
+        # Nie usterka. Kwoty wychodzą puste i to jest poprawne — cena licencji
+        # jest negocjowana i musi wejść jako parametr runu (O7).
+        linie.append("  brak stawek — wszystkie kwoty powinny być null")
+    for nazwa, stawka in sorted(parametry.items()):
+        zrodlo = "podana dla klienta" if stawka.get("per_klient") else str(stawka.get("zrodlo"))
+        wiek = stawka.get("dni_od_odswiezenia")
+        linie.append(
+            f"  {nazwa}: {stawka.get('wartosc')} "
+            f"{stawka.get('waluta') or stawka.get('jednostka')}  ({zrodlo}"
+            + (f", odczyt {wiek} dni temu" if wiek is not None else "")
+            + ")"
+            + ("" if stawka.get("wolno_liczyc") else "  PRZETERMINOWANA — kwoty odrzucane")
+        )
+
+    linie += [
         "",
         "ZUŻYCIE",
         "-" * 72,

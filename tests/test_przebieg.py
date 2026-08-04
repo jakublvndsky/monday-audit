@@ -21,7 +21,13 @@ from monday_audit.baza import polacz, zastosuj_migracje
 from monday_audit.klient import Postep
 from monday_audit.konto import Zakres
 from monday_audit.osoby import PseudonimizacjaError
-from monday_audit.przebieg import collector_ver, otworz_run, wykonaj_run, zapisz_snapshot
+from monday_audit.przebieg import (
+    collector_ver,
+    otworz_run,
+    przerwij_run,
+    wykonaj_run,
+    zapisz_snapshot,
+)
 
 TOKEN = "tajny-token-klienta"
 SOL = b"sol-testowa-dluga-na-tyle-ze-przechodzi"
@@ -288,9 +294,15 @@ async def test_nieznany_email_w_tresci_przerywa_przed_zapisem(con: sqlite3.Conne
         await uruchom(con, zatruta)
 
     assert con.execute("SELECT count(*) FROM snapshots").fetchone()[0] == 0
-    # Run został otwarty, ale nie domknięty — widać, że coś się urwało.
-    wiersz = con.execute("SELECT status, snapshot_id FROM runy").fetchone()
-    assert wiersz["status"] == "w_toku"
+    # Run jest OZNACZONY jako przerwany, nie zostawiony w `w_toku`.
+    # Poprzednia wersja tego testu wymagała `w_toku` i uzasadniała to tak:
+    # „widać, że coś się urwało". Nie widać — po kilku nieudanych próbach
+    # `w_toku` znaczy tylko „nie wiadomo", a etap 6 opiera na tym polu
+    # monitoring. Sprawdzone na bazie produkcyjnej: pięć runów wisiało
+    # w `w_toku` bez żadnego śladu, dlaczego.
+    wiersz = con.execute("SELECT status, snapshot_id, finished_at FROM runy").fetchone()
+    assert wiersz["status"] == "przerwany"
+    assert wiersz["finished_at"] is not None, "bez tego nie policzysz, jak długo run żył"
     assert wiersz["snapshot_id"] is None
 
 
@@ -347,3 +359,17 @@ async def test_mapowanie_pii_ma_wpisy_a_snapshot_nie(con: sqlite3.Connection) ->
     assert mapowanie[0]["imie_nazwisko"] == "Zdzisława Wąchockańska"
     assert "Zdzisława" not in payload
     assert "@" not in payload
+
+
+async def test_domkniety_run_nie_da_sie_przerwac(con: sqlite3.Connection) -> None:
+    """`przerwij_run` rusza WYŁĄCZNIE wiersz w `w_toku`.
+
+    Gdyby ruszał każdy, błąd w kodzie po zapisie snapshotu — na przykład
+    w eksporcie do pliku — przepisałby zakończony run na `przerwany` i skasował
+    znacznik końca. Snapshot by został, a jego run wyglądałby na nieudany.
+    """
+    raport = await uruchom(con, api())
+    przerwij_run(con, run_id=raport.run_id, powod="próba po domknięciu")
+
+    wiersz = con.execute("SELECT status FROM runy WHERE run_id = ?", (raport.run_id,)).fetchone()
+    assert wiersz["status"] == "zakonczony"

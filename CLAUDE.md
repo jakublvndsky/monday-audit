@@ -53,6 +53,7 @@ z MCP nie ma już podprocesu MCP. Bez frontu w v1.
 | Plik | Kiedy czytać |
 |---|---|
 | `STATUS.md` | zawsze, pierwszy |
+| `docs/ZBUDOWANE.md` | **co już stoi i co zostało zmierzone** — zanim zaczniesz cokolwiek budować |
 | `docs/etapy/0N-*.md` | pełna specyfikacja bieżącego etapu |
 | `docs/ARCHITEKTURA.md` | decyzje z uzasadnieniami — **czytaj przed zmianą architektury** |
 | `docs/OTWARTE.md` | założenia niepotwierdzone — nie traktuj ich jako faktów |

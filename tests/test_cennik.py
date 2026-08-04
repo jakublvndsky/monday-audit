@@ -33,7 +33,9 @@ from monday_audit.cennik import (
     aktualna,
     przeglad,
     sprawdz_przedzial,
+    stawki_dla,
     wersja_cennika,
+    wersja_uzytych,
     zapisz_stawke,
     zapisz_stawke_klienta,
 )
@@ -391,3 +393,60 @@ def test_wszystkie_pozycje_wzorcow_maja_przedzial() -> None:
         assert wzorzec.pozycja in PRZEDZIALY, (
             f"{wzorzec.pozycja} nie ma przedziału rozsądku — dopisz go w cennik.PRZEDZIALY"
         )
+
+
+# ── stawki dla runu i pinowanie (migracja 004) ───────────────────────────
+
+
+def test_stawki_dla_pomija_brakujace_zamiast_zgadywac(con: sqlite3.Connection) -> None:
+    """Brakująca pozycja NIE dostaje wartości zastępczej.
+
+    Nie ma jej w słowniku, więc walidacja kontraktu odrzuci kwotę policzoną
+    „na czymkolwiek". Cichy fallback byłby tu groźniejszy od braku kwoty (O7).
+    """
+    zapisz_stawke(
+        con,
+        pozycja="ai_block_kredyty",
+        wartosc=8,
+        jednostka="akcja",
+        sposob="reczna",
+        wiarygodnosc="zrodlo_pierwotne",
+    )
+
+    stawki = stawki_dla(con, {"ai_block_kredyty", "koszt_licencji_mies"})
+
+    assert set(stawki) == {"ai_block_kredyty"}
+
+
+def test_wersja_uzytych_bierze_najswiezszy_z_uzytych_stawek(con: sqlite3.Connection) -> None:
+    """Pin idzie z odczytów, na których run naprawdę liczył."""
+    zapisz_stawke(
+        con,
+        pozycja="ai_block_kredyty",
+        wartosc=8,
+        jednostka="akcja",
+        sposob="reczna",
+        wiarygodnosc="zrodlo_pierwotne",
+    )
+    stawki = stawki_dla(con, {"ai_block_kredyty"})
+
+    assert wersja_uzytych(stawki) == stawki["ai_block_kredyty"].pobrano_at
+
+
+def test_run_bez_stawek_nie_pinuje_cudzej_daty(con: sqlite3.Connection) -> None:
+    """Cennik w bazie JEST, ale ten run z niego nie skorzystał.
+
+    Wpisanie mu `MAX(pobrano_at)` byłoby pinem fałszywym — sugerowałoby, że
+    stawki miały wpływ na wynik, a run nie policzył żadnej kwoty.
+    """
+    zapisz_stawke(
+        con,
+        pozycja="ai_block_kredyty",
+        wartosc=8,
+        jednostka="akcja",
+        sposob="reczna",
+        wiarygodnosc="zrodlo_pierwotne",
+    )
+
+    assert wersja_cennika(con) is not None
+    assert wersja_uzytych({}) is None

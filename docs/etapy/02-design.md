@@ -2,7 +2,7 @@
 
 **Stan: zatwierdzony.**
 
-Pełne decyzje z uzasadnieniami: **`docs/ARCHITEKTURA.md`** (D1–D11).
+Pełne decyzje z uzasadnieniami: **`docs/ARCHITEKTURA.md`** (D1–D13).
 Ten dokument jest podsumowaniem i mapą przepływu — nie powtarza uzasadnień.
 
 ---
@@ -43,9 +43,9 @@ Twój cykl definiuje Design jako: **platforma, model, granice zaufania.**
   └─ sygnały z rubryki → lista wzbudzonych hipotez
                                    │
                                    ▼
-  FAZA 2 ─ AGENT (Agent SDK, Sonnet)
-  ├─ narzędzia własne: pobierz_inwentarz, zapytaj_snapshot
-  ├─ MCP monday --read-only (podproces, token w env)
+  FAZA 2 ─ AGENT (Agent SDK, Sonnet) — jedna sesja PER HIPOTEZA
+  ├─ narzędzia WŁASNE, wszystkie na MondayClient (bez MCP — D4)
+  │  pobierz_inwentarz, zapytaj_snapshot, probka_kolumn, log_tablicy
   ├─ budżet per hipoteza (z rubryki), bezpiecznik 600/run
   └─ wyjście: JSON wg kontraktu D8
                                    │
@@ -63,6 +63,12 @@ Twój cykl definiuje Design jako: **platforma, model, granice zaufania.**
 **Zwróć uwagę na kierunek:** agent jest w środku, a nie na końcu.
 Po nim jest jeszcze walidacja i renderer — oba deterministyczne.
 Agent nic nie publikuje.
+
+> **Sprostowanie 2026-08-03.** Diagram miał w FAZIE 2 wiersz „MCP monday
+> `--read-only` (podproces, token w env)". MCP **nie jest już częścią
+> architektury**: flaga nie blokuje zapisu, co zostało zmierzone, a nie
+> założone (D4, O19). Narzędzia agenta idą przez ten sam `MondayClient`,
+> którego używa collector, więc odcięcie zapisu jest wspólne dla obu faz.
 
 ---
 

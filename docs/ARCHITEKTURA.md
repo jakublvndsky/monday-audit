@@ -431,3 +431,61 @@ granicą: dotyczy dostępu do pliku, nie uruchamiania programu.
 per klient (05-deploy.md), a jedna zmienna `SOL_PSEUDONIMIZACJI` obsługuje jeden
 audyt naraz. Przy runach współbieżnych sól musi wejść jako parametr runu,
 nie jako element środowiska procesu.
+
+---
+
+## D13. Stawki jako dane z pochodzeniem, odświeżane scraperem
+
+**Decyzja:** stawki mieszkają w tabelach `cennik` i `stawki_klienta`, a nie
+w pliku w repo. Publiczne odświeża `cli_cennik --odswiez`, pobierając strony
+monday. Cena licencji u klienta wchodzi wyłącznie ręcznie.
+
+**Rozważone i odrzucone:**
+
+| Wariant | Dlaczego nie |
+|---|---|
+| liczby w `docs/CENNIK_AI.md` | tak było do 2026-08-04. Cenniki się zmieniają, a markdownu nikt nie odświeża. Przy froncie i publikacji na Marketplace stara stawka w raporcie klienta staje się błędem, nie niedogodnością |
+| plik `cennik.yaml` w repo, jak rubryka | rubryka to nasza decyzja i wersjonuje się razem z kodem. Stawka to cudzy fakt zmieniający się bez naszego udziału — commit nie jest właściwym mechanizmem aktualizacji. Kuba odrzucił ten wariant wprost („plik w repo mi trochę nie pasuje") |
+| pobieranie w trakcie audytu | run przestałby być odtwarzalny (D7) i zależałby od tego, czy cudza strona odpowiada w danej minucie. Osobna komenda, osobny moment |
+| API monday jako źródło ceny | ceny tam nie ma. `Plan` oddaje `max_users`, `period`, `tier`, `version`; jedyne pola cenowe dotyczą ceny aplikacji NA Marketplace, czyli tego, co klient płaciłby nam |
+| podstawienie ceny z publicznego cennika jako `koszt_licencji_mies` | cena Enterprise jest negocjowana. Dałoby liczbę pewnie brzmiącą i błędną — dokładnie ten rodzaj wpadki, którą rubryka nazywa podważającą cały raport (O7) |
+
+**Co z tego wynika dla kodu:**
+
+`cennik.py` jest **jedynym** wejściem do stawek. Front z etapu 5 podłącza
+formularz i przycisk „odśwież" do tych samych funkcji, które woła CLI — zero
+zmian w kodzie liczącym kwoty.
+
+Kwota nigdy nie jest samym `float`. `Stawka` niesie wartość razem z wiekiem,
+źródłem i wiarygodnością, bo kwota w raporcie klienta musi dać się sprawdzić.
+
+**Trzy zabezpieczenia, każde z konkretnego ryzyka:**
+
+1. **Przedziały rozsądku przy ZAPISIE.** Scraper czytający cudzy HTML pomyli
+   się kiedyś na pewno — pytanie tylko, czy zauważymy. Strona monday zawiera
+   zarówno `$0.01` (stawka kredytu), jak i `$9` (cena planu per user), więc
+   bez sufitu można policzyć klientowi kwotę 900 razy za dużą.
+2. **Niepowodzenie NIE nadpisuje niczego.** Zostaje ostatnia dobra wartość
+   ze swoją datą, a komenda kończy się kodem błędu. Cichy zapis śmiecia jest
+   groźniejszy od braku odświeżenia.
+3. **Przeterminowanie jest sygnałem, nie ciszą.** Po `wazna_do` stawka nadal
+   się zwraca, ale liczenie na niej jest zabronione mechanicznie
+   (`REGULA_KWOTA_BEZ_PODSTAWY`). Cicho zgniła stawka w raporcie klienta jest
+   groźniejsza od braku kwoty.
+
+Punkt 3 to D6 w praktyce: **odebranie możliwości, nie prośba w prompcie.**
+Prompt agenta mówi, żeby brał stawki wyłącznie z sekcji PARAMETRY WYCENY,
+ale to warstwa dodatkowa — kontrakt sprawdza mechanicznie, czy każda zmienna
+wzoru miała stawkę i czy wolno było na niej liczyć.
+
+**Nowa zależność, którą trzeba nazwać wprost:** to pierwsze wyjście sieciowe
+poza API monday. Zamknięte w osobnej komendzie, więc nie dotyka runu audytu,
+ale profil ryzyka zmienia się przy publikacji na Marketplace — aplikacja
+z Marketplace regularnie scrapująca strony własnego dostawcy to inna sytuacja
+niż wewnętrzny skrypt. Zapisane jako **O22**, do rozstrzygnięcia przed
+publikacją. Awaryjna droga już istnieje: `sposob = 'reczna'` jest w schemacie
+i obsłużony.
+
+**Co unieważni:** udostępnienie przez monday maszynowego źródła cennika
+(endpoint albo plik). Wtedy scraper znika, a `cennik.py` zostaje bez zmian —
+i o to chodziło w rozdzieleniu.

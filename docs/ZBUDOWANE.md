@@ -1,0 +1,318 @@
+# Co jest zbudowane — stan na 2026-08-04
+
+> **Ten plik opisuje TERAŹNIEJSZOŚĆ.** Specyfikacje w `docs/etapy/` mówią, co
+> ma być; ten dokument mówi, co stoi i **co zostało zmierzone, a nie założone**.
+> Kolejność etapów i zatwierdzenia: [`STATUS.md`](../STATUS.md) — należy do
+> człowieka.
+>
+> Zasada obowiązująca w całym pliku: **liczby są z pomiaru.** Jeśli czegoś nie
+> zmierzyliśmy, jest napisane, że nie.
+
+Etap 3, pozycje **3.1–3.11 zbudowane i przepuszczone przez prawdziwe konto**.
+Brakuje **3.12** (renderer raportu) — czyli dziś wynik audytu czyta się z pliku
+tekstowego i z bazy, nie z raportu dla klienta.
+
+---
+
+## Przepływ, tak jak faktycznie działa
+
+```
+                       .env / środowisko procesu (D12)
+                                   │
+   ┌───────────────────────────────┴─────────────────────────────┐
+   │  cli.py            collector: 5 modułów + sonda, 227 wywołań │
+   │  cli_agent.py      agent: 1 sesja na hipotezę               │
+   │  cli_cennik.py     scraper stawek — NIGDY w trakcie audytu  │
+   └───────────────────────────────┬─────────────────────────────┘
+                                   ▼
+  KROK 1 ── collector (httpx, zero AI)
+  konto → osoby → tablice → automatyzacje → sonda agentów → logi
+                                   │
+                     walidacja antyprzeciekowa PII
+                     na ZŁOŻONYM payloadzie
+                                   ▼
+                    snapshots (SQLite, niemutowalny)
+                    osoby_mapowanie (bez narzędzia dostępowego)
+                                   │
+  KROK 2 ── detektory (11 zapytań SQL, zero AI)
+  progi liczone od `meta.okno_od`, NIE od zegara
+                                   │
+                          lista hipotez
+                                   ▼
+  KROK 3 ── agent (Agent SDK, Sonnet) — osobna sesja PER HIPOTEZA
+  4 narzędzia, wszystkie tylko czytające, budżet z rubryki
+                                   │
+  KROK 4 ── walidacja kontraktu (kod, D8)
+  finding bez `dowod` odpada; kwota bez stawki odpada
+                                   ▼
+                 findings + findings_odrzucone + runy
+                                   │
+  KROK 5 ── renderer                          ← TEGO JESZCZE NIE MA (3.12)
+```
+
+**Agent jest w środku, nie na końcu.** Po nim dwie warstwy deterministyczne.
+
+---
+
+## Moduły
+
+| Moduł | Za co odpowiada | Rzecz, która nie jest oczywista |
+|---|---|---|
+| `konfiguracja.py` | sekrety i ścieżki (D12) | pydantic wkłada **surowe** wejście pola do `ValidationError`, więc komunikat budujemy z samych nazw pól i urywamy łańcuch przez `from None` |
+| `klient.py` | GraphQL, paginacja, complexity, retry | `przygotuj_zapytanie()` odrzuca `mutation` i `subscription` — pierwsza warstwa odcięcia zapisu. `WERSJA_API = "2026-07"` przypięta |
+| `konto.py` | konto, plan, zakres | token bez admina widzi tylko część konta i to **wchodzi do snapshotu jako zastrzeżenie**, nie ginie |
+| `osoby.py` | użytkownicy + pseudonimizacja | granica PII. Model `kind`/`status`; `is_verified` świadomie porzucone |
+| `tablice.py` | tablice, kolumny, właściciele | `items_count` to granica — niżej nie schodzimy (D5) |
+| `automatyzacje.py` | automatyzacje i ich uruchomienia | filtr `board_id` w API jest zepsuty (O12), więc statystyki są **na poziomie konta** i tak są opisane |
+| `logi.py` | activity logs z samplingiem | każdy sufit zapisuje liczbę POMINIĘTYCH obiektów — „no silent caps" |
+| `agenci.py` | sonda pól agentowych AI | pyta **zapytaniem**, nie introspekcją (O17), na trzech wersjach API |
+| `przebieg.py` | składanie snapshotu, otwarcie i domknięcie runu | walidacja PII idzie **przed** insertem, bo snapshot jest niemutowalny |
+| `detektory.py` | 11 detektorów, czysty SQL | progi z `meta.okno_od`, nie z `datetime.now()` — inaczej ten sam snapshot dawałby inne wyniki w różnych dniach |
+| `rubryka.py` | wczytanie i walidacja rubryki | niespójna rubryka **zatrzymuje run na starcie**, nie po godzinie |
+| `narzedzia.py` | 4 narzędzia agenta | każde przycina wyjście; `probka_kolumn` zwraca **same liczniki** |
+| `agent.py` | pętla, jedna sesja na hipotezę | trzy warstwy odcięcia zapisu, opisane niżej |
+| `kontrakt.py` | walidacja D8 | odrzucenie **zachowuje treść** findingu w `findings_odrzucone` — bez tego etap 4 nie miałby czego mierzyć |
+| `cennik.py` | stawki z pochodzeniem (D13) | stawka to nie `float`: niesie wiek, źródło i wiarygodność |
+| `cli_cennik.py` | scraper stawek | wzorce zakotwiczone w **zdaniach**, nie w HTML-u; porażka nic nie nadpisuje |
+| `baza.py` | połączenie, migracje, rejestr wywołań | `polacz()` włącza klucze obce, więc kolejność zapisów nie jest dowolna |
+| `postep.py` | wskaźnik postępu | run collectora trwa minuty i cisza jest nieodróżnialna od zawieszenia |
+
+---
+
+## Trzy warstwy odcięcia zapisu
+
+Zakaz z `CLAUDE.md` brzmi: **agent nie dostaje żadnego narzędzia zapisującego.**
+Realizują to trzy niezależne mechanizmy — a nie jeden, bo jeden już raz okazał
+się pozorny:
+
+1. **`allowed_tools`** wymienia wyłącznie nasze cztery narzędzia.
+2. **`disallowed_tools`** wymienia wbudowane z nazwy, jawnie.
+3. **Hook `PreToolUse`** odrzuca w procesie wszystko, czego nie ma na liście.
+
+Do tego `setting_sources=[]` — agent nie wczytuje `CLAUDE.md` z tego repo ani
+niczyich ustawień.
+
+**Dlaczego trzy, a nie jedna.** Warstwa 3 była pierwotnie zrobiona przez
+`can_use_tool` i **nie działała**: SDK ostrzegł, że callback nie zostanie
+wywołany, bo wpis w `allowed_tools` zatwierdza narzędzie, zanim callback dojdzie
+do słowa. Mój test dawał fałszywą pewność, bo sprawdzał funkcję w izolacji, a nie
+jej podłączenie. Po przepisaniu na hook wyszło od razu, że na liście zakazanych
+brakowało `ToolSearch`. Test sprawdza teraz **podłączenie**, nie samą funkcję.
+
+**Osobno: nie używamy MCP monday.** Flaga `--read-only` nie blokuje zapisu —
+zmierzone 2026-08-03 na `@mondaydotcomorg/monday-api-mcp@3.3.0`: `create_board`
+i surowa mutacja przez `all_api_write` **przeszły do API** (D4, O19).
+
+---
+
+## Narzędzia agenta
+
+| Narzędzie | Źródło | Co zwraca |
+|---|---|---|
+| `pobierz_inwentarz` | snapshot | spis konta, przycięty |
+| `zapytaj_snapshot` | snapshot | 8 predefiniowanych pytań, **nie surowy SQL** |
+| `probka_kolumn` | monday | **same liczniki** wypełnienia; kolumna tytułu wykluczona, `waliduj_brak_pii` na wyjściu |
+| `log_tablicy` | monday | activity log, autorzy pseudonimizowani |
+
+Limity: 25 itemów w próbce, 40 wpisów logu, 30 tablic i 30 osób w odpowiedzi.
+Wyczerpanie budżetu **nie jest błędem** — narzędzie mówi o wyczerpaniu, a agent
+domyka hipotezę z tym, co ma.
+
+`probka_kolumn` to jedyne miejsce, gdzie schodzimy poniżej `items_count`, i to
+tylko w klasie `BOARD_OVERCOMPLEX`. Zwraca liczniki, nigdy treść.
+
+---
+
+## Detektory
+
+11 z 12 klas rubryki ma detektor. Bez detektora jest **`AI_UNUSED`** —
+`status: do_weryfikacji`, bo API nie oddaje zużycia kredytów AI (O2, O20).
+
+| Detektor | Wzbudzeń na snapshocie #5 |
+|---|---|
+| `ZOMBIE_ACCOUNT` | 7 |
+| `AUTOMATION_DEAD` | 7 |
+| `BOARD_OVERCOMPLEX` | 2 |
+| `AUTOMATION_ABSENT` | 1 |
+| `GUEST_SPRAWL` | 1 |
+| `PLAN_MISMATCH` | 1 |
+| `ENGAGEMENT_DROP`, `BOARD_GHOST`, `BOARD_NO_OWNER`, `DUPLICATE_STRUCTURE`, `PROCESS_BYPASS` | 0 |
+
+**Zero wzbudzeń nie znaczy „detektor nie działa".** Konto CXLABS ma 105 tablic,
+wszystkie aktywne, wszystkie z właścicielem — więc `BOARD_NO_OWNER` i
+`BOARD_GHOST` po prostu nie mają na czym się wzbudzić. Testy jednostkowe
+sprawdzają je na danych syntetycznych.
+
+Detektory liczą progi od `meta.okno_od` i `meta.run_at`, **nie od zegara**.
+Inaczej ten sam zamrożony snapshot dawałby inne wyniki w zależności od dnia
+uruchomienia — a etap 4 opiera się na powtarzalności.
+
+---
+
+## Wycena kwot
+
+Klasa `oszczednosc_bezposrednia` ma `wzor` i listę `zmienne_od_klienta`; klasa
+`ryzyko` ma `kwota_pln: null`. Dziś wzory mają dwie klasy:
+
+| Klasa | Wzór | Zmienna od klienta |
+|---|---|---|
+| `ZOMBIE_ACCOUNT` | `liczba_kont * koszt_licencji_mies * 12` | `koszt_licencji_mies` |
+| `PLAN_MISMATCH` | `nadwyzka_miejsc * koszt_licencji_mies * 12` | `koszt_licencji_mies` |
+
+**Kwota bez podstawy jest odrzucana mechanicznie.** Nie „prompt o to prosi" —
+`REGULA_KWOTA_BEZ_PODSTAWY` sprawdza, czy run dostał każdą zmienną wzoru i czy
+na tej stawce **wolno** było liczyć. To D6 w praktyce: odebranie możliwości,
+nie prośba.
+
+Kolejność reguł jest częścią kontraktu: precyzyjna `REGULA_KWOTA_PRZY_RYZYKU`
+idzie **przed** ogólną „brak podstawy". Inaczej eval z etapu 4 pokazywałby jeden
+powód zamiast dwóch i nie dałoby się odróżnić agenta, który wymyśla kwoty, od
+takiego, który myli typ wyceny.
+
+Cena licencji **nie jest scrapowalna** — na Enterprise jest negocjowana, więc
+wchodzi ręcznie przez `--koszt-licencji-mies` (O7). Stawki publiczne pobiera
+`cli_cennik` ze stron monday i mają przedziały rozsądku, datę ważności
+i cytat źródłowy (D13).
+
+---
+
+## Pinowanie: sześć elementów
+
+| Element | Gdzie |
+|---|---|
+| model | `runy.model`, pełny identyfikator, nigdy alias |
+| rubryka | `rubric_ver` przy każdym findingu |
+| prompt agenta | hash pliku `PROMPT_AGENTA.md` (etap 5) |
+| collector | `meta.collector_ver` w snapshocie |
+| **wersja API monday** | `meta.wersja_api` — bo `2026-10` usuwa wszystkie flagi użytkownika (O15) |
+| **wersja cennika** | `runy.cennik_ver` — bo stawki odświeżają się same (D13) |
+
+Dwa ostatnie doszły **z pomiarów, nie z projektu**. Run bez kwot zostaje
+z `cennik_ver = NULL`, żeby nie pinować daty, która nie miała wpływu na wynik.
+
+---
+
+## Pomiary z prawdziwego konta
+
+Konto CXLABS, workspace 6576039, snapshot **#5** z 2026-08-01.
+
+### Collector
+
+| | |
+|---|---|
+| wywołania monday | **227** |
+| complexity | **638 798** |
+| tablice | 105 (wszystkie aktywne, wszystkie z właścicielem) |
+| kolumny | 902, maksymalnie 21 na tablicy |
+| itemy | 559 — **tylko licznik**, treści nie zbieramy |
+| użytkownicy | 95, z tego **36 to agenci AI**, 10 adminów, 12 gości, 28 tylko-podgląd |
+| miejsc zajętych | 19 |
+| automatyzacje | 80 widzianych, 7 z błędami, 7 z wyczerpaniem |
+| wpisy activity log | 4 432 w oknie 90 dni |
+| zredagowanych PII | **0** |
+
+**Ponad jedna trzecia „kont" to agenci, nie ludzie** (O17). To jedna z liczb,
+która zmienia rozmowę o koszcie licencji, i nie wyszłaby z samego `razem: 95`.
+
+**94 z 105 tablic zdominowanych jednym autorem.** Sygnał, który collector
+liczy, a którego żaden dzisiejszy detektor jeszcze nie używa.
+
+### Agent
+
+Run `agent-pelny-19`, 19 hipotez, `claude-sonnet-5`:
+
+| | |
+|---|---|
+| koszt | **1,71 USD** |
+| tokeny wejścia / wyjścia | 29 146 / 36 684 |
+| tokeny z cache | 758 113 |
+| findingi | **11 przyjętych, 0 odrzuconych na walidacji** |
+| hipotezy odrzucone przez agenta | **8 z 19** |
+| czas | ~17 minut |
+
+Koszt czytamy z `total_cost_usd` z Agent SDK, **nie** z mnożenia tokenów przez
+cennik zaszyty u nas. Pierwsza wersja liczyła `usage.input_tokens`, co pomija
+cache — i moja ekstrapolacja z małej próby była wtedy **o 63% za niska**.
+
+**Odrzucenie 8 z 19 hipotez to sygnał, że pętla pracuje.** Agent, który
+potwierdza wszystko, jest bezużyteczny — D8 wymaga niepustego
+`hipotezy_odrzucone`, a run z jedną hipotezą dostaje ostrzeżenie w logu.
+
+---
+
+## Czego jeszcze nie ma
+
+| Brak | Gdzie opisany |
+|---|---|
+| **renderer raportu (3.12)** | `docs/etapy/03-build.md` |
+| zużycie kredytów AI | API tego nie oddaje w żadnej sprawdzonej wersji — O2, O20 |
+| liczba uruchomień automatyzacji per tablica | filtr `board_id` zepsuty w API — O12 |
+| `AI_UNUSED` | klasa nieaktywna, `status: do_weryfikacji` |
+| przelicznik kredyt → token | monday go nie publikuje — `docs/CENNIK_AI.md` |
+| detektor na „tablica zdominowana jednym autorem" | dane są w snapshocie, klasy w rubryce nie ma |
+
+---
+
+## Rzeczy, na które trzeba uważać
+
+Nie „ciekawostki" — każda kosztowała czas albo prawie weszła do produkcji.
+
+**`updated_at` na tablicy jest bezużyteczne jako sygnał świeżości.** Zaniża
+wiek o **do 40 dni** wobec activity logu (O18). Detektory `BOARD_GHOST`
+i `ENGAGEMENT_DROP` liczą z logu.
+
+**Introspekcja schematu monday kłamie o dostępności pól.** Pole może być
+w schemacie i zwracać błąd, albo działać, choć go nie widać. Dlatego discovery
+idzie **zapytaniem** (O17).
+
+**Wersja API `2026-10` usuwa wszystkie flagi użytkownika.** Ten sam kod na
+nieprzypiętej wersji zwróciłby inne dane, cicho (O15). Stąd przypięcie
+i szósty element pinowania.
+
+**Strony support monday zwracają 403 bez nagłówka `User-Agent`, a 200 z nim.**
+Twierdziłem wcześniej, że są nieosiągalne, i na tej podstawie cała stawka
+kredytu została opisana jako niepotwierdzona. Nieprawda — sprostowane
+w `CENNIK_AI.md` i O21.
+
+**Guardrail, w który się wierzy bez pomiaru, jest gorszy od braku guardraila.**
+`--read-only` w MCP był udokumentowany jako „wymuszony przez serwer, nie do
+obejścia z promptu". Pomiar to obalił. To samo powtórzyło się wewnątrz naszego
+kodu z `can_use_tool`. Wniosek jest jeden: **warstwa odcięcia bez testu
+sprawdzającego jej PODŁĄCZENIE nie jest warstwą.**
+
+**Run, który padnie, musi zostawić status.** Pięć runów w bazie produkcyjnej
+wisiało w `w_toku` bez śladu, dlaczego — bo status ustawiał się tylko na
+happy pathie. Poprawione: `przerwij_run` w gałęzi błędu, w obu wejściach,
+łapie też `KeyboardInterrupt`.
+
+---
+
+## Uruchomienie
+
+```bash
+# 1. Collector — kosztuje wywołania na koncie KLIENTA
+uv run python -m monday_audit.cli --klient cxlabs --zakres workspace --id 6576039
+
+# 2. Agent — kosztuje pieniądze za model. Tanie próby: --klasy i --limit
+uv run python -m monday_audit.cli_agent --klient cxlabs --snapshot 5 \
+    --klasy ZOMBIE_ACCOUNT --limit 1 --koszt-licencji-mies 100 \
+    --zrodlo-stawki "faktura 07/2026"
+
+# 3. Cennik — osobno, NIGDY w trakcie audytu
+uv run python -m monday_audit.cli_cennik --odswiez --pokaz
+```
+
+Wynik runu agenta ląduje w `raporty/agent_<run_id>.txt` — katalog jest
+w `.gitignore`, bo findingi zawierają nazwy tablic i kolumn klienta. Świadomie
+w repo, a nie w katalogu tymczasowym: `/private/tmp` okazało się niewidoczne
+w Finderze i nieodtwarzalne.
+
+## Testy
+
+**425 testów, 19 odznaczonych** (integracyjne, uderzają w prawdziwe monday —
+`-m integracyjny` je włącza). `make sprawdz` to ruff + mypy + pytest.
+
+Warstwy: jednostkowe na danych syntetycznych, integracyjne na koncie CXLABS,
+plus testy pilnujące **granic**, nie funkcji — brak PII w wyjściu narzędzi,
+parametryzacja zapytań SQL, podłączenie hooka odcinającego zapis, brak sekretu
+w komunikacie błędu konfiguracji.

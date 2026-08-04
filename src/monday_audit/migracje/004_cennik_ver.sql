@@ -1,0 +1,14 @@
+-- 004: piąty element pinowania — stawki użyte w runie
+--
+-- `runy` pinuje już model, rubrykę i prompt. Od kiedy stawki odświeżają się
+-- SAME (scraper, migracja 003), dochodzi szósta rzecz, która potrafi zmienić
+-- wynik bez zmiany kodu: kwota policzona na stawce z lipca będzie inna niż
+-- ta sama kwota policzona we wrześniu. Bez tego znacznika raport sprzed
+-- trzech miesięcy przestaje dać się odtworzyć (D7, 05-deploy).
+--
+-- CO TU WCHODZI: `pobrano_at` NAJŚWIEŻSZEJ stawki UŻYTEJ w tym runie —
+-- nie `MAX(pobrano_at)` z całej tabeli `cennik`. Run, który nie policzył
+-- żadnej kwoty, zostaje z NULL, bo nie ma czego pinować. Wpisanie mu daty
+-- odświeżenia cennika byłoby pinem fałszywym: sugerowałoby, że te stawki
+-- miały wpływ na wynik, a nie miały.
+ALTER TABLE runy ADD COLUMN cennik_ver TEXT;

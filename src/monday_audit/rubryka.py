@@ -38,6 +38,11 @@ SCIEZKA_RUBRYKI = Path("rubryka_znalezisk.yaml")
 # zużycie kredytów AI, więc sygnał byłby zbudowany na domysle.
 STATUS_DO_WERYFIKACJI = "do_weryfikacji"
 
+# Typy wyceny ze słownika rubryki. Nazwane, bo od nich zależy, czy finding
+# może nieść kwotę — a wymyślona kwota podważa cały raport.
+TYP_OSZCZEDNOSC = "oszczednosc_bezposrednia"
+TYP_RYZYKO = "ryzyko"
+
 
 class RubrykaError(RuntimeError):
     """Rubryka jest niespójna. Run nie startuje."""
@@ -59,10 +64,21 @@ class Klasa:
     warunki_odrzucenia: tuple[str, ...]
     rola_agenta: str
     status: str | None
+    # Wzór wyceny i zmienne, które trzeba dostać od klienta. Do 2026-08-04
+    # rubryka ich NIE wczytywała, więc agent nigdy nie dostał wzoru i nie miał
+    # czym policzyć kwoty — wszystkie findingi wychodziły z `kwota_pln: null`
+    # także tam, gdzie kwota była przewidziana.
+    wzor: str | None
+    zmienne_od_klienta: tuple[str, ...]
 
     @property
     def ma_detektor(self) -> bool:
         return self.status != STATUS_DO_WERYFIKACJI
+
+    @property
+    def ma_wycene(self) -> bool:
+        """Czy dla tej klasy wolno w ogóle podać kwotę."""
+        return self.typ_wyceny == TYP_OSZCZEDNOSC and bool(self.wzor)
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +143,22 @@ def _klasa(surowa: dict[str, Any], slowniki: dict[str, list[str]], maks: int) ->
             f"{gdzie}: `budzet_wywolan` {budzet} przekracza bezpiecznik globalny {maks}"
         )
 
+    # Spójność wyceny. Klasa obiecująca oszczędność bez wzoru to kwota,
+    # której nikt nie umie policzyć; wzór przy `ryzyko` to zaproszenie
+    # do podania kwoty tam, gdzie rubryka jej zabrania.
+    typ = str(surowa.get("typ_wyceny") or "")
+    ma_wzor = bool(surowa.get("wzor"))
+    if typ == TYP_OSZCZEDNOSC and not ma_wzor:
+        raise RubrykaError(
+            f"{gdzie}: `typ_wyceny: {TYP_OSZCZEDNOSC}` wymaga `wzor` — inaczej nie ma "
+            f"z czego policzyć kwoty"
+        )
+    if typ == TYP_RYZYKO and ma_wzor:
+        raise RubrykaError(
+            f"{gdzie}: `typ_wyceny: {TYP_RYZYKO}` nie może mieć `wzor` — ta klasa "
+            f"świadomie nie podaje kwoty"
+        )
+
     return Klasa(
         id=identyfikator,
         nazwa=str(_wymagane(surowa, "nazwa", gdzie)),
@@ -155,6 +187,8 @@ def _klasa(surowa: dict[str, Any], slowniki: dict[str, list[str]], maks: int) ->
         warunki_odrzucenia=tuple(str(w) for w in (surowa.get("warunki_odrzucenia") or [])),
         rola_agenta=str(surowa.get("rola_agenta") or "brak"),
         status=str(surowa["status"]) if surowa.get("status") else None,
+        wzor=str(surowa["wzor"]) if surowa.get("wzor") else None,
+        zmienne_od_klienta=tuple(str(z) for z in (surowa.get("zmienne_od_klienta") or [])),
     )
 
 

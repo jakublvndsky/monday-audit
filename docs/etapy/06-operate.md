@@ -63,10 +63,18 @@ przestaje być zgadywaniem.** To jest moment, w którym D2 się otwiera.
 | Budżet per hipoteza | licznik w narzędziu | narzędzie zwraca komunikat o wyczerpaniu; agent domyka hipotezę z tym, co ma |
 | Bezpiecznik globalny 600 | licznik w kliencie | przerwij run, zaloguj, powiadom człowieka |
 | Limit dzienny klienta | licznik przed każdym wywołaniem | przerwij przy 50% limitu — to konto klienta, nie nasze |
-| Read-only | flaga `--read-only` MCP | wymuszone przez serwer, nie do obejścia z promptu |
+| Read-only | `MondayClient.przygotuj_zapytanie()` odrzuca `mutation` i `subscription` + `allowed_tools`/`disallowed_tools` + hook `PreToolUse` | trzy warstwy, każda zatrzymuje run; w ścieżce kodu narzędzi nie ma jak wysłać zapisu |
 | Brak PII | walidacja snapshotu przy zapisie | odrzuć zapis, zaloguj jako błąd krytyczny |
 | Kontrakt wyjściowy | walidacja przed rendererem | odrzuć finding, zaloguj |
 | Limit czasu runu | timeout sesji | przerwij, zachowaj snapshot |
+
+**Sprostowanie 2026-08-03.** Wiersz „read-only" brzmiał wcześniej: „flaga
+`--read-only` MCP — wymuszone przez serwer, nie do obejścia z promptu". **To
+było nieprawdą i najgroźniejszym zdaniem w tym dokumencie**: pomiar na
+`@mondaydotcomorg/monday-api-mcp@3.3.0` pokazał, że przy włączonej fladze
+`create_board` i surowa mutacja przez `all_api_write` **przeszły do API**.
+Guardrail, w który się wierzy bez pomiaru, jest gorszy od braku guardraila —
+bo zdejmuje czujność. Szczegóły: D4 i O19.
 
 **Przerwanie przy 50% dziennego limitu klienta** jest tu najważniejsze
 i najłatwiejsze do pominięcia. To jego konto i jego integracje.

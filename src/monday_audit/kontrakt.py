@@ -39,6 +39,7 @@ REGULA_DOWOD_PUSTY = "dowod pusty albo nie jest obiektem"
 REGULA_DOWOD_NIEPELNY = "dowod nie pokrywa pol wymaganych przez klase"
 REGULA_KWOTA_PRZY_RYZYKU = "kwota_pln podana przy typ_wyceny ryzyko"
 REGULA_KWOTA_UJEMNA = "kwota_pln nie jest liczba dodatnia"
+REGULA_KWOTA_BEZ_PODSTAWY = "kwota_pln podana bez stawki albo na stawce przeterminowanej"
 REGULA_SLOWNIK = "waga, wysilek_naprawy albo pewnosc poza slownikiem"
 REGULA_NIEZGODNA_Z_RUBRYKA = "waga albo wysilek_naprawy inne niz w rubryce"
 REGULA_BRAK_POLA = "brak pola wymaganego przez kontrakt"
@@ -102,7 +103,9 @@ def _liczba(wartosc: Any) -> float | None:
     return float(wartosc)
 
 
-def _sprawdz_finding(surowy: Any, rubryka: Rubryka) -> tuple[str, str] | None:
+def _sprawdz_finding(
+    surowy: Any, rubryka: Rubryka, stawki: dict[str, Any] | None = None
+) -> tuple[str, str] | None:
     """Zwraca `(regula, powod)` przy odrzuceniu albo `None`, gdy finding przechodzi.
 
     Kolejność sprawdzeń jest celowa: najpierw struktura, potem klasa, potem
@@ -149,6 +152,10 @@ def _sprawdz_finding(surowy: Any, rubryka: Rubryka) -> tuple[str, str] | None:
     # dokładnie to, co podważa całą wiarygodność u pierwszego klienta,
     # który ją sprawdzi.
     kwota = _liczba(surowy["kwota_pln"])
+
+    # KOLEJNOŚĆ MA ZNACZENIE. Najpierw reguły najbardziej precyzyjne, potem
+    # ogólna „brak podstawy" — inaczej kwota przy `ryzyko` byłaby raportowana
+    # jako brak stawki, a to inna poprawka promptu i inny wiersz w evalu.
     if klasa.typ_wyceny == "ryzyko" and surowy["kwota_pln"] is not None:
         return (
             REGULA_KWOTA_PRZY_RYZYKU,
@@ -156,6 +163,32 @@ def _sprawdz_finding(surowy: Any, rubryka: Rubryka) -> tuple[str, str] | None:
         )
     if kwota is not None and kwota <= 0:
         return REGULA_KWOTA_UJEMNA, "kwota_pln musi być liczbą dodatnią albo null"
+
+    # Kwota MUSI mieć podstawę. Prompt też o tym mówi, ale prompt jest warstwą
+    # dodatkową (D6) — a wymyślona kwota to najgorszy możliwy błąd tego raportu.
+    # Sprawdzamy mechanicznie: czy run dostał każdą zmienną, której żąda wzór,
+    # i czy na tej stawce wolno było liczyć.
+    if kwota is not None:
+        dostepne = stawki or {}
+        if not klasa.ma_wycene:
+            return (
+                REGULA_KWOTA_BEZ_PODSTAWY,
+                f"klasa {klasa_id} nie ma wzoru wyceny, więc kwota nie ma z czego wyjść",
+            )
+        brakujace = [z for z in klasa.zmienne_od_klienta if z not in dostepne]
+        if brakujace:
+            return (
+                REGULA_KWOTA_BEZ_PODSTAWY,
+                f"kwota podana, a run nie dostał stawek: {', '.join(brakujace)}",
+            )
+        przeterminowane = [
+            z for z in klasa.zmienne_od_klienta if not getattr(dostepne[z], "wolno_liczyc", True)
+        ]
+        if przeterminowane:
+            return (
+                REGULA_KWOTA_BEZ_PODSTAWY,
+                f"stawki przeterminowane, nie wolno na nich liczyć: {', '.join(przeterminowane)}",
+            )
 
     # Słowniki i zgodność z rubryką. Waga i wysiłek NIE należą do agenta —
     # są w definicji klasy i agent ma je tylko przepisać.
@@ -186,7 +219,11 @@ def _sprawdz_finding(surowy: Any, rubryka: Rubryka) -> tuple[str, str] | None:
     return None
 
 
-def waliduj(odpowiedz: dict[str, Any], rubryka: Rubryka) -> WynikWalidacji:
+def waliduj(
+    odpowiedz: dict[str, Any],
+    rubryka: Rubryka,
+    stawki: dict[str, Any] | None = None,
+) -> WynikWalidacji:
     """Waliduje odpowiedź agenta wobec D8 i rubryki.
 
     **`hipotezy_odrzucone` jest obowiązkowe** i to nie jest formalność:
@@ -219,7 +256,7 @@ def waliduj(odpowiedz: dict[str, Any], rubryka: Rubryka) -> WynikWalidacji:
         zuzycie=dict(odpowiedz.get("zuzycie") or {}),
     )
     for surowy in odpowiedz["findings"]:
-        blad = _sprawdz_finding(surowy, rubryka)
+        blad = _sprawdz_finding(surowy, rubryka, stawki)
         if blad is None:
             wynik.przyjete.append(surowy)
             continue

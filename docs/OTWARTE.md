@@ -866,8 +866,14 @@ dodać bez `waliduj_brak_pii` oraz sufitu długości.
 
 ## O21. Enterprise nie płaci za agentów — pomiar kredytów na CXLABS da zero
 
-**Status:** ustalone 2026-08-04 ze źródeł zewnętrznych (support monday zwraca
-403 przy pobieraniu, treść z wyszukiwania)
+**Status:** ustalone 2026-08-04 ze źródeł zewnętrznych
+**Sprostowanie 2026-08-04:** wcześniejsza wersja tej pozycji mówiła, że support
+monday zwraca 403 i jest nieosiągalny. **Nieprawda** — zwraca 200 przy zwykłym
+nagłówku `User-Agent`. Część liczb o kredytach jest więc dostępna u ŹRÓDŁA
+i pobiera je `cli_cennik` (potwierdzone: `AI blocks 8 credits per action`,
+`AI Notetaker 120 credits per meeting hour`, widełki złożoności agentów
+10–50 / 50–150 / 150–250 / 250+). Zwolnienie Enterprise nadal opiera się na
+źródłach zewnętrznych.
 **Waga:** wysoka — przesądza, na jakim koncie da się cokolwiek zmierzyć
 
 Rozliczanie agentów kredytami wystartowało **8–9 czerwca 2026** dla planów Pro,
@@ -885,5 +891,35 @@ wnioskiem z drugiego.
 **Do walidacji tej ścieżki potrzebne jest konto klienta na Pro albo niżej.**
 Dopóki go nie ma, kod jest napisany na podstawie schematu, nie pomiaru.
 
-**Skąd te liczby:** analizy zewnętrzne, nie dokumentacja monday. Pełny cennik
-z oznaczeniem wiarygodności każdej pozycji: `docs/CENNIK_AI.md`.
+**Skąd te liczby:** część u źródła (strona support, pobierana przez
+`cli_cennik`), część z analiz zewnętrznych — stawka `0,01 USD` za kredyt na
+stronach monday **nie występuje** i jest oznaczona jako `zewnetrzne`.
+Obowiązujące wartości są w tabeli `cennik`, nie w markdownie; metodologia
+i lista źródeł: `docs/CENNIK_AI.md`.
+
+
+---
+
+## O22. Scrapowanie stron dostawcy przez aplikację z Marketplace
+
+**Status:** otwarte, do rozstrzygnięcia PRZED wystawieniem na Marketplace
+**Waga:** średnia teraz, wysoka przy publikacji
+**Dotyczy:** `monday_audit.cli_cennik`
+
+Stawki publiczne pobiera scraper ze stron monday, bo cennika **nie ma
+w API**: `Plan` odsłania `max_users`, `period`, `tier` i `version`, a jedyne
+pola cenowe (`AppSubscriptionDetails.monthly_price`) dotyczą ceny aplikacji
+NA Marketplace, czyli tego, co klient płaciłby nam.
+
+**Czego nie wiemy:** czy regulamin monday dopuszcza, żeby aplikacja
+z ich Marketplace regularnie pobierała ich własne strony pomocy. Wewnętrzny
+skrypt odpalany ręcznie raz na miesiąc to inny profil ryzyka niż komponent
+opublikowanego produktu.
+
+**Co to łagodzi już teraz:** komenda jest osobna i nigdy nie chodzi w trakcie
+audytu, więc jedno żądanie na stronę na odświeżenie, nie na klienta.
+
+**Rozstrzygnięcie:** zapytać monday o źródło maszynowe (endpoint albo plik
+cennika) i dopiero na tej podstawie zdecydować. Do wersji wewnętrznej scraper
+zostaje; przed publikacją albo jest zgoda, albo wchodzi ręczne wprowadzanie
+stawek przez front (`sposob = 'reczna'` jest już w schemacie i obsłużone).

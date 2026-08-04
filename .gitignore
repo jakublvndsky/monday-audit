@@ -9,7 +9,8 @@ wheels/
 # Virtual environments
 .venv
 
-# Node — podproces MCP odpalany przez npx, plus ewentualny front w przyszłości
+# Node — CLI pod Agent SDK, plus ewentualny front w przyszłości.
+# (Podprocesu MCP nie ma od 2026-08-03 — D4.)
 node_modules/
 
 # Cache narzędzi

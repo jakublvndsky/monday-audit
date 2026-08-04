@@ -69,9 +69,11 @@ def test_migracje_aplikuja_sie_od_zera(tmp_path: Path) -> None:
     to sam licznik, a D8 nazywa odsetek odrzuconych główną metryką etapu 4.
     003 doszła przy cenniku: stawki jako dane z pochodzeniem i datą ważności,
     bo liczby wklejone w markdown nikt nie odświeża.
+    004 dodała `runy.cennik_ver` — skoro stawki odświeżają się same, run musi
+    zapisać, na których liczył (D7).
     """
     con = polacz(tmp_path / "nowa.db")
-    assert zastosuj_migracje(con) == [1, 2, 3]
+    assert zastosuj_migracje(con) == [1, 2, 3, 4]
     con.close()
 
 

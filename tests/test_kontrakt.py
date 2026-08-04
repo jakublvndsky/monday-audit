@@ -20,12 +20,14 @@ from typing import Any
 import pytest
 
 from monday_audit.baza import polacz, zastosuj_migracje
+from monday_audit.cennik import Stawka
 from monday_audit.kontrakt import (
     REGULA_BRAK_POLA,
     REGULA_DOWOD_NIEPELNY,
     REGULA_DOWOD_PUSTY,
     REGULA_KLASA_DO_WERYFIKACJI,
     REGULA_KLASA_NIEZNANA,
+    REGULA_KWOTA_BEZ_PODSTAWY,
     REGULA_KWOTA_PRZY_RYZYKU,
     REGULA_NIEZGODNA_Z_RUBRYKA,
     REGULA_PUSTY_TEKST,
@@ -38,6 +40,22 @@ from monday_audit.kontrakt import (
 from monday_audit.rubryka import wczytaj_rubryke
 
 RUBRYKA = wczytaj_rubryke()
+
+# Stawka, którą run mógłby dostać z `stawki_klienta`. Bez niej kwota w findingu
+# jest odrzucana — i to jest sens `REGULA_KWOTA_BEZ_PODSTAWY`.
+STAWKI = {
+    "koszt_licencji_mies": Stawka(
+        pozycja="koszt_licencji_mies",
+        wartosc=100.0,
+        waluta="PLN",
+        jednostka="miesiac",
+        zrodlo="faktura 07/2026",
+        wiarygodnosc="od_klienta",
+        pobrano_at="2026-08-04T10:00:00+00:00",
+        wazna_do=None,
+        per_klient=True,
+    )
+}
 RUN_AT = "2026-08-03T10:00:00+00:00"
 
 
@@ -164,7 +182,7 @@ def test_zero_i_false_sa_poprawnymi_wartosciami_dowodu() -> None:
     dowod = {p.rstrip("[]"): 0 for p in klasa.dowod}
     dowod["obecnosc_w_logach"] = False
 
-    wynik = waliduj(odpowiedz([finding("ZOMBIE_ACCOUNT", dowod=dowod)]), RUBRYKA)
+    wynik = waliduj(odpowiedz([finding("ZOMBIE_ACCOUNT", dowod=dowod)]), RUBRYKA, STAWKI)
 
     assert len(wynik.przyjete) == 1, [o.powod for o in wynik.odrzucone]
 
@@ -184,9 +202,9 @@ def test_kwota_przy_ryzyku_odpada() -> None:
 def test_kwota_przy_oszczednosci_przechodzi() -> None:
     assert RUBRYKA.po_id["ZOMBIE_ACCOUNT"].typ_wyceny == "oszczednosc_bezposrednia"
 
-    wynik = waliduj(odpowiedz([finding("ZOMBIE_ACCOUNT", kwota_pln=1200.0)]), RUBRYKA)
+    wynik = waliduj(odpowiedz([finding("ZOMBIE_ACCOUNT", kwota_pln=1200.0)]), RUBRYKA, STAWKI)
 
-    assert len(wynik.przyjete) == 1
+    assert len(wynik.przyjete) == 1, [o.powod for o in wynik.odrzucone]
 
 
 def test_kwota_ujemna_odpada() -> None:
@@ -344,3 +362,77 @@ def test_niezgodna_wersja_rubryki_jest_odnotowana(caplog: pytest.LogCaptureFixtu
         waliduj(odpowiedz(rubric_version="0.1"), RUBRYKA)
 
     assert "rubric_version" in caplog.text
+
+
+# ── kwota musi mieć podstawę (REGULA_KWOTA_BEZ_PODSTAWY) ─────────────────
+
+
+def test_kwota_bez_stawki_odpada() -> None:
+    """Prompt też o tym mówi, ale prompt jest warstwą dodatkową (D6).
+
+    Wymyślona kwota to najgorszy możliwy błąd tego raportu, więc sprawdzenie
+    jest mechaniczne: run bez stawki nie może wypuścić findingu z kwotą.
+    """
+    wynik = waliduj(odpowiedz([finding("ZOMBIE_ACCOUNT", kwota_pln=1200.0)]), RUBRYKA, None)
+
+    assert wynik.przyjete == []
+    assert wynik.odrzucone[0].regula == REGULA_KWOTA_BEZ_PODSTAWY
+    assert "koszt_licencji_mies" in wynik.odrzucone[0].powod
+
+
+def test_brak_kwoty_bez_stawki_przechodzi() -> None:
+    """Bez stawki finding leci BEZ kwoty i to jest poprawne (O7)."""
+    wynik = waliduj(odpowiedz([finding("ZOMBIE_ACCOUNT", kwota_pln=None)]), RUBRYKA, None)
+
+    assert len(wynik.przyjete) == 1, [o.powod for o in wynik.odrzucone]
+
+
+def test_kwota_na_przeterminowanej_stawce_odpada() -> None:
+    """Cicho zgniła stawka w raporcie klienta jest groźniejsza od braku kwoty."""
+    stara = {
+        "koszt_licencji_mies": Stawka(
+            pozycja="koszt_licencji_mies",
+            wartosc=100.0,
+            waluta="PLN",
+            jednostka="miesiac",
+            zrodlo="cennik",
+            wiarygodnosc="zrodlo_pierwotne",
+            pobrano_at="2025-01-01T00:00:00+00:00",
+            wazna_do="2025-02-01T00:00:00+00:00",
+        )
+    }
+
+    wynik = waliduj(odpowiedz([finding("ZOMBIE_ACCOUNT", kwota_pln=1200.0)]), RUBRYKA, stara)
+
+    assert wynik.odrzucone[0].regula == REGULA_KWOTA_BEZ_PODSTAWY
+    assert "przeterminowane" in wynik.odrzucone[0].powod
+
+
+def test_kwota_przy_ryzyku_ma_wlasna_regule_nie_ogolna() -> None:
+    """Kolejność reguł ma znaczenie — to dwie różne poprawki promptu.
+
+    Gdyby ogólna „brak podstawy" wyprzedzała precyzyjną „kwota przy ryzyku",
+    eval z etapu 4 pokazywałby jeden powód zamiast dwóch i nie dałoby się
+    odróżnić agenta, który wymyśla kwoty, od takiego, który myli typ wyceny.
+    """
+    wynik = waliduj(odpowiedz([finding("AUTOMATION_DEAD", kwota_pln=5000.0)]), RUBRYKA, STAWKI)
+
+    assert wynik.odrzucone[0].regula == REGULA_KWOTA_PRZY_RYZYKU
+
+
+def test_drugi_wzor_wyceny_przechodzi_ze_stawka() -> None:
+    """`PLAN_MISMATCH` ma inny wzór niż `ZOMBIE_ACCOUNT` i też musi przejść.
+
+    Na żywym snapshocie ta klasa jest odrzucana warunkiem z rubryki (najnowsze
+    konto młodsze niż 60 dni — konto rośnie), więc jej wzór nie da się
+    sprawdzić runem. Bez tego testu druga ścieżka wyceny zostawałaby
+    niesprawdzona aż do pierwszego klienta, u którego się wzbudzi.
+    """
+    klasa = RUBRYKA.po_id["PLAN_MISMATCH"]
+    assert klasa.zmienne_od_klienta == ("koszt_licencji_mies",)
+
+    # 10 miejsc nadwyżki * 100 PLN * 12 miesięcy
+    wynik = waliduj(odpowiedz([finding("PLAN_MISMATCH", kwota_pln=12000.0)]), RUBRYKA, STAWKI)
+
+    assert len(wynik.przyjete) == 1, [o.powod for o in wynik.odrzucone]
+    assert wynik.przyjete[0]["kwota_pln"] == 12000.0

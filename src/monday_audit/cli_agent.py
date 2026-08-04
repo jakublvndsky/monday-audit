@@ -20,18 +20,22 @@ import argparse
 import asyncio
 import json
 import logging
+import sqlite3
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from monday_audit.agent import MODEL, zapisz_do_pliku, zbadaj_hipotezy
 from monday_audit.baza import RejestrWywolan, polacz, zastosuj_migracje
-from monday_audit.detektory import uruchom_detektory
+from monday_audit.cennik import Stawka, stawki_dla, wersja_uzytych, zapisz_stawke_klienta
+from monday_audit.detektory import Hipoteza, uruchom_detektory
 from monday_audit.klient import MondayClient
-from monday_audit.konfiguracja import klucz_anthropic, sol_z_ustawien, wczytaj
+from monday_audit.konfiguracja import Ustawienia, klucz_anthropic, sol_z_ustawien, wczytaj
 from monday_audit.kontrakt import waliduj, zapisz_findingi, zapisz_odrzucone
 from monday_audit.narzedzia import Narzedzia
-from monday_audit.rubryka import wczytaj_rubryke
+from monday_audit.przebieg import przerwij_run
+from monday_audit.rubryka import Rubryka, wczytaj_rubryke
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +72,25 @@ def zbuduj_parser() -> argparse.ArgumentParser:
         help="twardy sufit wywołań monday na CAŁY run agenta",
     )
     parser.add_argument("--run-id", default=None, help="domyślnie generowany ze znacznika czasu")
+    # Cena licencji NIE jest scrapowalna: na Enterprise jest negocjowana,
+    # a publiczny cennik jej nie zawiera (O7). Bez tego argumentu findingi
+    # wychodzą bez kwot i to jest poprawne zachowanie, nie awaria.
+    parser.add_argument(
+        "--koszt-licencji-mies",
+        type=float,
+        default=None,
+        metavar="KWOTA",
+        help="cena jednego miejsca u TEGO klienta, miesięcznie; bez niej kwoty zostają puste",
+    )
+    parser.add_argument(
+        "--waluta-stawki", default="PLN", help="waluta --koszt-licencji-mies (domyślnie PLN)"
+    )
+    parser.add_argument(
+        "--zrodlo-stawki",
+        default=None,
+        metavar="OPIS",
+        help='skąd wzięta kwota, np. "faktura 07/2026" — raport musi powiedzieć, na czym stoi',
+    )
     return parser
 
 
@@ -79,7 +102,7 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
     sol = sol_z_ustawien(ustawienia)
     rubryka = wczytaj_rubryke()
 
-    baza = argumenty.baza or ustawienia.monday_audit_db
+    baza = (argumenty.baza or ustawienia.monday_audit_db).absolute()
     con = polacz(baza)
     # Migracje TUTAJ, nie tylko w `cli`. Baza produkcyjna powstała przed 002,
     # a `findings_odrzucone` doszła właśnie w 002 — bez tego run agenta wywala
@@ -101,17 +124,96 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
         con.close()
         return 1
 
+    # Stawka podana przy uruchomieniu jest DOPISYWANA do `stawki_klienta`,
+    # nie trzymana w pamięci runu: kwota w raporcie klienta musi dać się
+    # sprawdzić po fakcie, razem z datą i źródłem.
+    if argumenty.koszt_licencji_mies is not None:
+        zapisz_stawke_klienta(
+            con,
+            client_id=argumenty.klient,
+            pozycja="koszt_licencji_mies",
+            wartosc=argumenty.koszt_licencji_mies,
+            waluta=argumenty.waluta_stawki,
+            zrodlo=argumenty.zrodlo_stawki or f"podana przy uruchomieniu runu {run_id}",
+        )
+
+    # Bierzemy tylko te pozycje, których naprawdę żądają wzory klas W ZAKRESIE
+    # tego runu. Wrzucanie agentowi stawek, których nie ma czym użyć, tylko
+    # zachęca go do liczenia na nich czegokolwiek.
+    potrzebne = {z for h in hipotezy for z in rubryka.po_id[h.klasa_id].zmienne_od_klienta}
+    stawki = stawki_dla(con, potrzebne, client_id=argumenty.klient)
+    brakuje = sorted(potrzebne - set(stawki))
+
     print(f"run {run_id}: {len(hipotezy)} hipotez, model {argumenty.model}")
     print(f"  budżet zamówiony przez hipotezy: {sum(h.budzet_wywolan for h in hipotezy)} wywołań")
-    print(f"  sufit runu: {argumenty.budzet_monday} wywołań monday\n")
+    print(f"  sufit runu: {argumenty.budzet_monday} wywołań monday")
+    for nazwa, stawka in sorted(stawki.items()):
+        wiek = f", odczyt {stawka.dni_od_odswiezenia} dni temu" if not stawka.per_klient else ""
+        blokada = "" if stawka.wolno_liczyc else "  NIE WOLNO LICZYĆ (przeterminowana)"
+        print(
+            f"  stawka {nazwa}: {stawka.wartosc:g} {stawka.waluta or stawka.jednostka} "
+            f"({stawka.zrodlo}{wiek}){blokada}"
+        )
+    if brakuje:
+        # Nie błąd. Findingi wyjdą bez kwot, a walidacja odrzuci każdą kwotę
+        # podaną mimo braku stawki — świadomie, bo wymyślona kwota jest
+        # gorsza od braku kwoty.
+        print(f"  BEZ STAWKI (kwoty zostaną puste): {', '.join(brakuje)}")
+    print()
 
+    # Od tego miejsca istnieje wiersz w `runy` ze statusem `w_toku`, więc każde
+    # wyjście MUSI go domknąć — sukcesem albo `przerwany`.
     con.execute(
-        "INSERT INTO runy (run_id, client_id, status, started_at, model, rubric_ver) "
-        "VALUES (?, ?, 'w_toku', ?, ?, ?)",
-        (run_id, argumenty.klient, teraz.isoformat(), argumenty.model, rubryka.wersja),
+        "INSERT INTO runy (run_id, client_id, snapshot_id, status, started_at, model, "
+        "rubric_ver, cennik_ver) VALUES (?, ?, ?, 'w_toku', ?, ?, ?, ?)",
+        (
+            run_id,
+            argumenty.klient,
+            argumenty.snapshot,
+            teraz.isoformat(),
+            argumenty.model,
+            rubryka.wersja,
+            wersja_uzytych(stawki),
+        ),
     )
     con.commit()
 
+    try:
+        return await _zbadaj_i_zapisz(
+            argumenty,
+            con=con,
+            ustawienia=ustawienia,
+            sol=sol,
+            rubryka=rubryka,
+            hipotezy=hipotezy,
+            stawki=stawki,
+            run_id=run_id,
+            baza=baza,
+            raport_detektorow=raport_detektorow,
+        )
+    except BaseException as blad:
+        # Ctrl+C w środku siedemnastominutowego runu jest częstszy od wyjątku.
+        # Status musi to odnotować, inaczej `w_toku` znaczy „nie wiadomo".
+        przerwij_run(con, run_id=run_id, powod=f"{type(blad).__name__}: {blad}")
+        raise
+    finally:
+        con.close()
+
+
+async def _zbadaj_i_zapisz(
+    argumenty: argparse.Namespace,
+    *,
+    con: sqlite3.Connection,
+    ustawienia: Ustawienia,
+    sol: bytes,
+    rubryka: Rubryka,
+    hipotezy: list[Hipoteza],
+    stawki: dict[str, Stawka],
+    run_id: str,
+    baza: Path,
+    raport_detektorow: dict[str, Any],
+) -> int:
+    """Ciało runu agenta. Wydzielone, żeby `uruchom` był samym `try`."""
     async with MondayClient(
         ustawienia.monday_token.get_secret_value(),
         RejestrWywolan(con, run_id),
@@ -130,9 +232,13 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
             rubryka=rubryka,
             run_id=run_id,
             model=argumenty.model,
+            stawki=stawki,
         )
 
-    wynik = waliduj(odpowiedz, rubryka)
+    # Te same stawki idą do walidacji. Kontrakt sprawdza MECHANICZNIE, czy
+    # kwota ma z czego wyjść — prompt też o tym mówi, ale prompt jest warstwą
+    # dodatkową (D6).
+    wynik = waliduj(odpowiedz, rubryka, stawki)
     zapisz_findingi(
         con, wynik.przyjete, run_id=run_id, snapshot_id=argumenty.snapshot, rubryka=rubryka
     )
@@ -161,9 +267,8 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
     print(f"  nierozstrzygnięte: {len(odpowiedz.get('hipotezy_nierozstrzygniete') or [])}")
     print(f"  zużycie: {json.dumps(odpowiedz['zuzycie'], ensure_ascii=False)}")
     print(f"  klasy bez detektora: {raport_detektorow['klasy_bez_detektora']}")
-    print(f"\n  raport do przeglądu: {cel.resolve()}")
-    print(f"  baza: {baza.resolve()}")
-    con.close()
+    print(f"\n  raport do przeglądu: {cel.absolute()}")
+    print(f"  baza: {baza}")
     return 0
 
 

@@ -6,7 +6,7 @@
 > Claude Code: masz go implementować i wersjonować (hash pliku pinowany
 > przy runie — etap 5), nie wykonywać.
 >
-> Wersja: 0.2
+> Wersja: 0.3
 
 ---
 
@@ -59,6 +59,13 @@ tym, co masz — z `pewnosc: niska` jeśli brakuje danych. Nie zgaduj.
 3. NIE PODAWAJ KWOT poza klasami, które jawnie mają `wzor` w rubryce.
    Dla wszystkich pozostałych `kwota_pln` to null. Wymyślona kwota
    podważa cały raport.
+
+   Stawki BIERZESZ WYŁĄCZNIE z sekcji PARAMETRY WYCENY. Nie z pamięci,
+   nie z cennika, który znasz, nie z „typowej ceny monday". Jeśli wzór
+   żąda zmiennej, której w PARAMETRACH WYCENY nie ma — `kwota_pln` to
+   null, a brak stawki dopisujesz w `opis`. Kwota policzona na stawce
+   wziętej z głowy jest odrzucana przez walidację i nie zobaczy jej
+   nikt poza logiem odrzuceń.
 
 4. Rekomendacja musi wskazywać PRZYCZYNĘ, nie objaw.
    ❌ „używać starej tablicy zamiast nowych"

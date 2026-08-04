@@ -10,15 +10,23 @@
 
 ## Pinowanie wersji
 
-Wszystkie cztery elementy poniżej muszą być zapisane przy każdym runie.
+Wszystkie **sześć** elementów poniżej musi być zapisane przy każdym runie.
 Bez tego audyt sprzed trzech miesięcy jest nieodtwarzalny.
+
+Rosło z czterech: dwa doszły z pomiarów, nie z projektu. **Wersja API** —
+bo `2026-10` usuwa wszystkie flagi użytkownika, więc ta sama kwerenda na
+innej wersji zwraca inne dane (O15). **Wersja cennika** — bo od chwili, gdy
+stawki odświeżają się same, ta sama kwota policzona w lipcu i we wrześniu
+będzie inna (D13).
 
 | Element | Gdzie zapinane | Dlaczego |
 |---|---|---|
-| **Model** | pełny identyfikator, nie alias | alias przesuwa się przy nowym wydaniu i wynik zmienia się bez zmiany kodu |
+| **Model** | `runy.model`, pełny identyfikator, nie alias | alias przesuwa się przy nowym wydaniu i wynik zmienia się bez zmiany kodu |
 | **Rubryka** | `rubric_version` przy każdym findingu | umożliwia porównanie starego snapshotu z nową rubryką |
 | **Prompt agenta** | hash pliku `PROMPT_AGENTA.md` | zmiana promptu zmienia wynik i musi być śledzona |
 | **Collector** | `collector_ver` w snapshocie | zmiana zakresu zbierania zmienia znaczenie snapshotu |
+| **Wersja API monday** | `meta.wersja_api` w snapshocie | nieprzypięta wersja to cicha zmiana schematu po stronie dostawcy (O15) |
+| **Wersja cennika** | `runy.cennik_ver` | znacznik `pobrano_at` stawek UŻYTYCH w runie; run bez kwot zostaje z NULL, żeby nie pinować cudzej daty |
 
 Alias modelu (typu `latest`) w produkcji jest zakazany. Podnoszenie
 wersji modelu przechodzi przez bramę promocji jak każda inna zmiana.
@@ -50,7 +58,7 @@ co spowodowało różnicę.
 | Sekret | Gdzie | Uwagi |
 |---|---|---|
 | Klucz API Anthropic | env procesu workera | nigdy w repo |
-| Token klienta monday | env podprocesu MCP, **nie argv** | argv widoczne w `ps` |
+| Token klienta monday | env procesu workera, **nie argv** | argv widoczne w `ps`. Podprocesu MCP nie ma (D4) — token wczytuje `konfiguracja.wczytaj()` i nie wychodzi poza `MondayClient` |
 | Sól do hashowania osób | env, osobno per klient | wyciek soli = możliwość deanonimizacji |
 | Klucz publishera docs | env | |
 
@@ -64,7 +72,7 @@ ponownie.
 
 Kolejność, każdy krok weryfikowalny osobno:
 
-1. Node 20 (pod podproces MCP), Python 3.12, `uv`
+1. Node 20 (pod CLI Agent SDK — **nie** pod MCP, tego nie ma), Python 3.12, `uv`
 2. Caddy + `Caddyfile` → sprawdź, czy certyfikat się wystawił
 3. SQLite + migracje → sprawdź, czy aplikują się od zera
 4. FastAPI jako usługa systemd → sprawdź `/health`
@@ -90,7 +98,7 @@ z przeszłości.
 
 ## Definition of Done — etap 5
 
-- [ ] Cztery elementy zapinane i zapisywane przy runie
+- [ ] Sześć elementów pinowania zapisywanych przy runie
 - [ ] Brama promocji zaimplementowana jako skrypt, nie procedura w głowie
 - [ ] Sekrety w env, token klienta nie w argv
 - [ ] Run produkcyjny na koncie CXLABS przechodzi
