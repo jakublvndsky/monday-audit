@@ -32,7 +32,12 @@ from monday_audit.cennik import Stawka, stawki_dla, wersja_uzytych, zapisz_stawk
 from monday_audit.detektory import Hipoteza, uruchom_detektory
 from monday_audit.klient import MondayClient
 from monday_audit.konfiguracja import Ustawienia, klucz_anthropic, sol_z_ustawien, wczytaj
-from monday_audit.kontrakt import waliduj, zapisz_findingi, zapisz_odrzucone
+from monday_audit.kontrakt import (
+    waliduj,
+    zapisz_findingi,
+    zapisz_hipotezy_odrzucone,
+    zapisz_odrzucone,
+)
 from monday_audit.narzedzia import Narzedzia
 from monday_audit.przebieg import przerwij_run
 from monday_audit.rubryka import Rubryka, wczytaj_rubryke
@@ -243,11 +248,14 @@ async def _zbadaj_i_zapisz(
         con, wynik.przyjete, run_id=run_id, snapshot_id=argumenty.snapshot, rubryka=rubryka
     )
     zapisz_odrzucone(con, wynik.odrzucone, run_id=run_id, snapshot_id=argumenty.snapshot)
+    # Hipotezy obalone przez AGENTA — inna rzecz niż findingi odrzucone przez
+    # walidację i inna metryka. Renderer pokazuje je w wersji wewnętrznej.
+    zapisz_hipotezy_odrzucone(con, wynik.hipotezy_odrzucone, run_id=run_id)
 
     con.execute(
         "UPDATE runy SET status = 'zakonczony', finished_at = ?, findingow = ?, "
         "odrzuconych_walidacja = ?, hipotez_zbadanych = ?, hipotez_odrzuconych = ?, "
-        "tokens_in = ?, tokens_out = ? WHERE run_id = ?",
+        "tokens_in = ?, tokens_out = ?, koszt_usd = ? WHERE run_id = ?",
         (
             datetime.now(tz=UTC).isoformat(),
             len(wynik.przyjete),
@@ -256,6 +264,9 @@ async def _zbadaj_i_zapisz(
             len(wynik.hipotezy_odrzucone),
             int(odpowiedz["zuzycie"].get("tokens_in", 0)),
             int(odpowiedz["zuzycie"].get("tokens_out", 0)),
+            # Z `total_cost_usd` Agent SDK, nie z mnożenia tokenów przez własny
+            # cennik — ten rozjechałby się przy pierwszej zmianie cen.
+            float(odpowiedz["zuzycie"].get("koszt_usd") or 0.0) or None,
             run_id,
         ),
     )
@@ -269,6 +280,9 @@ async def _zbadaj_i_zapisz(
     print(f"  klasy bez detektora: {raport_detektorow['klasy_bez_detektora']}")
     print(f"\n  raport do przeglądu: {cel.absolute()}")
     print(f"  baza: {baza}")
+    # Renderowanie jest darmowe i osobne (3.12) — podpowiadamy komendę,
+    # żeby nikt nie szukał, jak zrobić z tego dokument.
+    print(f"\n  dokument HTML: uv run python -m monday_audit.cli_raport --run-id {run_id}")
     return 0
 
 

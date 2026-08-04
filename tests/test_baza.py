@@ -71,9 +71,11 @@ def test_migracje_aplikuja_sie_od_zera(tmp_path: Path) -> None:
     bo liczby wklejone w markdown nikt nie odświeża.
     004 dodała `runy.cennik_ver` — skoro stawki odświeżają się same, run musi
     zapisać, na których liczył (D7).
+    005 dodała `runy.koszt_usd` — tokeny to nie koszt, a przy prompt cachingu
+    nie da się jednego przeliczyć na drugie (3.12).
     """
     con = polacz(tmp_path / "nowa.db")
-    assert zastosuj_migracje(con) == [1, 2, 3, 4]
+    assert zastosuj_migracje(con) == [1, 2, 3, 4, 5]
     con.close()
 
 

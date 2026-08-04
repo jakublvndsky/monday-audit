@@ -22,6 +22,7 @@ nie da się naprawić później:
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -70,6 +71,16 @@ class Klasa:
     # także tam, gdzie kwota była przewidziana.
     wzor: str | None
     zmienne_od_klienta: tuple[str, ...]
+    # Jedna linijka notatki dla CZŁOWIEKA z CXLABS czytającego wersję
+    # wewnętrzną raportu: jaka rozmowa otwiera się po tym znalezisku.
+    # Do 2026-08-05 rubryka tego pola nie wczytywała, więc `findings.trop`
+    # był NULL we wszystkich wierszach — a to jedyna rzecz, którą wersja
+    # wewnętrzna miała mieć ponad klientową. Ta sama usterka co przy `wzor`:
+    # pole w rubryce istniało, kod go nie czytał, efekt był cichy.
+    #
+    # KLIENT NIE WIDZI GO NIGDY. Filtrowanie jest w `raport.py`, a pilnuje
+    # tego test — nie szablon, bo szablon nie może być ostatnią linią obrony.
+    trop_sprzedazowy: str | None
 
     @property
     def ma_detektor(self) -> bool:
@@ -86,6 +97,12 @@ class Rubryka:
     wersja: str
     klasy: tuple[Klasa, ...]
     maks_wywolan_na_run: int
+    # Słowniki w KOLEJNOŚCI Z PLIKU, nie jako zbiory. Pozycja w liście JEST
+    # informacją: `waga: [krytyczna, wysoka, srednia, niska]` to porządek
+    # malejącej wagi, a `wysilek_naprawy: [niski, sredni, wysoki]` rosnącego
+    # wysiłku. Bez nich nie da się zrealizować `reguly.kolejnosc_raportu`.
+    kolejnosc_wag: tuple[str, ...]
+    kolejnosc_wysilkow: tuple[str, ...]
 
     def __post_init__(self) -> None:
         if not self.klasy:
@@ -112,6 +129,43 @@ class Rubryka:
         tylko dolna granica sensowności bezpiecznika globalnego.
         """
         return sum(k.budzet_wywolan for k in self.do_detekcji())
+
+    def klucz_kolejnosci(self, waga: str, wysilek: str) -> tuple[int, int]:
+        """Klucz sortowania z `reguly.kolejnosc_raportu`: waga ↓, wysiłek ↑.
+
+        Efekt zamierzony przez rubrykę: **krytyczne i tanie w naprawie na
+        górze** — quick wins na pierwszy slajd. To zastępuje health score,
+        którego rubryka świadomie nie ma („sortowanie, nie średnia").
+
+        Wartość spoza słownika NIE wywala sortowania, tylko idzie na koniec
+        z ostrzeżeniem. Findingi w bazie noszą `rubric_ver` i po zmianie
+        słownika stary run musi dać się jeszcze wyrenderować (D7).
+        """
+        return (
+            self._pozycja(waga, self.kolejnosc_wag, "waga"),
+            self._pozycja(wysilek, self.kolejnosc_wysilkow, "wysilek_naprawy"),
+        )
+
+    def _pozycja(self, wartosc: str, porzadek: tuple[str, ...], pole: str) -> int:
+        try:
+            return porzadek.index(wartosc)
+        except ValueError:
+            logger.warning(
+                "%s = %r nie jest w słowniku rubryki %s — element idzie na koniec raportu",
+                pole,
+                wartosc,
+                self.wersja,
+            )
+            return len(porzadek)
+
+    def kolejnosc_raportu(self, findingi: Iterable[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+        """Sortuje findingi regułą z rubryki. Jedyne miejsce, które ją zna.
+
+        Czyta klucze `waga` i `wysilek` — tak nazywają się kolumny w tabeli
+        `findings`. Sortowanie Pythona jest stabilne, więc findingi o tej samej
+        wadze i wysiłku zachowują kolejność wstawienia z bazy.
+        """
+        return sorted(findingi, key=lambda f: self.klucz_kolejnosci(f["waga"], f["wysilek"]))
 
 
 def _wymagane(surowa: dict[str, Any], pole: str, gdzie: str) -> Any:
@@ -189,6 +243,9 @@ def _klasa(surowa: dict[str, Any], slowniki: dict[str, list[str]], maks: int) ->
         status=str(surowa["status"]) if surowa.get("status") else None,
         wzor=str(surowa["wzor"]) if surowa.get("wzor") else None,
         zmienne_od_klienta=tuple(str(z) for z in (surowa.get("zmienne_od_klienta") or [])),
+        trop_sprzedazowy=(
+            str(surowa["trop_sprzedazowy"]).strip() if surowa.get("trop_sprzedazowy") else None
+        ),
     )
 
 
@@ -225,7 +282,22 @@ def wczytaj_rubryke(sciezka: Path = SCIEZKA_RUBRYKI) -> Rubryka:
     if duplikaty:
         raise RubrykaError(f"{sciezka}: zduplikowane id klas: {', '.join(duplikaty)}")
 
-    rubryka = Rubryka(wersja=wersja, klasy=klasy, maks_wywolan_na_run=bezpiecznik)
+    rubryka = Rubryka(
+        wersja=wersja,
+        klasy=klasy,
+        maks_wywolan_na_run=bezpiecznik,
+        kolejnosc_wag=tuple(str(w) for w in slowniki["waga"]),
+        kolejnosc_wysilkow=tuple(str(w) for w in slowniki["wysilek_naprawy"]),
+    )
+    # Nie błąd: klasa bez tropu po prostu nie doda linijki do wersji
+    # wewnętrznej. Ale cisza tutaj już raz kosztowała — `trop` był NULL
+    # w całej tabeli, bo nikt nie zauważył, że pole nie jest wczytywane.
+    bez_tropu = [k.id for k in rubryka.klasy if not k.trop_sprzedazowy]
+    if bez_tropu:
+        logger.warning(
+            "klasy bez `trop_sprzedazowy` — wersja wewnętrzna raportu nie poda dla nich tropu: %s",
+            ", ".join(bez_tropu),
+        )
     logger.info(
         "rubryka %s: %d klas, %d z detektorem, suma budżetów %d z %d",
         rubryka.wersja,

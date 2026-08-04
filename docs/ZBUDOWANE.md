@@ -1,4 +1,4 @@
-# Co jest zbudowane — stan na 2026-08-04
+# Co jest zbudowane — stan na 2026-08-05
 
 > **Ten plik opisuje TERAŹNIEJSZOŚĆ.** Specyfikacje w `docs/etapy/` mówią, co
 > ma być; ten dokument mówi, co stoi i **co zostało zmierzone, a nie założone**.
@@ -8,9 +8,9 @@
 > Zasada obowiązująca w całym pliku: **liczby są z pomiaru.** Jeśli czegoś nie
 > zmierzyliśmy, jest napisane, że nie.
 
-Etap 3, pozycje **3.1–3.11 zbudowane i przepuszczone przez prawdziwe konto**.
-Brakuje **3.12** (renderer raportu) — czyli dziś wynik audytu czyta się z pliku
-tekstowego i z bazy, nie z raportu dla klienta.
+Etap 3, pozycje **3.1–3.12 zbudowane i przepuszczone przez prawdziwe konto**.
+Audyt kończy się dwoma dokumentami HTML. Publikacja pod URL-em przechodzi do
+etapu 5, gdzie i tak stoi Caddy.
 
 ---
 
@@ -47,7 +47,8 @@ tekstowego i z bazy, nie z raportu dla klienta.
                                    ▼
                  findings + findings_odrzucone + runy
                                    │
-  KROK 5 ── renderer                          ← TEGO JESZCZE NIE MA (3.12)
+  KROK 5 ── renderer (jinja2, autoescape) — deanonimizacja DOPIERO TUTAJ
+  dwa pliki HTML: wewnętrzny i klientowy
 ```
 
 **Agent jest w środku, nie na końcu.** Po nim dwie warstwy deterministyczne.
@@ -74,6 +75,8 @@ tekstowego i z bazy, nie z raportu dla klienta.
 | `kontrakt.py` | walidacja D8 | odrzucenie **zachowuje treść** findingu w `findings_odrzucone` — bez tego etap 4 nie miałby czego mierzyć |
 | `cennik.py` | stawki z pochodzeniem (D13) | stawka to nie `float`: niesie wiek, źródło i wiarygodność |
 | `cli_cennik.py` | scraper stawek | wzorce zakotwiczone w **zdaniach**, nie w HTML-u; porażka nic nie nadpisuje |
+| `deanonimizacja.py` | hash → nazwisko (3.12) | jedyny czytnik PII poza walidacją z 3.8; hashe siedzą też w KLUCZACH dowodu i w wolnym tekście |
+| `raport.py` | zebranie danych i render | filtrowanie odbiorcy w **SQL**, nie w szablonie — szablon nie może być ostatnią linią obrony |
 | `baza.py` | połączenie, migracje, rejestr wywołań | `polacz()` włącza klucze obce, więc kolejność zapisów nie jest dowolna |
 | `postep.py` | wskaźnik postępu | run collectora trwa minuty i cisza jest nieodróżnialna od zawieszenia |
 
@@ -234,17 +237,54 @@ Koszt czytamy z `total_cost_usd` z Agent SDK, **nie** z mnożenia tokenów przez
 cennik zaszyty u nas. Pierwsza wersja liczyła `usage.input_tokens`, co pomija
 cache — i moja ekstrapolacja z małej próby była wtedy **o 63% za niska**.
 
+Run `agent-312-demo` (3 hipotezy, ze stawką 100 PLN) dał **2 findingi po
+1200 PLN i jedno odrzucenie**, za 0,31 USD — i to on posłużył do sprawdzenia
+renderera na prawdziwych danych.
+
 **Odrzucenie 8 z 19 hipotez to sygnał, że pętla pracuje.** Agent, który
 potwierdza wszystko, jest bezużyteczny — D8 wymaga niepustego
 `hipotezy_odrzucone`, a run z jedną hipotezą dostaje ostrzeżenie w logu.
 
 ---
 
+## Renderer raportu
+
+Dwa pliki HTML z jednego runu, w `raporty/` (katalog jest w `.gitignore` — po
+deanonimizacji dokument zawiera prawdziwe imiona, e-maile i nazwy tablic).
+
+```bash
+uv run python -m monday_audit.cli_raport --run-id agent-312-demo
+```
+
+Osobna komenda, nie doklejona do `cli_agent`: renderowanie jest darmowe i musi
+dać się powtórzyć na zapisanym runie, bo etap 4 przepuszcza te same runy przez
+nowy szablon.
+
+**Trzy granice pilnowane testami**, każda na danych syntetycznych — bo na
+snapshocie #5 wszystkie findingi są `widocznosc: klient`, więc prawdziwy run
+tych granic NIE sprawdza:
+
+1. żaden finding `tylko_wewnetrzne` w wersji klientowej
+2. żadna treść `trop` w wersji klientowej
+3. **żaden surowy hash w którejkolwiek wersji**
+
+Granica 3 złapała usterkę, której nie złapał test jednostkowy: `tablice_dostepne`
+w dowodzie `GUEST_SPRAWL` to mapa `user_hash → lista tablic`, czyli hash jest
+**kluczem** słownika. Pierwsza wersja rekurencji schodziła tylko po wartościach
+i przepuściła dziewięć hashy do obu plików.
+
+**Filtrowanie odbiorcy jest w SQL, nie w szablonie.** Szablon jest edytowany
+przy każdej zmianie wyglądu, przez osobę patrzącą na układ strony — warstwa,
+którą rusza się najczęściej, nie może być ostatnią linią obrony.
+
+`autoescape` jest włączony **jawnie**, bo jinja domyślnie go nie ma, a dokument
+niesie nazwy tablic pisane przez klienta. Na tę jedną flagę jest test.
+
 ## Czego jeszcze nie ma
 
 | Brak | Gdzie opisany |
 |---|---|
-| **renderer raportu (3.12)** | `docs/etapy/03-build.md` |
+| **publikacja raportu pod URL-em** | etap 5 — hosting i skill publishera; 3.12 daje pliki |
 | zużycie kredytów AI | API tego nie oddaje w żadnej sprawdzonej wersji — O2, O20 |
 | liczba uruchomień automatyzacji per tablica | filtr `board_id` zepsuty w API — O12 |
 | `AI_UNUSED` | klasa nieaktywna, `status: do_weryfikacji` |
@@ -309,7 +349,7 @@ w Finderze i nieodtwarzalne.
 
 ## Testy
 
-**425 testów, 19 odznaczonych** (integracyjne, uderzają w prawdziwe monday —
+**486 testów, 19 odznaczonych** (integracyjne, uderzają w prawdziwe monday —
 `-m integracyjny` je włącza). `make sprawdz` to ruff + mypy + pytest.
 
 Warstwy: jednostkowe na danych syntetycznych, integracyjne na koncie CXLABS,

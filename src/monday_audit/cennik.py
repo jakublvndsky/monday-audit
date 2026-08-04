@@ -210,18 +210,28 @@ def zapisz_stawke_klienta(
 
 
 def aktualna(
-    con: sqlite3.Connection, pozycja: str, *, client_id: str | None = None
+    con: sqlite3.Connection,
+    pozycja: str,
+    *,
+    client_id: str | None = None,
+    do_momentu: str | None = None,
 ) -> Stawka | None:
     """Najświeższa stawka. Stawka klienta ma PIERWSZEŃSTWO nad publiczną.
 
     Zwraca `None`, gdy stawki nie ma wcale — i to jest poprawna odpowiedź,
     nie błąd. Wtedy finding leci bez kwoty, tak jak przewiduje O7.
+
+    `do_momentu` ogranicza odczyt do stawek zapisanych NIE PÓŹNIEJ niż podany
+    znacznik ISO — czyli do tych, które run mógł realnie zobaczyć. Renderer
+    podaje tu `runy.cennik_ver`, bo raport z lipcowego runu musi pokazywać
+    lipcową stawkę, a nie tę, którą scraper pobrał we wrześniu. Historia jest
+    w tabelach właśnie po to (D7, D13).
     """
     if client_id:
         wiersz = con.execute(
             "SELECT * FROM stawki_klienta WHERE client_id = ? AND pozycja = ? "
-            "ORDER BY podano_at DESC LIMIT 1",
-            (client_id, pozycja),
+            "AND (? IS NULL OR podano_at <= ?) ORDER BY podano_at DESC LIMIT 1",
+            (client_id, pozycja, do_momentu, do_momentu),
         ).fetchone()
         if wiersz is not None:
             return Stawka(
@@ -237,8 +247,9 @@ def aktualna(
             )
 
     wiersz = con.execute(
-        "SELECT * FROM cennik WHERE pozycja = ? ORDER BY pobrano_at DESC LIMIT 1",
-        (pozycja,),
+        "SELECT * FROM cennik WHERE pozycja = ? AND (? IS NULL OR pobrano_at <= ?) "
+        "ORDER BY pobrano_at DESC LIMIT 1",
+        (pozycja, do_momentu, do_momentu),
     ).fetchone()
     if wiersz is None:
         return None
@@ -255,7 +266,11 @@ def aktualna(
 
 
 def stawki_dla(
-    con: sqlite3.Connection, pozycje: Iterable[str], *, client_id: str | None = None
+    con: sqlite3.Connection,
+    pozycje: Iterable[str],
+    *,
+    client_id: str | None = None,
+    do_momentu: str | None = None,
 ) -> dict[str, Stawka]:
     """Stawki dla podanych pozycji. Brakujących NIE uzupełniamy niczym.
 
@@ -263,7 +278,7 @@ def stawki_dla(
     kontraktu odrzuci finding, który mimo to podał kwotę. Cichy fallback na
     „jakąś" wartość jest tu groźniejszy od braku kwoty (O7).
     """
-    znalezione = {p: aktualna(con, p, client_id=client_id) for p in pozycje}
+    znalezione = {p: aktualna(con, p, client_id=client_id, do_momentu=do_momentu) for p in pozycje}
     return {p: s for p, s in znalezione.items() if s is not None}
 
 

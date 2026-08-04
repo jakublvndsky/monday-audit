@@ -312,6 +312,46 @@ def zapisz_odrzucone(
     return len(odrzucone)
 
 
+def zapisz_hipotezy_odrzucone(
+    con: sqlite3.Connection,
+    hipotezy: list[dict[str, Any]],
+    *,
+    run_id: str,
+) -> int:
+    """Zapisuje hipotezy, które ODRZUCIŁ AGENT — z jego powodem.
+
+    Dwie rzeczy różne, których nie wolno zlewać, i teraz obie są w bazie:
+
+    - `findings_odrzucone` — agent coś potwierdził, a **walidacja** to odrzuciła.
+      To metryka naszej jakości (D8, główna liczba etapu 4).
+    - `hipotezy_odrzucone` — detektor coś wzbudził, a **agent** to obalił.
+      To metryka jego pracy: agent potwierdzający wszystko jest bezużyteczny,
+      dlatego D8 wymaga tego pola niepustego.
+
+    Do 2026-08-05 ta tabela **nie miała ani jednego pisarza** i stała pusta,
+    choć agent odrzucił 8 z 19 hipotez w pełnym runie. Liczba żyła wyłącznie
+    w pliku tekstowym, czyli nie dało się jej ani wyrenderować, ani policzyć
+    w SQL-u na potrzeby evali.
+    """
+    if not hipotezy:
+        return 0
+    with con:
+        con.executemany(
+            "INSERT INTO hipotezy_odrzucone (run_id, klasa_id, obiekt_id, powod) "
+            "VALUES (?, ?, ?, ?)",
+            [
+                (
+                    run_id,
+                    str(h.get("klasa_id") or "?"),
+                    str(h["obiekt_id"]) if h.get("obiekt_id") else None,
+                    str(h.get("powod") or "agent nie podał powodu"),
+                )
+                for h in hipotezy
+            ],
+        )
+    return len(hipotezy)
+
+
 def zapisz_findingi(
     con: sqlite3.Connection,
     przyjete: list[dict[str, Any]],
@@ -346,7 +386,12 @@ def zapisz_findingi(
                 str(f["rekomendacja"]),
                 json.dumps(f["dowod"], ensure_ascii=False),
                 str(f["pewnosc"]),
-                f.get("trop_sprzedazowy"),
+                # Z RUBRYKI, nie od agenta. Do 2026-08-05 stało tu
+                # `f.get("trop_sprzedazowy")` — pole, którego agent nigdy nie
+                # podaje i podawać nie ma — więc kolumna była NULL we
+                # wszystkich 17 wierszach bazy produkcyjnej, wbrew temu, co
+                # docstring tej funkcji obiecywał.
+                klasa.trop_sprzedazowy,
             )
         )
     with con:

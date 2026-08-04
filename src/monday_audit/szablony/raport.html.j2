@@ -1,0 +1,308 @@
+{# Szablon raportu z audytu monday.com (3.12).
+
+   WYGLĄD, nie logika. Co wchodzi do dokumentu, decyduje `raport.py` — tutaj
+   nie ma i nie może być filtrowania odbiorcy „na wszelki wypadek". Treść
+   wewnętrzna nie dociera do tego pliku, bo nie wchodzi do struktury `r`.
+
+   Styl jest neutralny i tymczasowy: firmowy CSS podmienia się w tym jednym
+   pliku, bez dotykania kodu liczącego kwoty.
+
+   Jeden plik, zero zasobów zewnętrznych — dokument musi otwierać się z dysku
+   i drukować do PDF u kogoś, kto nie ma dostępu do naszej sieci.
+#}
+{% macro wartosc_dowodu(v) -%}
+  {% if v is mapping or (v is sequence and v is not string and v and v[0] is mapping) -%}
+    <pre>{{ v | tojson(indent=2) }}</pre>
+  {%- elif v is sequence and v is not string -%}
+    {{ v | join(', ') if v else '—' }}
+  {%- elif v is none -%}
+    —
+  {%- else -%}
+    {{ v }}
+  {%- endif %}
+{%- endmacro %}
+<title>Audyt konta monday.com — {{ r.client_id }} — {{ r.run_at[:10] }}</title>
+<style>
+  :root {
+    --tekst: #1a1a1a; --slaby: #6b6b6b; --linia: #e0ddd6; --tlo: #ffffff;
+    --karta: #faf9f7; --akcent: #2d4a5e;
+    --krytyczna: #a11b1b; --wysoka: #b8641b; --srednia: #7a6a1b; --niska: #4a5a6a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    max-width: 52rem; margin: 0 auto; padding: 2.5rem 1.5rem 5rem;
+    font: 16px/1.65 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--tekst); background: var(--tlo);
+  }
+  h1 { font-size: 1.75rem; line-height: 1.25; margin: 0 0 .25rem; }
+  h2 {
+    font-size: 1.15rem; margin: 3rem 0 1rem; padding-bottom: .4rem;
+    border-bottom: 2px solid var(--linia); letter-spacing: .01em;
+  }
+  h3 { font-size: 1.05rem; margin: 0 0 .5rem; }
+  p { margin: 0 0 .8rem; }
+  .naglowek { border-bottom: 3px solid var(--akcent); padding-bottom: 1rem; margin-bottom: .5rem; }
+  .meta { color: var(--slaby); font-size: .875rem; }
+  .meta span + span::before { content: " · "; }
+  .plomba {
+    display: inline-block; margin-top: .75rem; padding: .2rem .6rem;
+    border: 1px solid var(--akcent); border-radius: 3px;
+    font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; color: var(--akcent);
+  }
+  /* Podsumowanie */
+  .kafle { display: flex; flex-wrap: wrap; gap: .75rem; margin: 1.25rem 0; }
+  .kafel {
+    flex: 1 1 7rem; padding: .8rem 1rem; background: var(--karta);
+    border: 1px solid var(--linia); border-radius: 4px;
+  }
+  .kafel b { display: block; font-size: 1.6rem; line-height: 1.1; }
+  .kafel small { color: var(--slaby); font-size: .8rem; }
+  .kwota-suma { font-size: 1.6rem; font-weight: 700; color: var(--akcent); }
+  /* Findingi */
+  .finding {
+    border: 1px solid var(--linia); border-left: 4px solid var(--niska);
+    border-radius: 4px; padding: 1.1rem 1.25rem; margin: 0 0 1.1rem;
+    page-break-inside: avoid; break-inside: avoid;
+  }
+  .finding.krytyczna { border-left-color: var(--krytyczna); }
+  .finding.wysoka    { border-left-color: var(--wysoka); }
+  .finding.srednia   { border-left-color: var(--srednia); }
+  .finding.niska     { border-left-color: var(--niska); }
+  .etykiety { font-size: .75rem; color: var(--slaby); margin-bottom: .6rem; }
+  .etykiety b { color: var(--tekst); }
+  .kwota { float: right; font-weight: 700; color: var(--akcent); }
+  .rekomendacja { background: var(--karta); padding: .7rem .9rem; border-radius: 3px; }
+  .rekomendacja strong { display: block; font-size: .75rem; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--slaby); margin-bottom: .25rem; }
+  .trop { margin-top: .8rem; padding-left: .8rem; border-left: 3px solid var(--akcent);
+    font-size: .9rem; color: var(--akcent); }
+  details { margin-top: .8rem; font-size: .9rem; }
+  summary { cursor: pointer; color: var(--slaby); font-size: .8rem;
+    text-transform: uppercase; letter-spacing: .05em; }
+  /* Tabele i dowody */
+  .przewijane { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+  th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid var(--linia);
+    vertical-align: top; }
+  th { font-weight: 600; color: var(--slaby); font-size: .8rem; text-transform: uppercase;
+    letter-spacing: .04em; }
+  dl.dowod { display: grid; grid-template-columns: minmax(8rem, auto) 1fr; gap: .3rem .9rem;
+    margin: .6rem 0 0; }
+  dl.dowod dt { color: var(--slaby); font-family: ui-monospace, Menlo, monospace;
+    font-size: .8rem; }
+  dl.dowod dd { margin: 0; }
+  pre { margin: 0; padding: .5rem .7rem; background: var(--karta); border-radius: 3px;
+    overflow-x: auto; font-size: .8rem; }
+  .uwaga { border: 1px solid var(--wysoka); border-left-width: 4px; border-radius: 4px;
+    padding: .9rem 1.1rem; background: #fffdf8; }
+  .uwaga ul { margin: .4rem 0 0; padding-left: 1.2rem; }
+  .pusto { color: var(--slaby); font-style: italic; }
+  footer { margin-top: 3.5rem; padding-top: 1rem; border-top: 1px solid var(--linia);
+    font-size: .8rem; color: var(--slaby); }
+  @media print {
+    body { max-width: none; padding: 0; font-size: 11pt; }
+    h2 { page-break-after: avoid; }
+    details { display: none; }
+    .kafel, .finding { background: none; }
+  }
+</style>
+
+<header class="naglowek">
+  <h1>Audyt konta monday.com</h1>
+  <p class="meta">
+    <span>{{ r.client_id }}</span>
+    <span>{{ r.run_at[:10] }}</span>
+    <span>zakres: {{ r.zakres }}</span>
+    <span>plan: {{ r.plan_tier }}</span>
+  </p>
+  {% if not r.dla_klienta %}
+    <span class="plomba">wersja wewnętrzna — nie wysyłać klientowi</span>
+  {% endif %}
+</header>
+
+<h2>Podsumowanie</h2>
+{% if r.findingow %}
+  <div class="kafle">
+    <div class="kafel">
+      <b>{{ r.findingow }}</b>
+      <small>{{ odmiana(r.findingow, 'znalezisko', 'znaleziska', 'znalezisk') }}</small>
+    </div>
+    {% for waga, ile in r.po_wagach.items() %}
+      <div class="kafel"><b>{{ ile }}</b><small>{{ waga | slownie }}</small></div>
+    {% endfor %}
+  </div>
+  {% if r.ma_kwoty %}
+    <p>
+      Możliwa oszczędność roczna na licencjach:
+      <span class="kwota-suma">{{ '{:,.0f}'.format(r.suma_kwot).replace(',', ' ') }} PLN</span>
+    </p>
+  {% else %}
+    <p class="pusto">
+      Bez kwot — nie podano stawki licencji, więc żadne znalezisko nie zostało wycenione.
+    </p>
+  {% endif %}
+{% else %}
+  <p class="pusto">Ten run nie dał żadnego znaleziska widocznego w tej wersji raportu.</p>
+{% endif %}
+
+{% if r.stawki %}
+  <h2>Podstawa wyceny</h2>
+  <p class="meta">
+    Kwoty niżej to oszczędności na licencjach monday, policzone z tych stawek.
+    Każda pokazuje, skąd pochodzi i kiedy została zapisana.
+  </p>
+  <div class="przewijane">
+    <table>
+      <thead>
+        <tr><th>pozycja</th><th>wartość</th><th>źródło</th><th>zapisano</th></tr>
+      </thead>
+      <tbody>
+        {% for s in r.stawki %}
+          <tr>
+            <td>{{ s.pozycja }}</td>
+            <td>{{ s.wartosc }} {{ s.waluta or s.jednostka }}</td>
+            <td>{{ s.zrodlo }}{% if not s.wolno_liczyc %} — <b>przeterminowana</b>{% endif %}</td>
+            <td>{{ s.pobrano_at[:10] }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+
+{% if r.findingi %}
+  <h2>Znaleziska</h2>
+  <p class="meta">
+    Kolejność z rubryki: najpierw waga, przy równej wadze — tańsze w naprawie.
+  </p>
+  {% for f in r.findingi %}
+    <article class="finding {{ f.waga }}">
+      {% if f.kwota_pln %}
+        <span class="kwota">{{ '{:,.0f}'.format(f.kwota_pln).replace(',', ' ') }} PLN / rok</span>
+      {% endif %}
+      <h3>{{ loop.index }}. {{ f.nazwa }}</h3>
+      <p class="etykiety">
+        waga <b>{{ f.waga | slownie }}</b> · naprawa <b>{{ f.wysilek | slownie }}</b> ·
+        pewność <b>{{ f.pewnosc | slownie }}</b>
+      </p>
+      <p>{{ f.opis }}</p>
+      <div class="rekomendacja">
+        <strong>Co zrobić</strong>
+        {{ f.rekomendacja }}
+      </div>
+      {% if f.trop %}
+        <p class="trop"><b>Trop:</b> {{ f.trop }}</p>
+      {% endif %}
+      {% if f.dowod %}
+        <details>
+          <summary>Dowód ({{ f.dowod | length }} {{ odmiana(f.dowod | length, 'pole', 'pola', 'pól') }})</summary>
+          <dl class="dowod">
+            {% for klucz, wartosc in f.dowod.items() %}
+              <dt>{{ klucz | etykieta }}</dt>
+              <dd>{{ wartosc_dowodu(wartosc) }}</dd>
+            {% endfor %}
+          </dl>
+        </details>
+      {% endif %}
+    </article>
+  {% endfor %}
+{% endif %}
+
+<h2>Czego ten audyt nie widzi</h2>
+{% if r.zastrzezenia %}
+  <div class="uwaga">
+    <p>Zebrane dane mają granice. Bez tej listy raport sugerowałby pokrycie, którego nie ma:</p>
+    <ul>
+      {% for z in r.zastrzezenia %}
+        <li>{{ z }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+{% else %}
+  <p class="pusto">Snapshot nie zgłosił zastrzeżeń co do zakresu.</p>
+{% endif %}
+
+{% if not r.dla_klienta %}
+  <h2>Hipotezy odrzucone przez agenta ({{ r.hipotezy_odrzucone | length }})</h2>
+  <p class="meta">
+    Detektor je wzbudził, analiza ich nie potwierdziła. Agent potwierdzający
+    wszystko byłby bezużyteczny — ta lista jest miarą, że sprawdzenie było realne.
+  </p>
+  {% if r.hipotezy_odrzucone %}
+    <div class="przewijane">
+      <table>
+        <thead><tr><th>klasa</th><th>obiekt</th><th>powód odrzucenia</th></tr></thead>
+        <tbody>
+          {% for h in r.hipotezy_odrzucone %}
+            <tr>
+              <td>{{ h.klasa_id }}</td>
+              <td>{{ h.obiekt_id or '—' }}</td>
+              <td>{{ h.powod }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="pusto">
+      Brak zapisanych odrzuceń. Dla runów starszych niż 2026-08-05 to normalne —
+      tabela nie miała wtedy pisarza.
+    </p>
+  {% endif %}
+
+  <h2>Odrzucone na walidacji ({{ r.findingi_odrzucone | length }})</h2>
+  <p class="meta">
+    To miara NASZEJ jakości, nie agenta: finding, który nie spełnił kontraktu D8.
+    Odsetek odrzuconych jest główną metryką etapu 4.
+  </p>
+  {% if r.findingi_odrzucone %}
+    <div class="przewijane">
+      <table>
+        <thead><tr><th>klasa</th><th>reguła</th><th>powód</th></tr></thead>
+        <tbody>
+          {% for o in r.findingi_odrzucone %}
+            <tr>
+              <td>{{ o.klasa_id or '—' }}</td>
+              <td>{{ o.regula }}</td>
+              <td>{{ o.powod }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="pusto">Nic nie odpadło na walidacji.</p>
+  {% endif %}
+
+  <h2>Pinowanie i koszt</h2>
+  <p class="meta">
+    Sześć elementów, bez których tego runu nie da się powtórzyć za trzy miesiące.
+  </p>
+  <div class="przewijane">
+    <table>
+      <tbody>
+        {% for klucz, wartosc in r.pinowanie.items() %}
+          <tr><th>{{ klucz }}</th><td>{{ wartosc if wartosc is not none else '—' }}</td></tr>
+        {% endfor %}
+        <tr>
+          <th>koszt runu</th>
+          <td>
+            {% if r.koszt_usd %}{{ '%.4f' % r.koszt_usd }} USD{% else %}nie zapisany{% endif %}
+          </td>
+        </tr>
+        {% if r.nieznane_hashe %}
+          <tr>
+            <th>hashe bez mapowania</th>
+            <td>{{ r.nieznane_hashe }} — sprawdź, czy snapshot i sól są od tego klienta</td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+
+<footer>
+  Raport wygenerowany z zamrożonego snapshotu — run <code>{{ r.run_id }}</code>.
+  Znaleziska opierają się wyłącznie na danych z tego snapshotu; każde ma dowód
+  wskazujący na konkretny fakt. CXLABS.
+</footer>

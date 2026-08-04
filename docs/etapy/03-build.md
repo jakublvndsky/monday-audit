@@ -302,18 +302,37 @@ JSON, a przynajmniej jedna hipoteza jest odrzucona z podanym powodem.
 
 ---
 
-## 3.12 Renderer + publikacja
+## 3.12 Renderer
 
-- Szablon HTML z Claude Design w CXLABS Design System
-- Wstrzyknięcie JSON (wzorzec z Proposal Engine)
-- **Deanonimizacja dopiero tutaj** — renderer czyta `osoby_mapowanie`
-- Dwa wyjścia: wewnętrzne (pełne + `trop`), klientowe
-  (bez `tylko_wewnetrzne`)
-- Publikacja przez skill `cxlabs-docs-publisher`,
-  nazwa `RRRR-MM_audyt_konta.html`
+- Szablon HTML w jinja2 z **jawnym `autoescape`** — dokument niesie nazwy
+  tablic klienta, a jinja domyślnie autoescapingu NIE ma
+- **Deanonimizacja dopiero tutaj** — renderer czyta `osoby_mapowanie`.
+  Nazwiska idą do OBU wersji: raport mówiący „konto 05677b1a… jest martwe"
+  jest niewykonalny, bo klient nie wie, o kogo chodzi
+- Dwa wyjścia: wewnętrzne (pełne + `trop` + odrzucenia + pinowanie + koszt),
+  klientowe (bez tego wszystkiego). **Filtrowanie w SQL, nie w szablonie** —
+  szablon jest edytowany przy każdej zmianie wyglądu i nie może być ostatnią
+  linią obrony
+- Kolejność z `reguly.kolejnosc_raportu`: waga malejąco, wysiłek rosnąco
+- Sekcja **czego ten audyt nie widzi** w obu wersjach — z
+  `meta.uwagi_o_zakresie` i `konto.zastrzezenia`
+- Nazwa `RRRR-MM_audyt_konta_<klient>_<odbiorca>.html`, miesiąc ze SNAPSHOTU
 
-**Gotowe gdy:** oba warianty wychodzą jako linki, wersja klientowa
-nie zawiera ani jednego findingu oznaczonego `tylko_wewnetrzne`.
+**Gotowe gdy:** oba warianty wychodzą jako pliki, wersja klientowa nie zawiera
+ani jednego findingu oznaczonego `tylko_wewnetrzne`, treści tropu ani surowego
+hasha — każde z tych trzech pilnowane testem na danych syntetycznych.
+
+> **ZMIENIONE 2026-08-05.** Wcześniejsze brzmienie: „oba warianty wychodzą jako
+> **linki**", publikowane „przez skill `cxlabs-docs-publisher`". Tego skilla
+> w repo **nie ma**, a hosting (Caddy, `docs.cxlabs.digital`) stoi dopiero
+> w etapie 5 — DoD obiecywał więc coś, czego w etapie 3 nie da się spełnić.
+> **Publikacja przechodzi do etapu 5.** Pliki lokalne wystarczają do tego,
+> po co ten etap jest: otwierają się z dysku, wysyłają się i drukują do PDF.
+>
+> Odpadło też „wstrzyknięcie JSON (wzorzec z Proposal Engine)" — renderer
+> dostaje strukturę Pythona, nie JSON, a nazwa tamtego projektu myliła się
+> z generowaniem oferty. **To jest raport, nie oferta:** `kwota_pln` to
+> oszczędność KLIENTA na jego licencjach, nie nasza cena.
 
 ---
 

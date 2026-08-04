@@ -8,13 +8,14 @@ requires-python = ">=3.12"
 # Produkcja. Każda pozycja ma uzasadnienie w docs/ARCHITEKTURA.md albo docs/etapy/.
 # Nie dodawaj nic tutaj bez pytania — patrz CLAUDE.md, "Zakazy twarde".
 dependencies = [
-    "httpx>=0.28.1",           # collector, czysty GraphQL (D4, etap 3.2)
-    "pyyaml>=6.0.3",           # rubryka_znalezisk.yaml: budżety klas, słowniki, walidacja (3.9, 3.11)
-    "pydantic>=2.13",          # kontrakt wyjściowy agenta D8 + modele rubryki (3.11)
-    "pydantic-settings>=2.7",  # config: precedencja env > .env bez gałęzi w kodzie, SecretStr maskuje sekret w repr (D12)
-    "fastapi>=0.141",          # trigger runu i odczyt wyników (etap 5)
-    "uvicorn>=0.52",           # ASGI dla FastAPI; bez [standard] — uvloop/watchfiles zbędne przy jednym runie
+    "httpx>=0.28.1", # collector, czysty GraphQL (D4, etap 3.2)
+    "pyyaml>=6.0.3", # rubryka_znalezisk.yaml: budżety klas, słowniki, walidacja (3.9, 3.11)
+    "pydantic>=2.13", # kontrakt wyjściowy agenta D8 + modele rubryki (3.11)
+    "pydantic-settings>=2.7", # config: precedencja env > .env bez gałęzi w kodzie, SecretStr maskuje sekret w repr (D12)
+    "fastapi>=0.141", # trigger runu i odczyt wyników (etap 5)
+    "uvicorn>=0.52", # ASGI dla FastAPI; bez [standard] — uvloop/watchfiles zbędne przy jednym runie
     "claude-agent-sdk>=0.2.128", # pętla agenta w procesie workera (D1, 3.11)
+    "jinja2>=3.1.6", # szablon raportu (3.12); powód to `autoescape` — dokument niesie nazwy tablic klienta, a ręczne html.escape() przy każdym polu to jedno pominięcie od cichej usterki w pliku wychodzącym na zewnątrz
 ]
 
 # Świadomie NIE ma tutaj:

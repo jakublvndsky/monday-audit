@@ -1,0 +1,17 @@
+-- 005: koszt runu w USD
+--
+-- `runy` liczy tokeny wejścia i wyjścia, ale NIE koszt. To nie to samo i nie da
+-- się jednego przeliczyć na drugie: przy prompt cachingu (D2) większość tokenów
+-- jest czytana z cache po innej stawce, a pierwsza wersja księgowania
+-- policzyła `usage.input_tokens` i wyszła o 63% za nisko względem prawdy.
+--
+-- Liczbę bierzemy z `total_cost_usd` podanego przez Agent SDK — nie z mnożenia
+-- tokenów przez cennik zaszyty u nas, bo ten rozjechałby się przy pierwszej
+-- zmianie cen po stronie Anthropic.
+--
+-- Do czego jest potrzebna:
+--   * wersja WEWNĘTRZNA raportu pokazuje, ile kosztowało wyprodukowanie
+--     znalezisk — bez tego nie da się powiedzieć, czy audyt się opłaca
+--   * etap 6 monitoruje koszt per run; dziś ta liczba istniała wyłącznie
+--     w pliku tekstowym runu, czyli nie dawała się policzyć w SQL-u
+ALTER TABLE runy ADD COLUMN koszt_usd REAL;

@@ -355,6 +355,34 @@ Ten sam wzorzec jest już zwalidowany w Proposal Engine.
 - wewnętrzna — wszystkie findingi + pole `trop`
 - klientowa — bez klas oznaczonych `tylko_wewnetrzne`, bez `trop`
 
+**ZBUDOWANE 2026-08-05 (3.12), z trzema doprecyzowaniami z praktyki:**
+
+**1. Filtrowanie odbiorcy jest w SQL, nie w szablonie.** `WHERE widocznosc =
+'klient'` stoi w zapytaniu, a `trop` w ogóle nie wchodzi do struktury
+przekazywanej szablonowi. Powód: szablon jest edytowany przy KAŻDEJ zmianie
+wyglądu, przez osobę patrzącą na układ strony, a nie na granice zaufania.
+Warstwa, którą rusza się najczęściej, nie może być ostatnią linią obrony.
+Trzy granice pilnowane testami na danych syntetycznych: brak findingu
+`tylko_wewnetrzne`, brak treści tropu, brak surowego hasha.
+
+**2. `autoescape` jawnie włączony.** Jinja domyślnie ma go **wyłączony**,
+a dokument niesie nazwy tablic i kolumn pisane przez klienta. Bez tej flagi
+nazwa `Oferty <b>2026</b>` rozwala układ, a `<script>` staje się skryptem.
+To jedna flaga, którą łatwo zgubić przy refaktorze — dlatego ma test, nie
+komentarz.
+
+**3. Nazwiska idą do OBU wersji.** Pierwotny zapis sugerował deanonimizację
+tylko wewnętrzną. Raport mówiący „konto 05677b1ab370bae1 jest martwe" jest
+**niewykonalny**: klient nie wie, o kogo chodzi, więc rekomendacja „zwolnij to
+miejsce" nie da się wykonać. Granica PII z D6 dotyczy kontekstu MODELU, nie
+dokumentu — renderer jest zwykłym kodem i działa po zakończeniu analizy.
+Różnica między wersjami to `tylko_wewnetrzne`, `trop`, odrzucenia, pinowanie
+i koszt.
+
+Publikacja pod URL-em **przeszła do etapu 5** — skilla `cxlabs-docs-publisher`
+w repo nie ma, a Caddy stoi dopiero tam. 3.12 daje pliki, które otwierają się
+z dysku i drukują do PDF.
+
 **Co unieważni:** produkt drugi (monitor subskrypcyjny). Tam React
 Artura ma sens, bo pojawia się interaktywność i notyfikacje.
 
