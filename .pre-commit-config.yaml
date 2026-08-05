@@ -19,9 +19,14 @@ repos:
       - id: check-toml
       - id: check-merge-conflict
       - id: detect-private-key
+      # `FFL.txt` to licencja fontu od Indian Type Foundry. Nie pozwalamy
+      # żadnemu narzędziu jej dotknąć — cudzy dokument prawny trzymamy bajt
+      # w bajt takim, jaki dostaliśmy, żeby dało się go porównać ze źródłem.
       - id: end-of-file-fixer
+        exclude: ^src/monday_audit/szablony/fonty/FFL\.txt$
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md] # nie zabijaj `  ` = <br> w dokumentacji
+        exclude: ^src/monday_audit/szablony/fonty/FFL\.txt$
       - id: check-added-large-files
         args: [--maxkb=512] # snapshoty żyją w SQLite, nie w repo
 

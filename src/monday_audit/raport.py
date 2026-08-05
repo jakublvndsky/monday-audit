@@ -41,6 +41,7 @@ wierzyć całej reszcie.
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import sqlite3
@@ -62,7 +63,27 @@ ODBIORCY = (ODBIORCA_WEWNETRZNY, ODBIORCA_KLIENT)
 
 # Wzorzec zasobu przy pakiecie — ten sam, którym `baza.py` znajduje migracje.
 KATALOG_SZABLONOW = Path(__file__).parent / "szablony"
+KATALOG_ZASOBOW = KATALOG_SZABLONOW / "zasoby"
 SZABLON = "raport.html.j2"
+
+# Znak marki CXLABS, osadzany jako `data:` URI. Własny zasób klienta, więc
+# bez ograniczeń licencyjnych — inaczej niż fonty, patrz `szablony/fonty/README.md`.
+LOGO = "cxlabs-mark-ink.png"
+
+
+def zasob_data_uri(nazwa: str, *, katalog: Path = KATALOG_ZASOBOW) -> str | None:
+    """Plik z `szablony/zasoby/` jako `data:` URI. Brak pliku to nie błąd.
+
+    Raport musi otwierać się z dysku i drukować u kogoś bez dostępu do naszej
+    sieci, więc każdy obrazek jedzie w treści dokumentu. Gdy zasobu nie ma,
+    szablon po prostu go nie pokazuje — dokument zostaje czytelny.
+    """
+    sciezka = katalog / nazwa
+    if not sciezka.is_file():
+        logger.warning("brak zasobu %s — raport wyjdzie bez niego", sciezka)
+        return None
+    typ = "image/svg+xml" if sciezka.suffix == ".svg" else f"image/{sciezka.suffix.lstrip('.')}"
+    return f"data:{typ};base64," + base64.b64encode(sciezka.read_bytes()).decode("ascii")
 
 
 class RaportError(RuntimeError):
@@ -424,7 +445,11 @@ def _srodowisko(katalog: Path) -> Environment:
 
 def wyrenderuj(raport: Raport, *, katalog: Path = KATALOG_SZABLONOW, szablon: str = SZABLON) -> str:
     """Wstawia dane w szablon. Zwraca kompletny, samodzielny HTML."""
-    return _srodowisko(katalog).get_template(szablon).render(r=raport)
+    return (
+        _srodowisko(katalog)
+        .get_template(szablon)
+        .render(r=raport, logo=zasob_data_uri(LOGO, katalog=katalog / "zasoby"))
+    )
 
 
 def zapisz(

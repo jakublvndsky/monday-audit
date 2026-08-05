@@ -23,91 +23,227 @@
 {%- endmacro %}
 <title>Audyt konta monday.com — {{ r.client_id }} — {{ r.run_at[:10] }}</title>
 <style>
+  /* ==========================================================================
+     Tokeny z CXLABS Design System (`colors_and_type.css`, projekt 2b90221c).
+     Przeniesione, nie zaimportowane — raport musi być samowystarczalny, a tamten
+     plik ma `@import` do Google Fonts. Pilnuje tego test.
+     ========================================================================== */
   :root {
-    --tekst: #1a1a1a; --slaby: #6b6b6b; --linia: #e0ddd6; --tlo: #ffffff;
-    --karta: #faf9f7; --akcent: #2d4a5e;
-    --krytyczna: #a11b1b; --wysoka: #b8641b; --srednia: #7a6a1b; --niska: #4a5a6a;
+    /* Ink — near-black forest */
+    --cx-ink: rgb(18, 32, 33);
+    --cx-ink-80: rgb(36, 56, 56);
+    --cx-ink-60: rgb(48, 85, 85);
+    --cx-ink-40: rgb(112, 156, 154);
+    --cx-ink-10: rgb(73, 131, 129);
+    /* Lime — sygnaturowy akcent. UŻYWANY OSZCZĘDNIE: tylko akcent liczby
+       i znak marki. README marki: „Never decorative." */
+    --cx-lime: rgb(173, 247, 99);
+    --cx-lime-soft: rgb(219, 236, 233);
+    /* Off-whites */
+    --cx-white: rgb(255, 255, 255);
+    --cx-mist: rgb(244, 249, 248);
+    --cx-paper: rgb(246, 247, 248);
+    --cx-cloud: rgb(234, 235, 237);
+    --cx-cloud-2: rgb(220, 222, 225);
+    /* Grays */
+    --cx-gray-2: rgb(97, 98, 107);
+    --cx-gray-3: rgb(146, 150, 159);
+
+    --fg: var(--cx-ink);
+    --fg-muted: var(--cx-gray-2);
+    --fg-subtle: var(--cx-gray-3);
+    --fg-on-dark: var(--cx-mist);
+    --fg-on-dark-subtle: var(--cx-ink-40);
+    --bg: var(--cx-white);
+    --bg-alt: var(--cx-mist);
+    --border: var(--cx-cloud-2);
+    --border-subtle: var(--cx-cloud);
+
+    /* Radii z README marki: karty 16, karty-statystyki 24, przyciski 12, plakietki 6–8 */
+    --radius-xs: 6px; --radius-sm: 8px; --radius-md: 12px;
+    --radius-lg: 16px; --radius-xl: 24px;
+
+    /* Skala 8pt */
+    --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+    --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px;
+
+    /* Cienie: użytkowe, nie dekoracyjne */
+    --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.05);
+
+    /* FONTY NIE SĄ OSADZONE — licencja tego zabrania, patrz szablony/fonty/README.md.
+       Stos schodzi na DRUGI krój marki (Avenir), nie na losowy systemowy. */
+    --font-display: "Clash Display", "Avenir Next", "Avenir", Helvetica, sans-serif;
+    --font-body: "Avenir", "Avenir Next", Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    --fs-h1: 40px; --fs-h2: 24px; --fs-h3: 20px;
+    --fs-body: 16px; --fs-small: 14px; --fs-xs: 12px;
+    --lh-tight: 1.2; --lh-body: 1.5;
+
+    --waga-krytyczna: rgb(161, 27, 27);
+    --waga-wysoka: rgb(184, 100, 27);
+    --waga-srednia: rgb(122, 106, 27);
+    --waga-niska: var(--cx-ink-40);
   }
   * { box-sizing: border-box; }
   body {
-    max-width: 52rem; margin: 0 auto; padding: 2.5rem 1.5rem 5rem;
-    font: 16px/1.65 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    color: var(--tekst); background: var(--tlo);
+    max-width: 940px; margin: 0 auto; padding: 0 var(--space-8) var(--space-8);
+    font-family: var(--font-body); font-size: var(--fs-body); line-height: var(--lh-body);
+    color: var(--fg); background: var(--bg);
+    -webkit-font-smoothing: antialiased;
   }
-  h1 { font-size: 1.75rem; line-height: 1.25; margin: 0 0 .25rem; }
-  h2 {
-    font-size: 1.15rem; margin: 3rem 0 1rem; padding-bottom: .4rem;
-    border-bottom: 2px solid var(--linia); letter-spacing: .01em;
+  h1, h2, h3 {
+    font-family: var(--font-display); font-weight: 400;
+    line-height: var(--lh-tight); letter-spacing: -0.01em; margin: 0;
   }
-  h3 { font-size: 1.05rem; margin: 0 0 .5rem; }
-  p { margin: 0 0 .8rem; }
-  .naglowek { border-bottom: 3px solid var(--akcent); padding-bottom: 1rem; margin-bottom: .5rem; }
-  .meta { color: var(--slaby); font-size: .875rem; }
+  h1 { font-size: var(--fs-h1); }
+  h2 { font-size: var(--fs-h2); margin: var(--space-8) 0 var(--space-4); }
+  h3 { font-size: var(--fs-h3); margin: 0 0 var(--space-2); }
+  p { margin: 0 0 var(--space-3); }
+
+  /* ── Nagłówek na ciemnym ink — sygnatura marki ─────────────────────── */
+  .naglowek {
+    margin: 0 calc(-1 * var(--space-8)) var(--space-7);
+    padding: var(--space-7) var(--space-8) var(--space-6);
+    background: linear-gradient(180deg, var(--cx-ink-80) 0%, var(--cx-ink) 100%);
+    color: var(--fg-on-dark);
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .naglowek h1 { color: var(--fg-on-dark); }
+  .znak { height: 40px; width: auto; margin-bottom: var(--space-5); display: block; }
+  .meta { color: var(--fg-on-dark-subtle); font-size: var(--fs-small); margin: var(--space-3) 0 0; }
   .meta span + span::before { content: " · "; }
   .plomba {
-    display: inline-block; margin-top: .75rem; padding: .2rem .6rem;
-    border: 1px solid var(--akcent); border-radius: 3px;
-    font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; color: var(--akcent);
+    display: inline-block; margin-top: var(--space-4);
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--cx-ink-60); border-radius: var(--radius-xs);
+    font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .08em;
+    color: var(--cx-lime);
   }
-  /* Podsumowanie */
-  .kafle { display: flex; flex-wrap: wrap; gap: .75rem; margin: 1.25rem 0; }
+
+  /* ── Eyebrow z podwójnym szewronem — znak marki ────────────────────── */
+  .eyebrow {
+    font-size: var(--fs-small); color: var(--cx-ink-10);
+    display: inline-flex; align-items: center; gap: var(--space-3);
+    margin: 0 0 var(--space-4);
+  }
+  .eyebrow::before {
+    content: ""; display: inline-block; width: 16px; height: 13px; flex: none;
+    background: currentColor;
+    -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 13'><path d='M7 6.5 L0 0 L2.5 0 L9 6.5 L2.5 13 L0 13 Z M14 6.5 L7 0 L9.5 0 L16 6.5 L9.5 13 L7 13 Z'/></svg>") no-repeat center / contain;
+            mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 13'><path d='M7 6.5 L0 0 L2.5 0 L9 6.5 L2.5 13 L0 13 Z M14 6.5 L7 0 L9.5 0 L16 6.5 L9.5 13 L7 13 Z'/></svg>") no-repeat center / contain;
+  }
+
+  /* ── Statystyki: liczby duże, wsparcie małe (README marki) ─────────── */
+  .kafle { display: flex; flex-wrap: wrap; gap: var(--space-3); margin: var(--space-5) 0; }
   .kafel {
-    flex: 1 1 7rem; padding: .8rem 1rem; background: var(--karta);
-    border: 1px solid var(--linia); border-radius: 4px;
+    flex: 1 1 8rem; padding: var(--space-4) var(--space-5);
+    background: var(--bg-alt); border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-xl);
   }
-  .kafel b { display: block; font-size: 1.6rem; line-height: 1.1; }
-  .kafel small { color: var(--slaby); font-size: .8rem; }
-  .kwota-suma { font-size: 1.6rem; font-weight: 700; color: var(--akcent); }
-  /* Findingi */
+  .kafel b {
+    display: block; font-family: var(--font-display); font-weight: 400;
+    font-size: 40px; line-height: var(--lh-tight);
+  }
+  .kafel small { color: var(--fg-muted); font-size: var(--fs-small); }
+  .oszczednosc {
+    margin: var(--space-5) 0; padding: var(--space-5) var(--space-6);
+    background: var(--cx-ink); color: var(--fg-on-dark);
+    border-radius: var(--radius-xl);
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .oszczednosc .liczba {
+    display: block; font-family: var(--font-display); font-weight: 400;
+    font-size: 56px; line-height: var(--lh-tight); color: var(--cx-lime);
+  }
+  .oszczednosc small { color: var(--cx-lime-soft); font-size: var(--fs-small); }
+
+  /* ── Znaleziska ───────────────────────────────────────────────────── */
   .finding {
-    border: 1px solid var(--linia); border-left: 4px solid var(--niska);
-    border-radius: 4px; padding: 1.1rem 1.25rem; margin: 0 0 1.1rem;
+    border: 1px solid var(--border-subtle); border-left: 3px solid var(--waga-niska);
+    border-radius: var(--radius-lg); padding: var(--space-5) var(--space-6);
+    margin: 0 0 var(--space-4);
     page-break-inside: avoid; break-inside: avoid;
   }
-  .finding.krytyczna { border-left-color: var(--krytyczna); }
-  .finding.wysoka    { border-left-color: var(--wysoka); }
-  .finding.srednia   { border-left-color: var(--srednia); }
-  .finding.niska     { border-left-color: var(--niska); }
-  .etykiety { font-size: .75rem; color: var(--slaby); margin-bottom: .6rem; }
-  .etykiety b { color: var(--tekst); }
-  .kwota { float: right; font-weight: 700; color: var(--akcent); }
-  .rekomendacja { background: var(--karta); padding: .7rem .9rem; border-radius: 3px; }
-  .rekomendacja strong { display: block; font-size: .75rem; text-transform: uppercase;
-    letter-spacing: .06em; color: var(--slaby); margin-bottom: .25rem; }
-  .trop { margin-top: .8rem; padding-left: .8rem; border-left: 3px solid var(--akcent);
-    font-size: .9rem; color: var(--akcent); }
-  details { margin-top: .8rem; font-size: .9rem; }
-  summary { cursor: pointer; color: var(--slaby); font-size: .8rem;
-    text-transform: uppercase; letter-spacing: .05em; }
-  /* Tabele i dowody */
+  .finding.krytyczna { border-left-color: var(--waga-krytyczna); }
+  .finding.wysoka    { border-left-color: var(--waga-wysoka); }
+  .finding.srednia   { border-left-color: var(--waga-srednia); }
+  .etykiety { font-size: var(--fs-xs); color: var(--fg-muted); margin: 0 0 var(--space-3); }
+  .etykiety b { color: var(--fg); font-weight: 500; }
+  .kwota {
+    float: right; font-family: var(--font-display); font-size: var(--fs-h3);
+    color: var(--cx-ink-10);
+  }
+  .rekomendacja {
+    background: var(--cx-paper); padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md); margin: var(--space-3) 0 0;
+  }
+  .rekomendacja strong {
+    display: block; font-size: var(--fs-xs); text-transform: uppercase;
+    letter-spacing: .06em; color: var(--fg-muted); margin-bottom: var(--space-1);
+    font-weight: 500;
+  }
+  .trop {
+    margin: var(--space-4) 0 0; padding-left: var(--space-3);
+    border-left: 3px solid var(--cx-lime); font-size: var(--fs-small);
+    color: var(--cx-ink-10);
+  }
+  details { margin-top: var(--space-4); font-size: var(--fs-small); }
+  summary {
+    cursor: pointer; color: var(--fg-subtle); font-size: var(--fs-xs);
+    text-transform: uppercase; letter-spacing: .05em;
+  }
+
+  /* ── Tabele i dowody ──────────────────────────────────────────────── */
   .przewijane { overflow-x: auto; }
-  table { border-collapse: collapse; width: 100%; font-size: .9rem; }
-  th, td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid var(--linia);
-    vertical-align: top; }
-  th { font-weight: 600; color: var(--slaby); font-size: .8rem; text-transform: uppercase;
-    letter-spacing: .04em; }
-  dl.dowod { display: grid; grid-template-columns: minmax(8rem, auto) 1fr; gap: .3rem .9rem;
-    margin: .6rem 0 0; }
-  dl.dowod dt { color: var(--slaby); font-family: ui-monospace, Menlo, monospace;
-    font-size: .8rem; }
+  table { border-collapse: collapse; width: 100%; font-size: var(--fs-small); }
+  th, td {
+    text-align: left; padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border-subtle); vertical-align: top;
+  }
+  th {
+    font-weight: 500; color: var(--fg-muted); font-size: var(--fs-xs);
+    text-transform: uppercase; letter-spacing: .04em;
+  }
+  dl.dowod {
+    display: grid; grid-template-columns: minmax(9rem, auto) 1fr;
+    gap: var(--space-1) var(--space-4); margin: var(--space-3) 0 0;
+  }
+  dl.dowod dt { color: var(--fg-subtle); font-family: var(--font-mono); font-size: var(--fs-xs); }
   dl.dowod dd { margin: 0; }
-  pre { margin: 0; padding: .5rem .7rem; background: var(--karta); border-radius: 3px;
-    overflow-x: auto; font-size: .8rem; }
-  .uwaga { border: 1px solid var(--wysoka); border-left-width: 4px; border-radius: 4px;
-    padding: .9rem 1.1rem; background: #fffdf8; }
-  .uwaga ul { margin: .4rem 0 0; padding-left: 1.2rem; }
-  .pusto { color: var(--slaby); font-style: italic; }
-  footer { margin-top: 3.5rem; padding-top: 1rem; border-top: 1px solid var(--linia);
-    font-size: .8rem; color: var(--slaby); }
+  pre {
+    margin: 0; padding: var(--space-2) var(--space-3); background: var(--cx-paper);
+    border-radius: var(--radius-sm); overflow-x: auto;
+    font-family: var(--font-mono); font-size: var(--fs-xs);
+  }
+  .uwaga {
+    border: 1px solid var(--border); border-left: 3px solid var(--cx-ink-40);
+    border-radius: var(--radius-lg); padding: var(--space-4) var(--space-5);
+    background: var(--bg-alt);
+  }
+  .uwaga ul { margin: var(--space-2) 0 0; padding-left: var(--space-5); }
+  .uwaga li + li { margin-top: var(--space-2); }
+  .pusto { color: var(--fg-subtle); }
+  footer {
+    margin-top: var(--space-8); padding-top: var(--space-4);
+    border-top: 1px solid var(--border-subtle);
+    font-size: var(--fs-xs); color: var(--fg-subtle);
+  }
+  code { font-family: var(--font-mono); font-size: .9em; }
+
   @media print {
-    body { max-width: none; padding: 0; font-size: 11pt; }
+    body { max-width: none; padding: 0 0 var(--space-5); font-size: 10.5pt; }
+    .naglowek { margin: 0 0 var(--space-6); }
     h2 { page-break-after: avoid; }
     details { display: none; }
-    .kafel, .finding { background: none; }
+    .kafel { background: none; }
   }
 </style>
 
 <header class="naglowek">
+  {% if logo %}
+    <img class="znak" src="{{ logo }}" alt="CXLABS">
+  {% endif %}
   <h1>Audyt konta monday.com</h1>
   <p class="meta">
     <span>{{ r.client_id }}</span>
@@ -132,10 +268,10 @@
     {% endfor %}
   </div>
   {% if r.ma_kwoty %}
-    <p>
-      Możliwa oszczędność roczna na licencjach:
-      <span class="kwota-suma">{{ '{:,.0f}'.format(r.suma_kwot).replace(',', ' ') }} PLN</span>
-    </p>
+    <div class="oszczednosc">
+      <span class="liczba">{{ '{:,.0f}'.format(r.suma_kwot).replace(',', ' ') }} PLN</span>
+      <small>możliwa oszczędność roczna na licencjach monday</small>
+    </div>
   {% else %}
     <p class="pusto">
       Bez kwot — nie podano stawki licencji, więc żadne znalezisko nie zostało wycenione.
@@ -147,9 +283,10 @@
 
 {% if r.stawki %}
   <h2>Podstawa wyceny</h2>
-  <p class="meta">
-    Kwoty niżej to oszczędności na licencjach monday, policzone z tych stawek.
-    Każda pokazuje, skąd pochodzi i kiedy została zapisana.
+  <p class="eyebrow">Skąd te liczby</p>
+  <p>
+    Kwoty w tym raporcie to oszczędności na licencjach monday, policzone z tych
+    stawek. Każda pokazuje, skąd pochodzi i kiedy została zapisana.
   </p>
   <div class="przewijane">
     <table>
@@ -172,9 +309,7 @@
 
 {% if r.findingi %}
   <h2>Znaleziska</h2>
-  <p class="meta">
-    Kolejność z rubryki: najpierw waga, przy równej wadze — tańsze w naprawie.
-  </p>
+  <p class="eyebrow">Kolejność: waga, potem koszt naprawy</p>
   {% for f in r.findingi %}
     <article class="finding {{ f.waga }}">
       {% if f.kwota_pln %}
@@ -224,7 +359,8 @@
 
 {% if not r.dla_klienta %}
   <h2>Hipotezy odrzucone przez agenta ({{ r.hipotezy_odrzucone | length }})</h2>
-  <p class="meta">
+  <p class="eyebrow">Sprawdzone i obalone</p>
+  <p>
     Detektor je wzbudził, analiza ich nie potwierdziła. Agent potwierdzający
     wszystko byłby bezużyteczny — ta lista jest miarą, że sprawdzenie było realne.
   </p>
@@ -251,9 +387,10 @@
   {% endif %}
 
   <h2>Odrzucone na walidacji ({{ r.findingi_odrzucone | length }})</h2>
-  <p class="meta">
-    To miara NASZEJ jakości, nie agenta: finding, który nie spełnił kontraktu D8.
-    Odsetek odrzuconych jest główną metryką etapu 4.
+  <p class="eyebrow">Nasza jakość, nie agenta</p>
+  <p>
+    Finding, który nie spełnił kontraktu D8. Odsetek odrzuconych jest główną
+    metryką etapu 4.
   </p>
   {% if r.findingi_odrzucone %}
     <div class="przewijane">
@@ -275,9 +412,7 @@
   {% endif %}
 
   <h2>Pinowanie i koszt</h2>
-  <p class="meta">
-    Sześć elementów, bez których tego runu nie da się powtórzyć za trzy miesiące.
-  </p>
+  <p class="eyebrow">Odtwarzalność runu</p>
   <div class="przewijane">
     <table>
       <tbody>

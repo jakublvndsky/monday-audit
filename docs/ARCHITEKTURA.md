@@ -517,3 +517,56 @@ i obsłużony.
 **Co unieważni:** udostępnienie przez monday maszynowego źródła cennika
 (endpoint albo plik). Wtedy scraper znika, a `cennik.py` zostaje bez zmian —
 i o to chodziło w rozdzieleniu.
+
+---
+
+## D14. Marka z Claude Design, ale bez osadzania fontów
+
+**Decyzja:** raport używa tokenów z CXLABS Design System (projekt Claude Design
+`2b90221c-6624-4eec-9151-ab20b3af3b2d`, plik `colors_and_type.css`), **przeniesionych
+do szablonu**, a nie zaimportowanych. Fontów marki **nie osadzamy** — dokument
+odwołuje się do zainstalowanych w systemie.
+
+**Co weszło:** paleta ink + lime, skala odstępów 8pt, promienie (karty 16, karty
+statystyk 24, przyciski 12), cienie użytkowe, skala typograficzna, podwójny
+szewron jako eyebrow. Znak marki osadzony jako `data:` URI — własny zasób CXLABS,
+bez ograniczeń.
+
+**Czego NIE wzięliśmy, choć było w projekcie:**
+
+| | Dlaczego nie |
+|---|---|
+| `templates/oferta-cennik/**` | to szablon **oferty handlowej** z kalkulatorem wyceny. Budujemy raport, nie ofertę — decyzja z 2026-08-05. Wciągnięcie tego zatarłoby granicę, którą Kuba postawił wprost |
+| `ui_kits/website/**` (React) | repo jest Pythonem bez frontu w v1 (D9). Komponenty React nie mają tu czego renderować |
+| `@import` Google Fonts z `colors_and_type.css` | zewnętrzny zasób; raport musi otwierać się offline i jest na to test |
+| `screenshots/`, `uploads/`, `assets/images/` | zdjęcia ludzi i miniatury case studies — raport z audytu ich nie używa |
+
+**Ograniczenie licencyjne, które przesądziło sprawę fontów.** Clash Display jest
+darmowy, ale jego EULA (`szablony/fonty/FFL.txt`) mówi:
+
+> **§02** The Fonts may not […] be distributed […] This includes the distribution
+> of the Fonts by e-mail […] **uploading them in a public server**.
+>
+> **§03** You may embed the Font Software in PDF and other digital documents
+> provided that is done in a **secured, read-only mode** […] **The extraction of
+> the Font Software in whole or in part is prohibited.**
+
+Plik HTML jest **tekstem**, więc `data:` URI z woff2 każdy odbiorca wyjmie jednym
+poleceniem. To łamie §03, a trzymanie binarki w repo łamie §02, bo repo idzie na
+GitHub. Avenir jest komercyjny (Linotype) i tam jest jeszcze ciaśniej.
+
+**Rozwiązanie:** stos `"Clash Display", "Avenir Next", "Avenir", …`. Degradacja
+spada na **drugi krój marki**, nie na losowy systemowy — README marki zabrania
+systemowych jako podstawowych, więc to najbliższe zgodności, co da się osiągnąć
+bez łamania licencji. Pilnują tego **dwa testy**: brak `@font-face` w dokumencie
+i brak binarek fontów w repo. Mechanizm, nie komentarz — bo „poprawienie" wyglądu
+przez osadzenie fontu jest dokładnie tym, co ktoś kiedyś zrobi.
+
+**Droga do pełnej zgodności:** licencja wprost dopuszcza (§03, §04) font osadzony
+w nieedytowalnym dokumencie „solely for printing and display purposes". Czyli:
+zainstaluj Clash Display lokalnie, otwórz raport, **wydrukuj do PDF**, wyślij PDF.
+Instrukcja w `src/monday_audit/szablony/fonty/README.md`.
+
+**Co unieważni:** wykupienie licencji webfontowej Avenira i Clash Display albo
+zgoda ITF na piśmie. Wtedy fonty wchodzą do `szablony/fonty/`, a dwa testy
+strażnicze trzeba świadomie usunąć — nie obejść.

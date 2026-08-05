@@ -280,6 +280,14 @@ którą rusza się najczęściej, nie może być ostatnią linią obrony.
 `autoescape` jest włączony **jawnie**, bo jinja domyślnie go nie ma, a dokument
 niesie nazwy tablic pisane przez klienta. Na tę jedną flagę jest test.
 
+**Wygląd z CXLABS Design System** (D14): paleta ink + lime, skala 8pt, promienie,
+podwójny szewron, znak marki osadzony jako `data:` URI. **Fontów nie osadzamy** —
+licencja Clash Display zabrania osadzania w formie, z której da się je wyjąć,
+a plik HTML to tekst. Stos schodzi na Avenira, czyli drugi krój marki. Pełna
+zgodność = wydruk do PDF na maszynie z zainstalowanym fontem; instrukcja
+w `szablony/fonty/README.md`, dwa testy strażnicze pilnują, żeby nikt tego nie
+„poprawił".
+
 ## Czego jeszcze nie ma
 
 | Brak | Gdzie opisany |
@@ -349,7 +357,7 @@ w Finderze i nieodtwarzalne.
 
 ## Testy
 
-**486 testów, 19 odznaczonych** (integracyjne, uderzają w prawdziwe monday —
+**493 testy, 19 odznaczonych** (integracyjne, uderzają w prawdziwe monday —
 `-m integracyjny` je włącza). `make sprawdz` to ruff + mypy + pytest.
 
 Warstwy: jednostkowe na danych syntetycznych, integracyjne na koncie CXLABS,

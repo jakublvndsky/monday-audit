@@ -35,6 +35,7 @@ from monday_audit.raport import (
     slownie,
     wyrenderuj,
     zapisz,
+    zasob_data_uri,
     zbuduj_raport,
 )
 from monday_audit.rubryka import wczytaj_rubryke
@@ -476,3 +477,108 @@ def test_dokument_nie_pokazuje_surowego_klucza_user_hash(con: sqlite3.Connection
 
     assert "user_hash" not in html
     assert "Anna Górniak" in html
+
+
+# ── marka CXLABS i licencja fontów ───────────────────────────────────────
+
+
+def test_dokument_nie_osadza_zadnego_fontu(con: sqlite3.Connection) -> None:
+    """GRANICA LICENCYJNA, nie estetyka.
+
+    Clash Display jest darmowy, ale jego EULA (`szablony/fonty/FFL.txt`) mówi:
+    osadzać wolno tylko „in a secured, read-only mode", a „the extraction of the
+    Font Software in whole or in part is prohibited". Plik HTML jest tekstem,
+    więc `data:` URI z woff2 każdy odbiorca wyjmie jednym poleceniem — to łamie
+    licencję. Avenir jest komercyjny i tam jest jeszcze ciaśniej.
+
+    Dlatego raport odwołuje się do fontów ZAINSTALOWANYCH w systemie, a stos
+    schodzi na drugi krój marki. Ten test istnieje, żeby ktoś „nie poprawił"
+    wyglądu przez osadzenie fontu.
+    """
+    _finding(con, KLASA_KLIENTA)
+    con.commit()
+
+    html = wyrenderuj(zbuduj_raport(con, run_id="r1", rubryka=RUBRYKA, odbiorca=ODBIORCA_KLIENT))
+
+    assert "@font-face" not in html
+    assert "font/woff" not in html
+    assert "font/otf" not in html
+    assert "font/ttf" not in html
+
+
+def test_repo_nie_zawiera_binarek_fontow() -> None:
+    """To samo ograniczenie, drugi front: §02 EULA zabrania wysyłania fontu
+    na publiczny serwer, a to repo idzie na GitHub.
+    """
+    korzen = Path(__file__).resolve().parent.parent
+    znalezione = [
+        str(p.relative_to(korzen))
+        for wzor in ("*.otf", "*.ttf", "*.woff", "*.woff2")
+        for p in korzen.rglob(wzor)
+        if ".venv" not in p.parts
+    ]
+
+    assert znalezione == [], f"binarki fontów w repo łamią §02 licencji: {znalezione}"
+
+
+def test_stos_fontow_schodzi_na_drugi_kroj_marki(con: sqlite3.Connection) -> None:
+    """Skoro Clash Display nie jest osadzony, degradacja musi trafić w Avenira.
+
+    Bez tego nagłówki u kogoś bez Clash Display spadłyby na systemowy krój,
+    czego README marki zabrania wprost („Never use […] system fonts as primary").
+    """
+    _finding(con, KLASA_KLIENTA)
+    con.commit()
+
+    html = wyrenderuj(zbuduj_raport(con, run_id="r1", rubryka=RUBRYKA, odbiorca=ODBIORCA_KLIENT))
+
+    assert '"Clash Display", "Avenir Next", "Avenir"' in html
+
+
+def test_znak_marki_jest_osadzony_a_nie_linkowany(con: sqlite3.Connection) -> None:
+    """Logo to własny zasób CXLABS — osadzamy, bo dokument działa offline."""
+    _finding(con, KLASA_KLIENTA)
+    con.commit()
+
+    html = wyrenderuj(zbuduj_raport(con, run_id="r1", rubryka=RUBRYKA, odbiorca=ODBIORCA_KLIENT))
+
+    assert "data:image/png;base64," in html
+
+
+def test_brak_logo_nie_wywala_raportu(tmp_path: Path, con: sqlite3.Connection) -> None:
+    """Zasób może zniknąć przy refaktorze — dokument ma zostać czytelny."""
+    _finding(con, KLASA_KLIENTA)
+    con.commit()
+    assert zasob_data_uri("nie-ma-takiego.png", katalog=tmp_path) is None
+
+
+def test_dokument_uzywa_tokenow_marki(con: sqlite3.Connection) -> None:
+    """Kolory z `colors_and_type.css`, nie wymyślone.
+
+    Ink na nagłówku i lime jako akcent liczby — README marki każe używać lime
+    oszczędnie („Never decorative"), więc sprawdzamy, że jest, a nie ile go jest.
+    """
+    _finding(con, KLASA_KLIENTA, kwota=1200.0)
+    con.commit()
+
+    html = wyrenderuj(zbuduj_raport(con, run_id="r1", rubryka=RUBRYKA, odbiorca=ODBIORCA_KLIENT))
+
+    assert "rgb(18, 32, 33)" in html
+    assert "rgb(36, 56, 56)" in html
+    assert "rgb(173, 247, 99)" in html
+
+
+def test_brak_emoji_i_piktogramow(con: sqlite3.Connection) -> None:
+    """README marki: „Never use emoji. Never use unicode pictographs."."""
+    _finding(con, KLASA_KLIENTA, kwota=1200.0)
+    con.commit()
+
+    html = wyrenderuj(zbuduj_raport(con, run_id="r1", rubryka=RUBRYKA, odbiorca=ODBIORCA_KLIENT))
+
+    piktogramy = [
+        znak
+        for znak in html
+        if znak
+        in "\u2705\u274c\u26a0\u2b50\U0001f4ca\U0001f512\U0001f4c8\U0001f680\u2757\u2b07\u2b06"
+    ]
+    assert piktogramy == [], f"piktogramy w dokumencie: {piktogramy}"
