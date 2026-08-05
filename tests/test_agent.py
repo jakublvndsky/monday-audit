@@ -28,6 +28,7 @@ from monday_audit.agent import (
     _inwentarz,
     _tekst_promptu,
     _wyluskaj_json,
+    hash_promptu,
     zbuduj_opcje,
 )
 
@@ -320,3 +321,27 @@ def test_blad_api_bez_tresci_nadal_mowi_co_sie_stalo() -> None:
     opis = _blad_api(cast("Any", Udawana()))
 
     assert "error_max_turns" in opis
+
+
+def test_hash_promptu_jest_stabilny() -> None:
+    """Ten sam prompt daje ten sam hash — inaczej pinowanie jest bezużyteczne."""
+    assert hash_promptu() == hash_promptu()
+    assert len(hash_promptu()) == 16
+
+
+def test_hash_liczony_z_tresci_promptu_a_nie_z_calego_pliku(tmp_path: Path) -> None:
+    """`PROMPT_AGENTA.md` to dokumentacja Z promptem w środku.
+
+    Poprawka literówki w nagłówku albo dopisanie sprostowania nie zmienia
+    zachowania modelu, więc nie może zmieniać hasha. Zmiana treści promptu — musi.
+    """
+    tresc = "Jesteś analitykiem. Rób swoje."
+    a = tmp_path / "a.md"
+    a.write_text(f"# Nagłówek\n\n```\n{tresc}\n```\n", encoding="utf-8")
+    b = tmp_path / "b.md"
+    b.write_text(f"# INNY nagłówek i uwaga dla człowieka\n\n```\n{tresc}\n```\n", encoding="utf-8")
+    c = tmp_path / "c.md"
+    c.write_text("# Nagłówek\n\n```\nINNY prompt.\n```\n", encoding="utf-8")
+
+    assert hash_promptu(a) == hash_promptu(b), "otoczka nie może zmieniać hasha"
+    assert hash_promptu(a) != hash_promptu(c), "treść promptu MUSI zmieniać hash"

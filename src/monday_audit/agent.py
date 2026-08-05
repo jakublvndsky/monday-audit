@@ -45,6 +45,7 @@ miesięcy był odtwarzalny.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -147,6 +148,22 @@ def _tekst_promptu(sciezka: Path = SCIEZKA_PROMPTU) -> str:
     if not bloki:
         raise AgentError(f"{sciezka}: nie znalazłem bloku z promptem")
     return bloki[0].strip()
+
+
+def hash_promptu(sciezka: Path = SCIEZKA_PROMPTU) -> str:
+    """SHA-256 promptu WYSŁANEGO do modelu — trzeci element pinowania (05-deploy).
+
+    Hashujemy **wyciągnięty blok**, nie cały plik. `PROMPT_AGENTA.md` to
+    dokumentacja z promptem w środku: poprawka literówki w nagłówku albo
+    dopisanie sprostowania nie zmienia zachowania modelu, więc nie ma prawa
+    zmieniać hasha. Zmiana treści promptu — ma.
+
+    Do 2026-08-05 `runy.prompt_hash` był NULL we WSZYSTKICH runach, bo nic go
+    nie zapisywało. Kolumna istniała od migracji 001, renderer ją pokazywał,
+    a 05-deploy wymieniał prompt jako element pinowania. Trzecia luka tej samej
+    klasy, po `wzor` i `trop_sprzedazowy`: pole jest, kod go nie wypełnia.
+    """
+    return hashlib.sha256(_tekst_promptu(sciezka).encode("utf-8")).hexdigest()[:16]
 
 
 def _inwentarz(narzedzia: Narzedzia) -> str:

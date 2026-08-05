@@ -26,7 +26,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from monday_audit.agent import MODEL, zapisz_do_pliku, zbadaj_hipotezy
+from monday_audit.agent import MODEL, hash_promptu, zapisz_do_pliku, zbadaj_hipotezy
 from monday_audit.baza import RejestrWywolan, polacz, zastosuj_migracje
 from monday_audit.cennik import Stawka, stawki_dla, wersja_uzytych, zapisz_stawke_klienta
 from monday_audit.detektory import Hipoteza, uruchom_detektory
@@ -170,7 +170,7 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
     # wyjście MUSI go domknąć — sukcesem albo `przerwany`.
     con.execute(
         "INSERT INTO runy (run_id, client_id, snapshot_id, status, started_at, model, "
-        "rubric_ver, cennik_ver) VALUES (?, ?, ?, 'w_toku', ?, ?, ?, ?)",
+        "rubric_ver, prompt_hash, cennik_ver) VALUES (?, ?, ?, 'w_toku', ?, ?, ?, ?, ?)",
         (
             run_id,
             argumenty.klient,
@@ -178,6 +178,8 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
             teraz.isoformat(),
             argumenty.model,
             rubryka.wersja,
+            # Hash promptu WYSŁANEGO do modelu, nie całego pliku (05-deploy).
+            hash_promptu(),
             wersja_uzytych(stawki),
         ),
     )

@@ -4,10 +4,13 @@ Wewnętrzne narzędzie CXLABS. Audytuje konto monday.com klienta i produkuje rap
 ze znaleziskami. Odpalane ręcznie, jednorazowo per klient.
 Nie SaaS, nie abonament, nie self-service.
 
-> **Stan: etap 3 (Build), 3.1–3.11 zbudowane, 3.12 przed nami.** Collector,
-> detektory, narzędzia agenta, pętla agenta i walidacja kontraktu **działają na
-> prawdziwym koncie**. Brakuje renderera raportu. Aktualny postęp funkcja po
-> funkcji: [`STATUS.md`](STATUS.md); co dokładnie stoi i jak to uruchomić:
+> **Stan: etap 3 (Build), 3.1–3.12 zbudowane.** Collector, detektory, narzędzia
+> agenta, pętla agenta, walidacja kontraktu i renderer raportu **działają na
+> prawdziwym koncie**. Audyt kończy się dwoma dokumentami HTML; publikacja pod
+> URL-em przechodzi do etapu 5.
+>
+> Postęp funkcja po funkcji: [`STATUS.md`](STATUS.md). Stan w pięć minut:
+> [`docs/PODSUMOWANIE.md`](docs/PODSUMOWANIE.md). Szczegóły techniczne:
 > [`docs/ZBUDOWANE.md`](docs/ZBUDOWANE.md).
 
 ## Jak to działa
@@ -68,6 +71,9 @@ uv run python -m monday_audit.cli_agent --klient cxlabs --snapshot 5 \
 
 # 3. Cennik: odświeża stawki ze stron monday. NIGDY w trakcie audytu.
 uv run python -m monday_audit.cli_cennik --odswiez --pokaz
+
+# 4. Raport: dwa dokumenty HTML z zapisanego runu. Darmowe i powtarzalne.
+uv run python -m monday_audit.cli_raport --run-id agent-pelny-19
 ```
 
 Rozdzielenie 1 i 2 nie jest kosmetyczne: etap 4 wymaga przepuszczania **tego
@@ -124,8 +130,9 @@ przy prompt injection to fałszywe znalezisko w raporcie — nie wyciek, nie mod
 | Plik | Kiedy czytać |
 |---|---|
 | [`STATUS.md`](STATUS.md) | zawsze, pierwszy |
+| [`docs/PODSUMOWANIE.md`](docs/PODSUMOWANIE.md) | **stan projektu w pięć minut, bez kodu** — dla kogoś z zewnątrz |
 | [`docs/ZBUDOWANE.md`](docs/ZBUDOWANE.md) | co faktycznie stoi, moduł po module, z pomiarami |
-| [`docs/ARCHITEKTURA.md`](docs/ARCHITEKTURA.md) | decyzje D1–D13 z uzasadnieniami — przed zmianą architektury |
+| [`docs/ARCHITEKTURA.md`](docs/ARCHITEKTURA.md) | decyzje D1–D14 z uzasadnieniami — przed zmianą architektury |
 | [`docs/etapy/`](docs/etapy/) | pełna specyfikacja każdego etapu |
 | [`docs/OTWARTE.md`](docs/OTWARTE.md) | założenia niepotwierdzone — nie fakty |
 | [`docs/PROMPT_AGENTA.md`](docs/PROMPT_AGENTA.md) | prompt agenta produkcyjnego |

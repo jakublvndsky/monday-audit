@@ -39,7 +39,7 @@ bez wpisania tu `✅` przez człowieka.
 - [x] 3.9 Detektory deterministyczne (sygnały wzbudzające hipotezy)
 - [x] 3.10 Narzędzia agenta (read-only, z budżetami)
 - [x] 3.11 Pętla agenta + walidacja kontraktu wyjściowego
-- [ ] 3.12 Renderer + publikacja raportu
+- [x] 3.12 Renderer + publikacja raportu
 
 ## Notatki człowieka
 

@@ -185,7 +185,7 @@ i cytat źródłowy (D13).
 |---|---|
 | model | `runy.model`, pełny identyfikator, nigdy alias |
 | rubryka | `rubric_ver` przy każdym findingu |
-| prompt agenta | hash pliku `PROMPT_AGENTA.md` (etap 5) |
+| prompt agenta | `runy.prompt_hash` — SHA-256 **wyciągniętego bloku**, nie całego pliku; otoczka dokumentacyjna nie zmienia hasha |
 | collector | `meta.collector_ver` w snapshocie |
 | **wersja API monday** | `meta.wersja_api` — bo `2026-10` usuwa wszystkie flagi użytkownika (O15) |
 | **wersja cennika** | `runy.cennik_ver` — bo stawki odświeżają się same (D13) |
@@ -364,7 +364,7 @@ w Finderze i nieodtwarzalne.
 
 ## Testy
 
-**497 testów, 19 odznaczonych** (integracyjne, uderzają w prawdziwe monday —
+**501 testów, 19 odznaczonych** (integracyjne, uderzają w prawdziwe monday —
 `-m integracyjny` je włącza). `make sprawdz` to ruff + mypy + pytest.
 
 Warstwy: jednostkowe na danych syntetycznych, integracyjne na koncie CXLABS,
