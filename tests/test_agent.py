@@ -23,6 +23,7 @@ from monday_audit.agent import (
     SCIEZKA_PROMPTU,
     WBUDOWANE_ZAKAZANE,
     AgentError,
+    _blad_api,
     _brama_narzedzi,
     _inwentarz,
     _tekst_promptu,
@@ -287,3 +288,35 @@ def test_opcje_nadal_maja_trzy_warstwy_odciecia() -> None:
     assert "ToolSearch" in opcje.disallowed_tools
     assert "PreToolUse" in opcje.hooks
     assert opcje.setting_sources == []
+
+
+def test_blad_api_dostaje_czytelny_opis() -> None:
+    """`is_error=True` przy `subtype='success'` — opieramy się na treści.
+
+    Zmierzone na celowo złym kluczu: SDK zwraca `subtype='success'`,
+    `is_error=True` i `result='Failed to authenticate. API Error: 401 API key
+    is invalid.'`. Podtyp jest więc bezużyteczny jako sygnał, a treść nie.
+    """
+
+    class Udawana:
+        subtype = "success"
+        is_error = True
+        result = "Failed to authenticate. API Error: 401 API key is invalid."
+
+    opis = _blad_api(cast("Any", Udawana()))
+
+    assert "401" in opis
+    assert opis.startswith("błąd API")
+
+
+def test_blad_api_bez_tresci_nadal_mowi_co_sie_stalo() -> None:
+    """Pusty `result` nie może dać pustego komunikatu — wtedy nie wiadomo nic."""
+
+    class Udawana:
+        subtype = "error_max_turns"
+        is_error = True
+        result = None
+
+    opis = _blad_api(cast("Any", Udawana()))
+
+    assert "error_max_turns" in opis

@@ -495,6 +495,15 @@ async def zbadaj_hipoteze(
                             ostatni_tekst = blok.text
                 elif isinstance(wiadomosc, ResultMessage):
                     wynik.zuzycie = _zuzycie(wiadomosc)
+                    # BŁĄD API NIE RZUCA WYJĄTKU. Wraca jako `is_error=True`
+                    # w `ResultMessage` — i to przy `subtype='success'`, co
+                    # jest mylące. Bez tego sprawdzenia nieprawidłowy klucz
+                    # albo limit API objawiałby się jako „nie znalazłem JSON-a"
+                    # przy KAŻDEJ hipotezie: dziewiętnaście niejasnych błędów
+                    # parsowania zamiast jednego czytelnego „401".
+                    # Zmierzone 2026-08-05 na celowo złym kluczu.
+                    if wiadomosc.is_error:
+                        wynik.blad = _blad_api(wiadomosc)
     except Exception as blad:  # jedna hipoteza nie może wywrócić całego runu
         wynik.blad = f"{type(blad).__name__}: {blad}"
         logger.warning("hipoteza %s/%s: %s", hipoteza.klasa_id, hipoteza.obiekt_id, wynik.blad)
@@ -502,6 +511,11 @@ async def zbadaj_hipoteze(
     finally:
         wynik.wywolania_narzedzi = list(narzedzia_hipotezy.wywolania)
         biezace.pop("aktywne", None)
+
+    if wynik.blad:
+        # Błąd po stronie API. Nie próbujemy parsować odpowiedzi, której nie ma.
+        logger.warning("hipoteza %s/%s: %s", hipoteza.klasa_id, hipoteza.obiekt_id, wynik.blad)
+        return wynik
 
     try:
         rozstrzygniecie = _wyluskaj_json(ostatni_tekst)
@@ -520,6 +534,16 @@ async def zbadaj_hipoteze(
         if not isinstance(wynik.finding, dict):
             wynik.blad = "brak obiektu `finding` w rozstrzygnięciu"
     return wynik
+
+
+def _blad_api(wiadomosc: ResultMessage) -> str:
+    """Czytelny opis błędu z `ResultMessage`, bez zgadywania.
+
+    `subtype` bywa `success` także wtedy, gdy `is_error` jest `True` — więc
+    opieramy się na treści `result`, a nie na podtypie.
+    """
+    tresc = str(getattr(wiadomosc, "result", "") or "").strip()
+    return f"błąd API: {tresc}" if tresc else f"błąd API (subtype={wiadomosc.subtype})"
 
 
 def _zuzycie(wiadomosc: ResultMessage) -> dict[str, float]:
