@@ -455,6 +455,30 @@ człowieka — wystarczy, że plik istnieje. Kuba przyjął to świadomie
 `Read`/`Edit`/`Write` na `.env` w `.claude/settings.json` zostaje i jest inną
 granicą: dotyczy dostępu do pliku, nie uruchamiania programu.
 
+**PUŁAPKA, KTÓRA NAS ZŁAPAŁA (2026-08-05).** `pydantic-settings` wczytuje `.env`
+**do obiektu `Ustawienia`, a NIE do `os.environ`**. Zmierzone:
+`"ANTHROPIC_API_KEY" in os.environ` jest `False` także po `wczytaj()`.
+
+Konsekwencja była poważna i cicha. `klucz_anthropic()` tylko sprawdzał, że klucz
+istnieje, a jego docstring twierdził: „Agent SDK czyta zmienną ze środowiska
+podprocesu sam". Nie czytał — bo w środowisku jej nie było. Podproces CLI spadał
+więc na **własne poświadczenia** (login subskrypcyjny w `~/.claude`): runy
+działały, findingi wychodziły, `total_cost_usd` się liczył, ale **zużycia nie
+było w konsoli API**, bo szło na subskrypcję. Wyszło to z pytania Kuby
+„dlaczego nie widzę, żeby agent zużywał tokeny".
+
+**Poprawka:** klucz jedzie jawnie przez `ClaudeAgentOptions(env=...)`.
+`options.env` **dokłada się** do odziedziczonego środowiska (SDK składa
+`{**inherited_env, ..., **options.env}`), więc PATH zostaje, a klucz trafia do
+env podprocesu — nie do argv, bo argv widać w `ps`.
+
+**Wniosek szerszy, trzeci raz ta sama klasa błędu.** Wcześniej: flaga
+`--read-only` w MCP (O19) i callback `can_use_tool` (3.11). Za każdym razem
+mechanizm był udokumentowany, wyglądał na działający i **nie chodził**, a testy
+tego nie łapały, bo sprawdzały elementy w izolacji zamiast ich PODŁĄCZENIA.
+Dlatego konstrukcja opcji sesji jest teraz osobną, testowalną funkcją
+(`agent.zbuduj_opcje`), a nie kodem w środku pętli.
+
 **Co unieważni:** wiele kont obsługiwanych w jednym procesie. Sól jest osobna
 per klient (05-deploy.md), a jedna zmienna `SOL_PSEUDONIMIZACJI` obsługuje jeden
 audyt naraz. Przy runach współbieżnych sól musi wejść jako parametr runu,

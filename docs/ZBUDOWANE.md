@@ -322,6 +322,13 @@ Twierdziłem wcześniej, że są nieosiągalne, i na tej podstawie cała stawka
 kredytu została opisana jako niepotwierdzona. Nieprawda — sprostowane
 w `CENNIK_AI.md` i O21.
 
+**`pydantic-settings` nie wkłada `.env` do `os.environ`.** Klucz Anthropic
+istniał w konfiguracji, ale nie dochodził do podprocesu CLI, więc agent
+uwierzytelniał się loginem subskrypcyjnym z `~/.claude` — runy działały, a ich
+zużycia nie było w konsoli API. Klucz jedzie teraz jawnie przez
+`ClaudeAgentOptions(env=...)`. Trzeci przypadek tej samej klasy błędu, po
+`--read-only` i `can_use_tool`.
+
 **Guardrail, w który się wierzy bez pomiaru, jest gorszy od braku guardraila.**
 `--read-only` w MCP był udokumentowany jako „wymuszony przez serwer, nie do
 obejścia z promptu". Pomiar to obalił. To samo powtórzyło się wewnątrz naszego
@@ -357,7 +364,7 @@ w Finderze i nieodtwarzalne.
 
 ## Testy
 
-**493 testy, 19 odznaczonych** (integracyjne, uderzają w prawdziwe monday —
+**497 testów, 19 odznaczonych** (integracyjne, uderzają w prawdziwe monday —
 `-m integracyjny` je włącza). `make sprawdz` to ruff + mypy + pytest.
 
 Warstwy: jednostkowe na danych syntetycznych, integracyjne na koncie CXLABS,

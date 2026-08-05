@@ -27,6 +27,7 @@ from monday_audit.agent import (
     _inwentarz,
     _tekst_promptu,
     _wyluskaj_json,
+    zbuduj_opcje,
 )
 
 # ── odcięcie zapisu ──────────────────────────────────────────────────────
@@ -226,3 +227,63 @@ def test_inwentarz_jest_stabilny_miedzy_wywolaniami() -> None:
     zestaw = _ZestawAtrapa({"$.meta": {"a": 1}, "$.tablice.podsumowanie": {"b": 2}})
 
     assert _inwentarz(zestaw) == _inwentarz(zestaw)  # type: ignore[arg-type]
+
+
+# ── uwierzytelnienie do modelu (regresja z 2026-08-05) ───────────────────
+
+
+def _opcje(klucz: str = "sk-ant-testowy") -> Any:
+    return zbuduj_opcje(
+        prompt="prompt",
+        inwentarz="{}",
+        snapshot_id=5,
+        serwer=object(),
+        klucz_api=klucz,
+    )
+
+
+def test_klucz_api_trafia_do_srodowiska_podprocesu() -> None:
+    """Regresja wprost: klucz NIE dochodził do CLI i run szedł na subskrypcję.
+
+    `pydantic-settings` wczytuje `.env` do obiektu `Ustawienia`, a nie do
+    `os.environ` — zmierzone. Podproces nie widział więc `ANTHROPIC_API_KEY`
+    i spadał na login w `~/.claude`. Runy działały, ale ich zużycia nie było
+    w konsoli API.
+
+    493 testy były wtedy zielone. Ten test istnieje, bo obie usterki tej klasy
+    (`can_use_tool` i klucz) siedziały w konstrukcji opcji i żadna nie dawała
+    się złapać bez sprawdzenia PODŁĄCZENIA.
+    """
+    opcje = _opcje()
+
+    assert opcje.env["ANTHROPIC_API_KEY"] == "sk-ant-testowy"
+
+
+def test_env_nie_wywala_reszty_srodowiska() -> None:
+    """SDK składa `{**inherited_env, ..., **options.env}`, więc PATH zostaje.
+
+    Sprawdzamy, że NIE dokładamy niczego poza kluczem — gdyby ktoś wrzucił tu
+    całe `os.environ`, sekrety monday poszłyby do podprocesu modelu bez powodu.
+    """
+    assert set(_opcje().env) == {"ANTHROPIC_API_KEY"}
+
+
+def test_klucz_nie_wchodzi_do_promptu_ani_narzedzi() -> None:
+    """Zakaz twardy: token i klucz nigdy w kontekście modelu (D6, D12)."""
+    opcje = _opcje("sk-ant-SEKRET-DO-WYKRYCIA")
+
+    assert "SEKRET-DO-WYKRYCIA" not in str(opcje.system_prompt)
+    assert "SEKRET-DO-WYKRYCIA" not in str(opcje.allowed_tools)
+    assert "SEKRET-DO-WYKRYCIA" not in str(opcje.disallowed_tools)
+    assert "SEKRET-DO-WYKRYCIA" not in str(opcje.model)
+
+
+def test_opcje_nadal_maja_trzy_warstwy_odciecia() -> None:
+    """Wydzielenie `zbuduj_opcje` nie mogło zgubić żadnej z warstw."""
+    opcje = _opcje()
+
+    assert set(opcje.allowed_tools) == set(NASZE_NARZEDZIA)
+    assert "Write" in opcje.disallowed_tools
+    assert "ToolSearch" in opcje.disallowed_tools
+    assert "PreToolUse" in opcje.hooks
+    assert opcje.setting_sources == []

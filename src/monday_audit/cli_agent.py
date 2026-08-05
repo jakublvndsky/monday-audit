@@ -238,6 +238,7 @@ async def _zbadaj_i_zapisz(
             run_id=run_id,
             model=argumenty.model,
             stawki=stawki,
+            klucz_api=klucz_anthropic(ustawienia),
         )
 
     # Te same stawki idą do walidacji. Kontrakt sprawdza MECHANICZNIE, czy

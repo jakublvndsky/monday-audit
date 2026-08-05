@@ -402,26 +402,36 @@ def _wyluskaj_json(tekst: str) -> dict[str, Any]:
     return dane
 
 
-async def zbadaj_hipoteze(
-    hipoteza: Hipoteza,
+def zbuduj_opcje(
     *,
-    zestaw: Narzedzia,
-    rubryka: Rubryka,
     prompt: str,
     inwentarz: str,
+    snapshot_id: int,
     serwer: Any,
-    biezace: dict[str, NarzedziaHipotezy],
-    stawki: dict[str, Stawka] | None = None,
+    klucz_api: str,
     model: str = MODEL,
-) -> WynikHipotezy:
-    """Jedna hipoteza, jedna sesja, budżet z rubryki."""
-    klasa = rubryka.po_id[hipoteza.klasa_id]
-    narzedzia_hipotezy = zestaw.dla_hipotezy(hipoteza)
-    biezace["aktywne"] = narzedzia_hipotezy
+) -> ClaudeAgentOptions:
+    """Opcje jednej sesji. Wydzielone, ŻEBY DAŁO SIĘ SPRAWDZIĆ PODŁĄCZENIE.
 
-    opcje = ClaudeAgentOptions(
+    Poprzednia usterka tej klasy — `can_use_tool`, który nigdy nie był wołany —
+    przeszła przez testy, bo sprawdzały samą funkcję, a nie to, czy jest
+    podpięta. To samo powtórzyło się z kluczem API: 493 testy były zielone,
+    a klucz nie dochodził do podprocesu. Skoro obie usterki siedziały
+    w konstrukcji opcji, konstrukcja musi być osobno testowalna.
+    """
+    return ClaudeAgentOptions(
         model=model,
-        system_prompt=f"{prompt}\n\n## INWENTARZ (snapshot {zestaw.snapshot_id})\n\n{inwentarz}",
+        # KLUCZ MUSI TU BYĆ JAWNIE. `pydantic-settings` wczytuje `.env` do
+        # obiektu `Ustawienia`, a NIE do `os.environ` — więc podproces CLI go
+        # nie widział i spadał na własne poświadczenia (login subskrypcyjny
+        # w `~/.claude`). Runy działały, ale ich zużycia nie było w konsoli API,
+        # bo szło na subskrypcję. Zmierzone 2026-08-05.
+        #
+        # `options.env` DOKŁADA się do odziedziczonego środowiska (SDK:
+        # `{**inherited_env, ..., **options.env}`), więc PATH i reszta zostają.
+        # Klucz idzie do env podprocesu, NIE do argv — argv widać w `ps` (D12).
+        env={"ANTHROPIC_API_KEY": klucz_api},
+        system_prompt=f"{prompt}\n\n## INWENTARZ (snapshot {snapshot_id})\n\n{inwentarz}",
         mcp_servers={SERWER: serwer},
         allowed_tools=list(NASZE_NARZEDZIA),
         disallowed_tools=list(WBUDOWANE_ZAKAZANE),
@@ -433,6 +443,34 @@ async def zbadaj_hipoteze(
         # zależeć od plików, które zmieniamy przy każdym etapie.
         setting_sources=[],
         permission_mode="default",
+    )
+
+
+async def zbadaj_hipoteze(
+    hipoteza: Hipoteza,
+    *,
+    zestaw: Narzedzia,
+    rubryka: Rubryka,
+    prompt: str,
+    inwentarz: str,
+    serwer: Any,
+    biezace: dict[str, NarzedziaHipotezy],
+    klucz_api: str,
+    stawki: dict[str, Stawka] | None = None,
+    model: str = MODEL,
+) -> WynikHipotezy:
+    """Jedna hipoteza, jedna sesja, budżet z rubryki."""
+    klasa = rubryka.po_id[hipoteza.klasa_id]
+    narzedzia_hipotezy = zestaw.dla_hipotezy(hipoteza)
+    biezace["aktywne"] = narzedzia_hipotezy
+
+    opcje = zbuduj_opcje(
+        prompt=prompt,
+        inwentarz=inwentarz,
+        snapshot_id=zestaw.snapshot_id,
+        serwer=serwer,
+        klucz_api=klucz_api,
+        model=model,
     )
     zadanie = ZADANIE.format(
         klasa=_opis_klasy(klasa),
@@ -530,6 +568,7 @@ async def zbadaj_hipotezy(
     zestaw: Narzedzia,
     rubryka: Rubryka,
     run_id: str,
+    klucz_api: str,
     stawki: dict[str, Stawka] | None = None,
     model: str = MODEL,
     sciezka_promptu: Path = SCIEZKA_PROMPTU,
@@ -575,6 +614,7 @@ async def zbadaj_hipotezy(
             inwentarz=inwentarz,
             serwer=serwer,
             biezace=biezace,
+            klucz_api=klucz_api,
             stawki=stawki,
             model=model,
         )

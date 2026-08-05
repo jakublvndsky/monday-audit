@@ -207,14 +207,25 @@ def klucz_anthropic(ustawienia: Ustawienia) -> str:
     Sprawdzenie samego `is None` przepuściłoby ją i run wywrócił się dopiero
     przy modelu — po zapłaceniu za wywołania monday, których już nie odzyskamy.
 
-    Agent SDK czyta zmienną ze środowiska podprocesu sam. Ta funkcja istnieje
-    po to, żeby run przerwał się WCZEŚNIE i z czytelnym komunikatem.
+    **SPROSTOWANIE 2026-08-05.** Ten docstring mówił wcześniej: „Agent SDK
+    czyta zmienną ze środowiska podprocesu sam". **Nieprawda** — i to była
+    usterka, nie tylko zła dokumentacja. `pydantic-settings` wczytuje `.env`
+    do obiektu `Ustawienia`, a **nie do `os.environ`**; zmierzone:
+    `"ANTHROPIC_API_KEY" in os.environ` jest `False` po `wczytaj()`.
+
+    Podproces CLI nie widział więc klucza i spadał na własne poświadczenia
+    (login subskrypcyjny w `~/.claude`). Runy działały, ale ich zużycia nie
+    było w konsoli API, bo szło na subskrypcję.
+
+    Zwracaną wartość trzeba przekazać do `ClaudeAgentOptions(env=...)` —
+    i `agent.py` to robi. Ta funkcja nadal istnieje po to, żeby run przerwał
+    się WCZEŚNIE i z czytelnym komunikatem, przed pierwszym wywołaniem monday.
     """
     surowy = ustawienia.anthropic_api_key
     wartosc = surowy.get_secret_value().strip() if surowy else ""
     if not wartosc:
         raise KonfiguracjaError(
             "brak ANTHROPIC_API_KEY — pętla agenta (3.11) go wymaga. Wpisz go "
-            "do .env albo wyeksportuj w środowisku; Agent SDK czyta tę zmienną sam"
+            "do .env albo wyeksportuj w środowisku"
         )
     return wartosc
