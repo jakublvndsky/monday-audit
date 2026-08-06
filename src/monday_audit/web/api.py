@@ -28,14 +28,21 @@ w tle jako argument i nie jest zapisywany nigdzie — patrz `zadania.py` i D11.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import Cookie, Depends, FastAPI, HTTPException, Request, Response
+from fastapi import (
+    BackgroundTasks,
+    Cookie,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    Response,
+)
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -100,7 +107,26 @@ class DaneAudytu(BaseModel):
 
 
 def polaczenie(zadanie: Request) -> Iterator[sqlite3.Connection]:
-    con = polacz(zadanie.app.state.baza)
+    """Połączenie na jedno żądanie, otwierane W TYM SAMYM wątku, co endpoint.
+
+    ZMIERZONA USTERKA. FastAPI wykonuje synchroniczne endpointy (`def`, nie
+    `async def`) w PULI WĄTKÓW, a generator zależności jest uruchamiany w innym
+    wątku niż ciało endpointu. sqlite3 tego nie wybacza:
+
+        sqlite3.ProgrammingError: SQLite objects created in a thread can only
+        be used in that same thread.
+
+    Objawiało się jako 500 przy DWÓCH RÓWNOLEGŁYCH żądaniach — front pyta
+    jednocześnie `/api/pulpit`, `/api/klienci` i `/api/audyt/mozliwosc`, więc
+    trafiało prawie za każdym razem. `TestClient` tego NIE POKAZAŁ, bo obsługuje
+    żądania po kolei w jednym wątku: 20 testów granic było zielonych, a panel
+    w przeglądarce mówił „nie ma jeszcze audytu tego konta".
+
+    Poprawka: `check_same_thread=False` plus jedno połączenie na żądanie.
+    Bezpieczne, bo połączenia NIE dzielimy między żądaniami — każde ma własne
+    i zamyka je w `finally`. Współbieżny zapis chroni WAL i blokady SQLite.
+    """
+    con = polacz(zadanie.app.state.baza, wielowatkowe=True)
     try:
         yield con
     finally:
@@ -264,7 +290,11 @@ def zbuduj_aplikacje(*, baza: Path | None = None, ustawienia: Ustawienia | None 
 
     @aplikacja.post("/api/audyt")
     def odpal_audyt(
-        dane: DaneAudytu, sesja: ZSesji, con: Polaczenie, klient: str | None = None
+        dane: DaneAudytu,
+        sesja: ZSesji,
+        con: Polaczenie,
+        w_tle: BackgroundTasks,
+        klient: str | None = None,
     ) -> dict[str, str]:
         """Startuje audyt. Klucz API idzie do zadania i **nie jest zapisywany**."""
         cel = sesja.client_id if sesja.to_klient else (klient or _pierwszy_klient(con))
@@ -276,10 +306,14 @@ def zbuduj_aplikacje(*, baza: Path | None = None, ustawienia: Ustawienia | None 
             # 429: to nie błąd danych, a hamulec kosztu.
             raise HTTPException(status_code=429, detail=str(blad)) from None
 
-        # Klucz przechodzi jako argument. Nie logujemy go, nie zapisujemy,
-        # nie wkładamy do żadnej struktury, która gdzieś trafia.
-        asyncio.get_running_loop().run_in_executor(
-            None,
+        # `BackgroundTasks`, nie `get_running_loop().run_in_executor` — endpoint
+        # jest synchroniczny, więc pętli zdarzeń w nim NIE MA i tamto rzucało
+        # `RuntimeError: no running event loop`. Wyszło przy pierwszym `curl`-u
+        # na żywo; testy granic tego nie łapały, bo nie odpalały runu.
+        #
+        # Klucz przechodzi jako argument zadania. Nie logujemy go, nie
+        # zapisujemy, nie wkładamy do struktury, która gdzieś trafia.
+        w_tle.add_task(
             uruchom_audyt_w_tle,
             sciezka_bazy,
             zadanie_id,

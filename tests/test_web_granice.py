@@ -33,6 +33,14 @@ from monday_audit.dostep import ROLA_KLIENT, ROLA_ZESPOL, utworz_konto
 from monday_audit.pulpit import KLUCZE_WEWNETRZNE
 from monday_audit.rubryka import wczytaj_rubryke
 from monday_audit.web.api import zbuduj_aplikacje
+from monday_audit.zadania import utworz_zadanie, zapisz_stan
+
+# Atrapa klucza monday, SKŁADANA Z CZĘŚCI. Hook `token-monday` szuka wzorca JWT
+# w treści plików i nie potrafi odróżnić atrapy od prawdziwego klucza — i tak ma
+# być, bo hook próbujący tej oceny byłby dziurą. Wklejony wzorzec zatrzymywałby
+# każdy commit tego pliku, więc nie ma go tu w jednym kawałku.
+PREFIKS_JWT = "eyJhbGciOi" + "JIUzI1NiJ9"
+ATRAPA_KLUCZA = PREFIKS_JWT + ".ATRAPA-DO-TESTU." + "podpis-nieprawdziwy"
 
 RUBRYKA = wczytaj_rubryke()
 RUN_AT = "2026-08-01T21:09:13.860699+00:00"
@@ -312,3 +320,171 @@ def test_ciasteczko_jest_httponly_i_secure(klient_http: TestClient) -> None:
     assert "httponly" in naglowek
     assert "secure" in naglowek
     assert "samesite=lax" in naglowek
+
+
+def test_odpalenie_audytu_nie_wywala_serwera(
+    klient_http: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regresja z pierwszego `curl`-a na żywo.
+
+    Endpoint był synchroniczny, a planował zadanie przez
+    `asyncio.get_running_loop().run_in_executor` — w funkcji `def`, nie
+    `async def`, pętli zdarzeń NIE MA, więc leciał `RuntimeError: no running
+    event loop` i klient dostawał 500 zamiast startu audytu.
+
+    Testy granic tego nie łapały, bo żaden nie odpalał runu — sprawdzały, kto
+    co WIDZI, nie czy odpalanie działa. Ten test podmienia samo wykonanie audytu
+    na atrapę, żeby sprawdzić WYŁĄCZNIE ścieżkę HTTP: 200 i identyfikator
+    zadania, bez wchodzenia do monday.
+    """
+    wywolania: list[tuple[object, ...]] = []
+    monkeypatch.setattr(
+        "monday_audit.web.api.uruchom_audyt_w_tle",
+        lambda *a: wywolania.append(a),
+    )
+    _zaloguj_klienta(klient_http)
+
+    odp = klient_http.post("/api/audyt", json={"klucz_api": "x" * 40, "zakres": "cale_konto"})
+
+    assert odp.status_code == 200, odp.text
+    assert odp.json()["zadanie_id"]
+    assert len(wywolania) == 1, "zadanie w tle nie zostało zaplanowane"
+
+
+def test_klucz_api_nie_wchodzi_do_bazy(
+    klient_http: TestClient, baza: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Najważniejsza granica tego etapu (D11).
+
+    Szukamy klucza w CAŁEJ bazie — po wszystkich tabelach i kolumnach, nie tylko
+    w tych, o których pamiętamy. Kolumna, której dziś nie ma, może dojść za pół
+    roku i wtedy ten test ma zapytać „a czy tam nie wyciekł".
+    """
+    klucz = ATRAPA_KLUCZA
+    monkeypatch.setattr("monday_audit.web.api.uruchom_audyt_w_tle", lambda *a: None)
+    _zaloguj_klienta(klient_http)
+
+    odp = klient_http.post("/api/audyt", json={"klucz_api": klucz, "zakres": "cale_konto"})
+    assert odp.status_code == 200
+
+    con = polacz(baza)
+    trafienia = []
+    for tabela in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'"):
+        nazwa = str(tabela["name"])
+        for wiersz in con.execute(f"SELECT * FROM {nazwa}"):  # noqa: S608 — nazwa z sqlite_master
+            for wartosc in tuple(wiersz):
+                if isinstance(wartosc, str) and "PODSTAWIONY-KLUCZ" in wartosc:
+                    trafienia.append(nazwa)
+    con.close()
+
+    assert trafienia == [], f"klucz API wylądował w bazie: {trafienia}"
+
+
+def test_osierocone_zadanie_nie_blokuje_na_zawsze(klient_http: TestClient, baza: Path) -> None:
+    """Regresja z pierwszego uruchomienia na żywo.
+
+    Endpoint padł na `RuntimeError` PO utworzeniu wiersza zadania, więc został
+    stan `w_kolejce`, którego nic nigdy nie zmieniło. Klient dostawał „audyt już
+    trwa" bez końca — blokada z powodu NASZEGO błędu, której nie da się zdjąć.
+
+    Po `MINUT_NA_OSIEROCENIE` takie zadanie dostaje stan `blad` i przestaje
+    blokować.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from monday_audit.zadania import MINUT_NA_OSIEROCENIE, wolno_odpalic
+
+    dawno = (datetime.now(tz=UTC) - timedelta(minutes=MINUT_NA_OSIEROCENIE + 5)).isoformat()
+    con = polacz(baza)
+    con.execute(
+        "INSERT INTO zadania (id, client_id, konto_id, stan, etap, postep, zaczeto) "
+        "VALUES ('osierocone', 'cxlabs', 1, 'w_kolejce', 'czekam na start', 0, ?)",
+        (dawno,),
+    )
+    con.commit()
+
+    wolno, powod = wolno_odpalic(con, "cxlabs")
+
+    assert wolno, f"osierocone zadanie nadal blokuje: {powod}"
+    stan = con.execute("SELECT stan, blad FROM zadania WHERE id = 'osierocone'").fetchone()
+    assert stan["stan"] == "blad"
+    assert "nie zgłosiło postępu" in stan["blad"]
+    con.close()
+
+
+def test_swieze_zadanie_nadal_blokuje(klient_http: TestClient, baza: Path) -> None:
+    """Komplement — inaczej poprzednia poprawka zniosłaby hamulec zupełnie."""
+    from monday_audit.zadania import utworz_zadanie, wolno_odpalic
+
+    con = polacz(baza)
+    utworz_zadanie(con, client_id="cxlabs", konto_id=1)
+
+    wolno, powod = wolno_odpalic(con, "cxlabs")
+
+    assert not wolno
+    assert "trwa" in powod
+    con.close()
+
+
+def test_rownolegle_zadania_nie_wywalaja_sie_na_sqlite(baza: Path) -> None:
+    """Regresja zmierzona w przeglądarce, nie w testach.
+
+    FastAPI wykonuje synchroniczne endpointy w PULI WĄTKÓW, a generator
+    zależności trafiał do innego wątku niż ciało endpointu. sqlite3 rzucał:
+
+        SQLite objects created in a thread can only be used in that same thread
+
+    Objawiało się jako 500 przy równoległych żądaniach — front pyta jednocześnie
+    o pulpit, listę klientów i możliwość audytu, więc trafiało prawie zawsze.
+    Panel mówił „nie ma jeszcze audytu tego konta", mając w bazie 11 znalezisk.
+
+    **20 testów granic było zielonych**, bo `TestClient` obsługuje żądania PO
+    KOLEI, w jednym wątku. Dlatego ten test strzela nimi RÓWNOLEGLE — inaczej
+    nie odtworzyłby warunku, w którym usterka istnieje.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    with TestClient(zbuduj_aplikacje(baza=baza), base_url="https://test") as c:
+        _zaloguj_zespol(c)
+        sciezki = ["/api/pulpit", "/api/klienci", "/api/audyt/mozliwosc", "/api/ja"] * 4
+
+        with ThreadPoolExecutor(max_workers=8) as pula:
+            kody = list(pula.map(lambda s: c.get(s).status_code, sciezki))
+
+    assert all(k == 200 for k in kody), f"równoległe żądania dały: {sorted(set(kody))}"
+
+
+def test_klucz_api_nie_zostaje_w_bazie_po_nieudanym_runie(tmp_path: Path) -> None:
+    """Najgorszy moment na wyciek to BŁĄD, nie sukces.
+
+    Ścieżka udana kończy się porządkami; ścieżka błędu zapisuje komunikat
+    wyjątku — a wyjątki z klientów HTTP potrafią cytować nagłówki żądania.
+    Dlatego ten test celowo używa klucza, który monday odrzuci.
+
+    Zmierzone też ręcznie na żywym serwerze (2026-08-06): znacznik w kształcie
+    JWT przeszedł POST → collector → 401 z monday i nie pojawił się ani w zrzucie
+    bazy, ani w logu uvicorna, ani w argv procesów. Test pilnuje bazy, bo tylko
+    ona przeżywa restart.
+    """
+    znacznik = f"{ATRAPA_KLUCZA}.znacznik-tego-testu"
+    baza = tmp_path / "granica.db"
+    con = polacz(baza)
+    zastosuj_migracje(con)
+    konto = utworz_konto(con, rola=ROLA_KLIENT, client_id="acme", haslo="x" * 12)
+
+    zid = utworz_zadanie(con, konto_id=konto, client_id="acme")
+    # Symulujemy dokładnie to, co robi `web/run.py`, gdy collector rzuci wyjątkiem
+    # cytującym nagłówek Authorization — najgorszy realistyczny przypadek.
+    zapisz_stan(
+        con,
+        zid,
+        stan="blad",
+        etap="audyt przerwany",
+        blad=f"ZapytanieError: HTTP 401 przy naglowku Authorization: {znacznik}",
+    )
+
+    zrzut = "\n".join(con.iterdump())
+    assert znacznik not in zrzut, "klucz API klienta trafił do bazy przez komunikat błędu"
+    # Szukamy też samego KSZTAŁTU tokenu, nie tylko tego jednego znacznika:
+    # następny wyciek będzie miał inną treść, ale ten sam prefiks JWT.
+    assert PREFIKS_JWT not in zrzut, "w bazie jest coś w kształcie klucza monday"

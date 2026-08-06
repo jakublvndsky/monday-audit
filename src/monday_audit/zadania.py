@@ -49,6 +49,17 @@ STAN_ANALIZUJE = "analizuje"
 STAN_GOTOWE = "gotowe"
 STAN_BLAD = "blad"
 
+# Po ilu minutach zadanie „w toku" uznajemy za osierocone. Run trwa ~17 minut,
+# więc 40 to margines na wolniejsze konto — ale nie tyle, żeby klient czekał
+# godzinami.
+#
+# Powód z pomiaru: pierwsze uruchomienie na żywo padło z `RuntimeError` PRZED
+# startem zadania, a wiersz `w_kolejce` już istniał. Bez tego limitu klient
+# byłby zablokowany komunikatem „audyt już trwa" NA ZAWSZE, bo nic nigdy nie
+# zmieniłoby stanu. Blokada z powodu naszego błędu, której nie da się zdjąć,
+# jest gorsza od braku blokady.
+MINUT_NA_OSIEROCENIE = 40
+
 # Hamulec kosztu. Odstęp między audytami jednego klienta i sufit na klienta.
 # Liczby wzięte z realnego kosztu: run agenta to ~1,71 USD i ~227 wywołań
 # z dziennego limitu klienta. Cztery audyty na klienta to ~7 USD — tyle
@@ -100,12 +111,56 @@ def _bez_sekretow(tekst: str) -> str:
     return wynik[:500]
 
 
+def _zwolnij_osierocone(con: sqlite3.Connection, client_id: str) -> None:
+    """Zadania „w toku", które przestały zgłaszać postęp, dostają stan `blad`.
+
+    Proces mógł padnąć, serwer się zrestartować albo — jak przy pierwszym
+    uruchomieniu na żywo — endpoint wywalić się PO utworzeniu wiersza.
+    Bez tego klient jest zablokowany komunikatem „audyt już trwa" na zawsze,
+    bo nic nigdy nie zmieni stanu.
+
+    Oznaczamy `blad`, a nie kasujemy: ślad nieudanej próby jest informacją,
+    a `wolno_odpalic` i tak nie liczy błędów do sufitu.
+    """
+    granica = (datetime.now(tz=UTC) - timedelta(minutes=MINUT_NA_OSIEROCENIE)).isoformat()
+    # Zamykamy ewentualną otwartą transakcję ODCZYTU przed zapisem. Bez tego
+    # SQLite musi podnieść blokadę z read na write, a takie podniesienie
+    # odrzuca NATYCHMIAST przy równoległych żądaniach — `busy_timeout` nie
+    # pomaga, bo czekanie groziłoby zakleszczeniem. Zmierzone na 16 równoległych
+    # żądaniach z frontu.
+    con.rollback()
+    with con:
+        con.execute(
+            "UPDATE zadania SET stan = ?, blad = ?, skonczono = ? "
+            "WHERE client_id = ? AND stan IN (?, ?, ?) AND zaczeto < ?",
+            (
+                STAN_BLAD,
+                "zadanie przerwane — nie zgłosiło postępu w wyznaczonym czasie",
+                datetime.now(tz=UTC).isoformat(),
+                client_id,
+                STAN_W_KOLEJCE,
+                STAN_ZBIERAM,
+                STAN_ANALIZUJE,
+                granica,
+            ),
+        )
+
+
 def wolno_odpalic(con: sqlite3.Connection, client_id: str) -> tuple[bool, str]:
     """Czy ten klient może teraz odpalić audyt. Zwraca `(wolno, powód)`.
 
     Sprawdzenie jest TUTAJ, a nie w interfejsie: przycisk wyszarzony w JS
     powstrzymuje klikanie, ale nie powstrzymuje `curl`-a.
     """
+    # Zwolnienie osieroconych MUSI iść przed liczeniem — inaczej zadanie, które
+    # nigdy nie wystartowało, blokowałoby przez odstęp 7 dni. Wyszło w teście:
+    # zdjęliśmy blokadę „już trwa", a został „kolejny możliwy od…" na to samo
+    # martwe zadanie.
+    _zwolnij_osierocone(con, client_id)
+
+    # Liczymy audyty, które FAKTYCZNIE poszły. Zadanie zakończone błędem nie
+    # zużyło ani naszych pieniędzy, ani limitu klienta, więc nie ma prawa liczyć
+    # się do sufitu ani do odstępu.
     wiersz = con.execute(
         "SELECT COUNT(*) razem, MAX(zaczeto) ostatni FROM zadania "
         "WHERE client_id = ? AND stan != ?",

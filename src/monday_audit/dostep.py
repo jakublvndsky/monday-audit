@@ -276,13 +276,14 @@ def zaloguj(
     token = secrets.token_urlsafe(32)
     with con:
         con.execute(
-            "INSERT INTO sesje (hash_tokenu, konto_id, utworzono, wazna_do, ip) "
-            "VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO sesje (hash_tokenu, konto_id, utworzono, wazna_do, "
+            "ostatnie_uzycie, ip) VALUES (?, ?, ?, ?, ?, ?)",
             (
                 _hash_tokenu(token),
                 int(wiersz["id"]),
                 teraz.isoformat(),
                 (teraz + timedelta(hours=GODZIN_SESJI)).isoformat(),
+                teraz.isoformat(),
                 ip,
             ),
         )
@@ -291,7 +292,25 @@ def zaloguj(
 
 
 def wczytaj_sesje(con: sqlite3.Connection, token: str | None) -> Sesja | None:
-    """Sesja z tokenu z ciasteczka, albo `None`. Odświeża `ostatnie_uzycie`."""
+    """Sesja z tokenu z ciasteczka, albo `None`.
+
+    **Odczyt, nie zapis.** Pierwsza wersja aktualizowała `ostatnie_uzycie`
+    przy KAŻDYM żądaniu, a to znaczyło transakcję zapisu na każde sprawdzenie
+    sesji. Front pyta o kilka endpointów równolegle, więc kilka wątków biło
+    się o blokadę zapisu i leciało `sqlite3.OperationalError: database is
+    locked` — mimo WAL i piętnastosekundowego `busy_timeout`.
+
+    Ograniczenie zapisu do „raz na kilka minut" NIE WYSTARCZYŁO, bo pierwsza
+    partia równoległych żądań widzi `ostatnie_uzycie IS NULL` i pisze naraz.
+    Głębszy mechanizm: transakcja, która najpierw CZYTA, a potem chce PISAĆ,
+    musi podnieść blokadę — a SQLite odrzuca takie podniesienie
+    **natychmiast**, bez czekania, żeby nie doprowadzić do zakleszczenia.
+    `busy_timeout` w tym miejscu nie działa.
+
+    Wniosek, który został: **ścieżka odczytu nie pisze.** `ostatnie_uzycie`
+    ustawiamy przy logowaniu, gdzie i tak wykonujemy INSERT. Log wejść, którego
+    chce O23, stoi na `proby_logowania` — jeden wpis na logowanie, nie na żądanie.
+    """
     if not token:
         return None
     wiersz = con.execute(
@@ -310,11 +329,6 @@ def wczytaj_sesje(con: sqlite3.Connection, token: str | None) -> Sesja | None:
             con.execute("DELETE FROM sesje WHERE hash_tokenu = ?", (wiersz["hash_tokenu"],))
         return None
 
-    with con:
-        con.execute(
-            "UPDATE sesje SET ostatnie_uzycie = ? WHERE hash_tokenu = ?",
-            (teraz, wiersz["hash_tokenu"]),
-        )
     return Sesja(
         konto_id=int(wiersz["id"]),
         rola=str(wiersz["rola"]),

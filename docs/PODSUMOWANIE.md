@@ -108,8 +108,10 @@ cennik zaszyty u nas — ten rozjechałby się przy pierwszej zmianie cen.
 ## Co produkuje
 
 Dwa dokumenty HTML z jednego przebiegu — otwierają się z dysku, bez internetu,
-drukują do PDF. Do tego **makietę dashboardów** (od 2026-08-05): panel
-wewnętrzny CXLABS z listą klientów i panel dla klienta, widzący tylko siebie.
+drukują do PDF. Do tego **działającą aplikację web** (od 2026-08-06): panel
+wewnętrzny CXLABS z drop-downem po klientach i panel dla klienta, widzący tylko
+siebie. Klient wchodzi hasłem, wkleja **swój** klucz API monday, klika „Wygeneruj
+audyt" i widzi pasek postępu — audyt trwa około kwadransa.
 
 Panel docelowo **zastępuje raport** jako to, co dostaje klient — decyzja Kuby.
 Dokument zostaje eksportem datowanej wersji, bo panel czyta bazę na żywo i nie
@@ -199,6 +201,24 @@ i zostały sprostowane z datą: strony pomocy monday **są** osiągalne (403 bra
 się z braku zwykłego nagłówka przeglądarki), a pole `updated_at` na tablicy
 zaniża wiek o **do 40 dni** i jest bezużyteczne jako sygnał świeżości.
 
+**Piąta sztuka, przy aplikacji web: klient testowy nie odtwarzał warunku.**
+Dwadzieścia testów granic świeciło na zielono, a panel w przeglądarce mówił
+„nie ma jeszcze audytu tego konta" — bo `TestClient` obsługuje żądania po kolei,
+w jednym wątku, a FastAPI wykonuje endpointy synchroniczne w puli wątków. Front
+pyta o kilka endpointów równolegle i to wywracało połączenie z SQLite. Naprawa
+odsłoniła drugą warstwę: transakcja, która najpierw czyta, a potem chce pisać,
+dostaje `database is locked` **natychmiast**, bo SQLite nie czeka na podniesienie
+blokady — czekanie groziłoby zakleszczeniem. `busy_timeout` tam nie działa
+i wniosek jest prosty: **ścieżka odczytu nie pisze.** Test regresyjny strzela
+16 równoległymi żądaniami, inaczej niczego nie sprawdza.
+
+**Szósta: przy warstwie wizualnej trzeba patrzeć.** Brama logowania siedziała
+w kolumnie 464 px zamiast na całym ekranie. Dwie pierwsze poprawki były
+nietrafione, bo zgadywałem, który element jest wąski — winowajcą był `#korzen`,
+div bez ani jednej reguły CSS. Ani `tsc`, ani `npm run build`, ani żaden test
+HTTP tego nie widzi. To trzeci raz w tym projekcie, gdy usterkę wizualną łapie
+dopiero obejrzenie zrzutu.
+
 ---
 
 ## Czego narzędzie NIE potrafi i dlaczego
@@ -241,16 +261,16 @@ rubrykę i nowy prompt.
 
 ## Stan i co dalej
 
-**Zbudowane i przepuszczone przez prawdziwe konto: 3.1–3.12.**
-499 testów, kontrola typów i lintera przechodzą.
+**Zbudowane i przepuszczone przez prawdziwe konto: 3.1–3.12, plus aplikacja web
+poza numeracją etapów.** 553 testy, kontrola typów i lintera przechodzą.
 
 Korpus 5 zamrożonych snapshotów gotowy na etap 4 (wymagane 3–5).
 
 ### Zostało w etapie 3
 
 - **odhaczenie 3.12** — decyzja człowieka, nie narzędzia
-- **front nie ma pozycji w `STATUS.md`** — należy do etapu 5, a jesteśmy w 3.
-  Makieta powstała, żeby ocenić układ; pozycję wpisuje człowiek
+- **front nie ma pozycji w `STATUS.md`** — na twoje wyraźne polecenie. Powstał
+  poza numeracją etapów; pozycję wpisuje człowiek albo nie wpisuje wcale
 
 ### Czeka na decyzję, nic nie blokuje
 
@@ -267,11 +287,20 @@ Korpus 5 zamrożonych snapshotów gotowy na etap 4 (wymagane 3–5).
 
 ### Ryzyko do rozstrzygnięcia przed wystawieniem panelu
 
-Raport był plikiem na dysku. Panel to **dane osobowe klienta pod adresem URL**,
-za jednym hasłem krążącym mailem. Cztery pytania bez odpowiedzi: wygasanie
-dostępu, logi wejść, co się dzieje po zakończeniu relacji z klientem, i to,
-że nazwiska w pliku znaczyły co innego niż pod URL-em. Szczegóły: **O23**.
-Makiety to nie dotyczy — dziś są to pliki na dysku.
+Raport był plikiem na dysku. Panel to **dane osobowe klienta pod adresem URL**.
+Część z czterech pytań z **O23** aplikacja już zamknęła: hasła są hashowane
+(`scrypt`), sesje wygasają, próby logowania są liczone i logowane, a limit
+blokuje też **poprawne** hasło po pięciu nieudanych próbach. Otwarte zostaje to,
+co nie jest kwestią kodu: kanał przekazania hasła klientowi, odbieranie dostępu
+po zakończeniu relacji, i TLS — bo dziś aplikacja chodzi lokalnie, a nie pod URL-em.
+
+**Osobne ryzyko doszło z samym przepływem:** klient wkleja swój klucz API monday,
+a klucz admina monday **nie jest read-only** — kto go ma, może usunąć każdą
+tablicę. Nie zapisujemy go nigdzie (zmierzone, nie założone — patrz niżej),
+formularz mówi o tym wprost i sugeruje unieważnienie klucza po audycie. Właściwym
+rozwiązaniem jest OAuth z ograniczonym zakresem i to jest **warunek przed
+wystawieniem panelu poza relację doradczą** — aneks do D11, granice pamięci
+procesu w O25.
 
 ### Ryzyko do rozstrzygnięcia przed Marketplace
 

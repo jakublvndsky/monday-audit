@@ -292,7 +292,7 @@ zgodność = wydruk do PDF na maszynie z zainstalowanym fontem; instrukcja
 w `szablony/fonty/README.md`, dwa testy strażnicze pilnują, żeby nikt tego nie
 „poprawił".
 
-## Dashboardy (makieta frontu)
+## Dashboardy — makieta HTML (poprzedni krok, nadal działa)
 
 Trzy statyczne pliki z jednego polecenia, linkowane relatywnie — klika się jak
 aplikacja, a jest zwykłym HTML-em:
@@ -333,11 +333,98 @@ nikt go nie widział), a opis metryki zlewał się z procentem w jedno zdanie
 („99.0% z 105 statystyki są na poziomie konta"). Dowód, że przy warstwie
 wizualnej trzeba patrzeć, nie tylko grepować.
 
+Makieta została **zaakceptowana jako poziom docelowy** i na tym skończyła rolę:
+dalej stoi aplikacja niżej, a te pliki zostają jako szybki podgląd bez serwera.
+
+## Aplikacja web — jeden adres, dwa wejścia
+
+```bash
+uv run python -m monday_audit.cli_web --dodaj-klienta acme      # wypisuje hasło
+uv run python -m monday_audit.cli_web --dodaj-osobe jle@cxlabs.digital
+uv run python -m monday_audit.cli_web --serwuj --port 8010
+```
+
+Realna aplikacja: React 19 + Vite + TypeScript na froncie, FastAPI z tyłu,
+sesje w SQLite. Klient wchodzi hasłem, wkleja **swój** klucz API monday, klika
+„Wygeneruj audyt" i widzi pasek postępu. CXLABS wchodzi tym samym adresem, ale
+e-mailem z domeny, i ma drop-down po wszystkich klientach.
+
+**Granicę wyznacza sesja po stronie serwera, nigdy parametr z przeglądarki (D16).**
+`GET /api/pulpit` nie przyjmuje `client_id` — bierze go z ciasteczka. Sesja
+klienta pytająca o cudzego klienta dostaje **404, nie 403**, bo 403 potwierdza,
+że taki klient u nas jest.
+
+| Endpoint | Kto | Co zwraca |
+|---|---|---|
+| `POST /api/sesja/klient` | hasło klienta | ciasteczko `HttpOnly`, rola `klient` |
+| `POST /api/sesja/zespol` | e-mail `@cxlabs.digital` + hasło | ciasteczko, rola `zespol` |
+| `GET /api/pulpit` | z sesji | `pulpit.do_json()` — bez kluczy wewnętrznych dla klienta |
+| `GET /api/klienci` | tylko zespół | lista do drop-downu (klient: 404) |
+| `POST /api/audyt` | z sesji | id zadania; klucz API **w ciele**, nie w URL-u |
+| `GET /api/audyt/<id>` | z sesji | stan, etap, postęp |
+
+**Klucz API klienta nie ma kolumny w schemacie** i nie zostawia śladu. Zmierzone
+2026-08-06 znacznikiem w kształcie JWT: przeszedł POST → collector → 401 z monday
+i nie pojawił się ani w zrzucie bazy, ani w logu serwera, ani w argv procesów.
+Test regresyjny pilnuje **ścieżki błędu**, bo to wyjątki cytują nagłówki żądania.
+
+**Hamulec kosztu jest w bazie, nie w interfejsie:** odstęp 7 dni i sufit 4 audytów
+na klienta, liczone w endpointcie — odświeżenie strony ani `curl` go nie obchodzą.
+Osierocone zadania (proces padł w trakcie) zwalniają się po 40 minutach, i to
+**przed** liczeniem odstępu — inaczej jeden zawieszony run blokowałby klienta
+na tydzień.
+
+**Limit prób logowania** blokuje na 15 minut po 5 nieudanych próbach, i blokuje
+też **poprawne** hasło — gdyby odrzucało tylko złe, nie byłoby żadną blokadą.
+Sprawdzone przez HTTP, nie tylko jednostkowo.
+
+**Typy frontu są generowane z Pythona:**
+
+```bash
+uv run python -m monday_audit.generuj_typy            # zapisuje front/src/api.ts
+uv run python -m monday_audit.generuj_typy --sprawdz  # jak `--check` w formatterze
+```
+
+Ręcznie pisane typy po obu stronach rozjechałyby się przy pierwszej zmianie pola
+i to **cicho** — objawiłoby się `undefined` w interfejsie klienta, nie błędem
+u nas. Test pilnuje aktualności pliku.
+
+**Marka w jednym miejscu (D14):** `front/src/marka.css` jest kopią `_marka.css.j2`,
+bo Vite nie czyta jinja — więc test porównuje tokeny obu arkuszy. Fontów nie
+osadzamy ani tu, ani w raporcie: licencja Clash Display na to nie pozwala,
+a CSS i bundle JS to tekst, z którego font da się wyjąć.
+
+**Trzy usterki współbieżności, których 20 zielonych testów nie widziało.**
+Wszystkie wyszły z uruchomienia prawdziwej przeglądarki na żywym serwerze —
+panel mówił „nie ma jeszcze audytu tego konta", a `curl` w tej samej chwili
+dostawał 200:
+
+1. `sqlite3.ProgrammingError: SQLite objects created in a thread…` — FastAPI
+   wykonuje endpointy synchroniczne w puli wątków. `TestClient` tego nie łapie,
+   bo obsługuje żądania **po kolei, w jednym wątku**.
+2. `database is locked` — front pyta o kilka endpointów równolegle.
+3. Ta sama blokada **wracała** po włączeniu WAL i `busy_timeout`. Przyczyna była
+   głębsza: transakcja, która najpierw **czyta**, a potem chce **pisać**, musi
+   podnieść blokadę, a SQLite odrzuca takie podniesienie **natychmiast**, żeby
+   nie doprowadzić do zakleszczenia. `busy_timeout` w tym miejscu nie działa.
+   Wniosek, który został w kodzie: **ścieżka odczytu nie pisze.**
+
+Test regresyjny strzela 16 żądaniami przez `ThreadPoolExecutor`, bo szeregowy
+klient testowy nie odtwarza warunku, w którym usterka istnieje.
+
+**Responsywność obejrzana, nie założona:** zrzuty przy 390, 900 i 1440 px. Przy
+900 px sidebar zwija się w pasek u góry. Dwie pierwsze poprawki układu bramy były
+nietrafione, bo zgadywałem, który element jest wąski, zamiast to zmierzyć —
+winowajcą był `#korzen`, div bez ani jednej reguły CSS, zwężony jako element
+flex. Komentarz w `aplikacja.css` o tym mówi.
+
 ## Czego jeszcze nie ma
 
 | Brak | Gdzie opisany |
 |---|---|
-| **publikacja raportu i panelu pod URL-em** | etap 5 — hosting, uwierzytelnianie, hasła per klient. Makieta to pliki na dysku; ryzyko danych osobowych pod URL-em: O23 |
+| **wdrożenie pod publicznym URL-em** | etap 5 — Caddy, TLS, backupy. Aplikacja z D16 działa lokalnie; hasła i sesje już są, ryzyko danych osobowych pod URL-em: O23 |
+| **OAuth zamiast klucza wklejanego przez klienta** | warunek przed wystawieniem poza relację doradczą — aneks do D11, granice pamięci: O25 |
+| **SSO na domenę `@cxlabs.digital`** | dziś hasło per osoba; O24 |
 | interaktywność panelu (filtry, sortowanie, wykresy) | czeka na front w JS — D15 |
 | podział znalezisk po workspace'ach | tylko 2 z 11 znalezisk niesie `board_id`; wraca przy audycie całego konta |
 | zużycie kredytów AI | API tego nie oddaje w żadnej sprawdzonej wersji — O2, O20 |

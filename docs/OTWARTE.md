@@ -164,6 +164,22 @@ dzielonych z innymi aplikacjami CXLABS trzeba znać realną rezerwę.
 **Jeśli rezerwa < 800 MB:** worker musi działać jako proces jednorazowy
 (nie demon), a sampling activity logs trzeba zawęzić.
 
+**Aktualizacja 2026-08-06 — doszedł serwer web, i to zmierzone.** Front
+z D16 mógł podnieść ten budżet o proces uvicorna i o Node. Zmierzone:
+
+| | |
+|---|---|
+| uvicorn + FastAPI w spoczynku | **12 MB RSS** |
+| zbudowany front (`front/dist`) | **236 KB** — dwa pliki statyczne |
+| Node na serwerze | **niepotrzebny** |
+
+Node bierze udział tylko w `npm run build` na maszynie deweloperskiej; na serwer
+idą gotowe pliki, które FastAPI oddaje jako statyki. Więc web **nie zmienia
+rzędu wielkości** tego budżetu — nadal decyduje szczyt runu, a nie panel.
+
+Co nadal wymaga pomiaru Kuby: realna rezerwa na Mikrusie. Pomiar powyżej jest
+z macOS-a i mówi tylko, że web jest tani, nie ile zostaje.
+
 ---
 
 ## O7. Koszt licencji u klienta
@@ -960,3 +976,49 @@ nie wystawić go bez odpowiedzi na te cztery pytania.
 
 **Powiązane:** O22 (scrapowanie stron dostawcy przez aplikację z Marketplace) —
 oba dotyczą tego samego przejścia z narzędzia wewnętrznego na produkt.
+
+---
+
+## O24. SSO na domenę zamiast haseł per osoba
+
+**Status:** świadomy skrót, nie przeoczenie
+**Blokuje:** nic dzisiaj; wraca przy trzeciej osobie w zespole
+
+Logowanie CXLABS to dziś **hasło per osoba**, hashowane `scrypt`, konto zakładane
+komendą `--dodaj-osobe` z wymogiem adresu `@cxlabs.digital`. Wybrane, bo działa
+od razu i nie wymaga zależności.
+
+Czego ten skrót nie robi:
+
+- **odejście z firmy nie odbiera dostępu** — trzeba pamiętać o skasowaniu konta
+- hasła krążą kanałem, którym je przekazujemy (dziś: ustnie/komunikator)
+- nie ma drugiego czynnika
+
+**Kiedy to przestanie wystarczać:** przy trzeciej osobie albo pierwszym odejściu.
+Wtedy SSO Google na domenę: wygaśnięcie konta w Google Workspace odbiera dostęp
+do panelu bez naszego udziału, co jest całą wartością tej zmiany.
+
+---
+
+## O25. Klucz admina klienta w pamięci procesu
+
+**Status:** granica przyjęta świadomie, dwa pytania niesprawdzone
+**Blokuje:** wystawienie panelu poza relacją doradczą
+
+Klucz API klienta nie trafia na dysk — sprawdzone 2026-08-06 znacznikiem
+w kształcie JWT, który przeszedł POST → collector → 401 z monday i nie pojawił
+się ani w zrzucie bazy, ani w logu serwera, ani w argv procesów. Jest na to
+test regresyjny na najgorszej ścieżce, czyli na **błędzie** runu, bo to wyjątki
+cytują nagłówki żądania.
+
+Czego pomiar NIE obejmuje:
+
+1. **Zrzut pamięci przy awarii.** Jeśli proces dostanie SIGSEGV albo system
+   zapisze core dump, klucz jest w tym zrzucie. Na Mikrusie trzeba sprawdzić
+   `ulimit -c` i czy systemd-coredump nie zbiera zrzutów do `/var/lib`.
+2. **Swap.** Strona pamięci z kluczem może wylądować na dysku, jeśli maszyna
+   zacznie swapować w trakcie runu — a run to najcięższy moment.
+
+Oba są poza tym, co da się załatwić kodem aplikacji. Właściwa odpowiedź to
+OAuth z ograniczonym zakresem (aneks do D11), nie kolejna warstwa ostrożności
+wokół klucza o pełnych uprawnieniach.

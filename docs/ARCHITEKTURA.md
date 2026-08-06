@@ -641,3 +641,73 @@ w Docs Publisherze czy osobna aplikacja) rozstrzyga się po obejrzeniu układu.
 **Co unieważni:** decyzja, że front idzie do Docs Publishera. Wtedy szablony
 jinja2 znikają, a `do_json` staje się jedynym wyjściem tego modułu — i o to
 w tym podziale chodziło.
+
+---
+
+## D16. Jedna aplikacja, dwa wejścia. Granicę wyznacza sesja, nie parametr
+
+**Decyzja:** jeden adres, jeden proces, jeden bundle. Klient wchodzi hasłem,
+CXLABS e-mailem z domeny `@cxlabs.digital`. O tym, co odbiorca dostaje,
+decyduje **rola zapisana w sesji po stronie serwera** — nigdy nic, co przyszło
+z przeglądarki.
+
+**Powód:** pierwsza rekomendacja brzmiała „dwie aplikacje" i była nadmiernie
+ostrożna. Dwa procesy nie dają bezpieczeństwa same z siebie: gdyby o pokazaniu
+tropu sprzedażowego decydował `if` w JavaScripcie, dwie aplikacje niczego by
+nie uratowały, bo dane i tak wyszłyby z API. A jeśli granica stoi w API, to
+drugi proces nie dodaje nic poza drugim miejscem do pomyłki przy wdrożeniu.
+
+Kluczowe zdanie tej decyzji:
+
+> **Odbiorcę wyznacza sesja po stronie serwera, nigdy parametr od przeglądarki.**
+
+To, że bundle JS zawiera komponenty widoków wewnętrznych, **nie jest wyciekiem** —
+wyciekiem byłyby dane. `Panel.tsx` ma warunki `ja.rola === "zespol"`, ale one
+tylko *wyświetlają*: sesja klienta nie dostaje `pinowanie` ani `trop`, bo
+`pulpit.do_json()` usuwa te klucze ze struktury po stronie serwera. Gdyby ktoś
+skasował wszystkie warunki z frontu, klient zobaczyłby puste sekcje, nie cudze dane.
+
+**Konsekwencja — trzy reguły, każda z testem w `tests/test_web_granice.py`:**
+
+| Reguła | Dlaczego tak, a nie inaczej |
+|---|---|
+| `GET /api/pulpit` **nie przyjmuje** `client_id` ani `odbiorca` | parametr od przeglądarki to parametr od atakującego |
+| sesja klienta pytająca o cudzego klienta → **404**, nie 403 | 403 potwierdza, że taki klient u nas jest |
+| sesja klienta na `/api/klienci` → **404** | ta lista to nasz portfel klientów |
+
+**Klucz API klienta nie ma kolumny w schemacie.** Migracja 006 nosi na ten temat
+komentarz, bo brak kolumny wygląda jak przeoczenie, a jest decyzją. Klucz żyje
+jako argument funkcji w procesie runu i ginie razem z nim.
+
+**Czego to NIE załatwia:** aplikacja jest uruchamiana lokalnie. TLS, wdrożenie
+i backupy to etap 5. Publiczne wystawienie panelu z danymi osobowymi klienta pod
+samym hasłem jest osobnym ryzykiem — O23.
+
+**Co unieważni:** wystawienie panelu klientom bez pośrednictwa CXLABS. Wtedy
+wraca OAuth (aneks do D11) i SSO na domenę (O24).
+
+---
+
+## D11 — aneks (2026-08-06). Klient sam wkleja klucz, czyli self-service
+
+D11 kończyło się zdaniem: *„aplikacja OAuth była potrzebna przy self-service dla
+obcego prospekta — a tego nie robimy"*. Od tego etapu **robimy**: klient dostaje
+hasło, wchodzi na panel, wkleja swój klucz API monday i sam odpala audyt.
+
+Zapisuję to wprost, zamiast przemilczeć — przy D9 przemilczenie zmiany kosztowało
+później więcej niż jej opisanie.
+
+**Co się zmieniło, a co zostało:**
+
+- zostało: **nie stajemy się depozytariuszem dostępu.** Nie ma refresh tokenów,
+  nie ma kolumny na klucz, nie ma szyfrowania at-rest, bo nie ma czego szyfrować.
+- zmieniło się: klucz podaje **klient**, nie my. Nie widzimy go nawet w logach.
+- doszło: **formularz mówi prawdę o promieniu rażenia.** Klucz admina monday
+  **nie jest read-only** — kto go ma, może usunąć każdą tablicę na koncie.
+  Podpowiadamy admina, bo `pokrycie_pelne` jest prawdą tylko dla admina, ale
+  piszemy też, co ten klucz umie, i sugerujemy unieważnienie go po audycie.
+  „Zalecane" bez tego zdania byłoby wprowadzaniem w błąd.
+
+**Warunek przed wystawieniem publicznym pozostaje OAuth.** Klucz w pamięci jest
+wariantem dla relacji doradczej, gdzie klienta znamy. Dla obcego prospekta
+zakres tokenu musi być ograniczony przez dostawcę, nie przez naszą obietnicę.

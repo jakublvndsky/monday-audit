@@ -37,9 +37,23 @@ class MigracjaError(RuntimeError):
     """Błąd w zestawie migracji albo w ich stosowaniu."""
 
 
-def polacz(sciezka: Path | str) -> sqlite3.Connection:
-    """Otwiera połączenie z wymuszonymi kluczami obcymi i transakcyjnym DDL."""
-    con = sqlite3.connect(sciezka)
+def polacz(sciezka: Path | str, *, wielowatkowe: bool = False) -> sqlite3.Connection:
+    """Otwiera połączenie z wymuszonymi kluczami obcymi i transakcyjnym DDL.
+
+    `wielowatkowe=True` wyłącza sprawdzanie wątku (`check_same_thread`).
+    Potrzebne WYŁĄCZNIE w aplikacji webowej: FastAPI uruchamia synchroniczne
+    endpointy w puli wątków, a zależność otwierająca połączenie trafia do innego
+    wątku niż ciało endpointu — i sqlite3 rzuca `ProgrammingError`.
+
+    **To nie jest zgoda na dzielenie połączenia między wątkami.** Każde żądanie
+    dostaje własne i zamyka je po sobie; wyłączamy tylko kontrolę, która przy
+    tym wzorcu daje fałszywy alarm. Domyślnie zostaje włączona, bo w CLI
+    i w testach chroni przed prawdziwym błędem.
+    """
+    # `timeout` to czekanie na zwolnienie blokady zapisu, nie na zapytanie.
+    # Domyślne 5 s wystarcza CLI, ale przy równoległych żądaniach z frontu
+    # trafialiśmy w `database is locked` — patrz niżej.
+    con = sqlite3.connect(sciezka, check_same_thread=not wielowatkowe, timeout=15)
     con.row_factory = sqlite3.Row
 
     # KOLEJNOŚĆ TYCH DWÓCH LINII JEST ISTOTNA.
@@ -47,6 +61,18 @@ def polacz(sciezka: Path | str) -> sqlite3.Connection:
     # a przy autocommit=False transakcja otwiera się przed pierwszym
     # poleceniem. Najpierw pragma, dopiero potem tryb.
     con.execute("PRAGMA foreign_keys = ON")
+
+    if wielowatkowe:
+        # WAL: czytający NIE BLOKUJĄ piszącego i odwrotnie. Bez tego równoległe
+        # żądania z frontu dawały `database is locked`, bo `wolno_odpalic`
+        # ZAPISUJE przy każdym odczycie (zwalnia osierocone zadania), a domyślny
+        # tryb rollback-journal blokuje wtedy całą bazę.
+        #
+        # Zmierzone: test strzelający 16 równoległych żądań padał, dopóki tego
+        # nie było. WAL zostaje tylko dla ścieżki webowej — CLI jest
+        # jednowątkowe i nie potrzebuje dodatkowych plików `-wal`/`-shm`.
+        con.execute("PRAGMA journal_mode = WAL")
+        con.execute("PRAGMA busy_timeout = 15000")
 
     # Domyślny tryb sqlite3 otwiera transakcję tylko przed DML. CREATE TABLE
     # trafiałoby poza nią i migracja przestałaby być niepodzielna.

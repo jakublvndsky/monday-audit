@@ -40,7 +40,7 @@ deterministyczne. **Agent tylko czyta i tylko proponuje.**
 |---|---|
 | Python | 3.12 |
 | [uv](https://docs.astral.sh/uv/) | menedżer zależności i środowiska |
-| Node 20 | CLI pod Agent SDK — **nie** pod MCP, podprocesu MCP nie ma (D4) |
+| Node 20 | CLI pod Agent SDK — **nie** pod MCP, podprocesu MCP nie ma (D4). Do zbudowania frontu też, ale tylko na maszynie deweloperskiej: na serwer idą gotowe pliki |
 
 ## Start
 
@@ -75,9 +75,24 @@ uv run python -m monday_audit.cli_cennik --odswiez --pokaz
 # 4. Raport: dwa dokumenty HTML z zapisanego runu. Darmowe i powtarzalne.
 uv run python -m monday_audit.cli_raport --run-id agent-pelny-19
 
-# 5. Dashboardy (makieta frontu): panel wewnętrzny + panel klienta.
+# 5. Dashboardy jako pliki HTML: szybki podgląd bez serwera.
 uv run python -m monday_audit.cli_pulpit --json
+
+# 6. Aplikacja web: jeden adres, dwa wejścia. Klient sam odpala audyt.
+cd front && npm install && npm run build && cd ..   # raz, po zmianach we froncie
+uv run python -m monday_audit.cli_web --dodaj-klienta acme        # wypisuje hasło
+uv run python -m monday_audit.cli_web --dodaj-osobe jle@cxlabs.digital
+uv run python -m monday_audit.cli_web --serwuj --port 8010
 ```
+
+Hasło klienta wypisuje się **raz, na konsolę** — w bazie leży tylko hash `scrypt`,
+więc nie da się go odzyskać, tylko wygenerować nowe. Konto zespołowe wymaga
+adresu w domenie `@cxlabs.digital`.
+
+**Klucza API klienta nie zapisujemy nigdzie** — nie ma na niego kolumny
+w schemacie. Klient wkleja go w formularzu, klucz jedzie w ciele POST-a jako
+argument funkcji runu i ginie razem z procesem. O tym, co odbiorca widzi, decyduje
+**sesja po stronie serwera**, nigdy parametr z przeglądarki (D16).
 
 Rozdzielenie 1 i 2 nie jest kosmetyczne: etap 4 wymaga przepuszczania **tego
 samego** snapshotu przez nową rubrykę i nowy prompt, więc analiza nie może

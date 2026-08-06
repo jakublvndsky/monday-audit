@@ -1,0 +1,296 @@
+/* Elementy, których makieta nie miała, bo są interaktywne: brama logowania,
+ * filtry znalezisk, pasek postępu audytu.
+ *
+ * Tokeny pochodzą z `marka.css` — tutaj nie ma ani jednego nowego koloru.
+ * Gdyby był, rozjechałby marka przy pierwszej podmianie firmowego CSS.
+ */
+
+.wczytywanie {
+  padding: var(--space-8);
+  color: var(--fg-subtle);
+  font-family: var(--font-body);
+}
+
+/* ── Brama logowania ───────────────────────────────────────────────── */
+.brama {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5);
+  background: linear-gradient(180deg, var(--cx-ink-80) 0%, var(--cx-ink) 100%);
+}
+.brama__karta {
+  width: 100%;
+  max-width: 26rem;
+  background: var(--cx-white);
+  border-radius: var(--radius-xl);
+  padding: var(--space-6);
+}
+.brama__karta h1 {
+  margin: 0 0 var(--space-5);
+}
+.brama__zakladki {
+  display: flex;
+  gap: var(--space-1);
+  margin-bottom: var(--space-5);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.brama__zakladki button {
+  flex: 1;
+  padding: var(--space-3);
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  color: var(--fg-subtle);
+  border-bottom: 2px solid transparent;
+}
+.brama__zakladki button.aktywna {
+  color: var(--fg);
+  border-bottom-color: var(--cx-lime);
+}
+.brama__blad {
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: #fff5f5;
+  border-left: 3px solid var(--waga-krytyczna);
+  color: var(--waga-krytyczna);
+  font-size: var(--fs-small);
+}
+.brama__stopka {
+  margin: var(--space-5) 0 0;
+  font-size: var(--fs-xs);
+  color: var(--fg-subtle);
+  line-height: 1.5;
+}
+
+/* ── Formularze ────────────────────────────────────────────────────── */
+label {
+  display: block;
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-muted);
+  margin: var(--space-4) 0 var(--space-1);
+}
+input,
+select {
+  width: 100%;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  color: var(--fg);
+  background: var(--cx-white);
+}
+input:focus,
+select:focus {
+  outline: 2px solid var(--cx-ink-10);
+  outline-offset: 1px;
+}
+.cx-btn {
+  width: 100%;
+  margin-top: var(--space-5);
+  padding: var(--space-3) var(--space-5);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--cx-lime);
+  color: var(--cx-ink);
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  cursor: pointer;
+}
+.cx-btn:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+.cx-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.formularz-audytu {
+  max-width: 34rem;
+}
+/* Blok ostrzeżenia o kluczu admina. Marka używa lime oszczędnie, więc tu
+ * świadomie neutralny akcent — to informacja, nie zachęta. */
+.uwaga--klucz {
+  margin: var(--space-4) 0 0;
+  font-size: var(--fs-small);
+  line-height: 1.5;
+}
+.uwaga--klucz p + p {
+  margin-top: var(--space-3);
+}
+
+/* ── Filtry znalezisk ──────────────────────────────────────────────── */
+.filtry {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-4);
+}
+.filtry button {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--cx-white);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: var(--fs-xs);
+  color: var(--fg-muted);
+}
+.filtry button.aktywny {
+  background: var(--cx-ink);
+  border-color: var(--cx-ink);
+  color: var(--cx-lime);
+}
+
+/* ── Pasek postępu audytu ──────────────────────────────────────────── */
+.etap {
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  margin: 0 0 var(--space-3);
+}
+.postep {
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--cx-cloud);
+  overflow: hidden;
+}
+.postep > span {
+  display: block;
+  height: 100%;
+  background: var(--cx-lime);
+  transition: width 400ms ease;
+}
+
+.sidebar__wyloguj {
+  margin-top: var(--space-4);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg-on-dark-subtle);
+  font-family: var(--font-body);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+/* ── Reset szerokości `<body>` dla aplikacji ───────────────────────────
+ *
+ * `marka.css` powstał z szablonu RAPORTU, więc niesie `body { max-width: 940px;
+ * margin: 0 auto }` — słuszne dla dokumentu do czytania, błędne dla aplikacji
+ * na pełny ekran. Sekcja panelowa nadpisuje `max-width`, ale nie `margin`,
+ * i brama lądowała w kolumnie 940 px zamiast na całej szerokości.
+ *
+ * Wyszło ze ZRZUTU EKRANU: ciemne tło zajmowało trzecią część ekranu, karta
+ * siedziała po lewej. Ani `tsc`, ani `npm run build`, ani żaden test HTTP tego
+ * nie widzi — to trzeci raz w tym projekcie, gdy usterkę wizualną łapie dopiero
+ * obejrzenie wyniku.
+ *
+ * Trzymamy to w JEDNYM miejscu i z pełną specyfiką, żeby kolejność importów
+ * CSS nie decydowała o układzie strony. */
+body {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+}
+
+/* PRZYCZYNA, której szukałem dwie iteracje: React montuje się w `#korzen`,
+ * a ten div nie miał ŻADNYCH reguł. Jako element w `body { display: flex }`
+ * zwężał się do szerokości treści — więc brama miała 464 px, a nie ekran.
+ *
+ * Poprawianie `body` i `.brama` nie mogło pomóc, bo problem był w warstwie
+ * MIĘDZY nimi. Dwie nietrafione poprawki to koszt zgadywania zamiast
+ * sprawdzenia, który element faktycznie jest wąski.
+ *
+ * `#korzen` przejmuje rolę powłoki: on jest flex-kontenerem dla sidebara
+ * i treści, a `body` tylko tłem. */
+#korzen {
+  display: flex;
+  min-height: 100vh;
+  width: 100%;
+}
+/* `.tresc` w `marka.css` ma `flex: 1 1 auto` licząc na rodzica-flex — teraz
+ * jest nim `#korzen`, więc reguła działa bez zmian w arkuszu marki. */
+.brama {
+  flex: 1 1 auto;
+}
+
+/* ── Responsywność ─────────────────────────────────────────────────────
+ *
+ * `marka.css` ma regułę `@media (max-width: 900px) { body { flex-direction:
+ * column } }` — przeniesioną z makiety, gdzie flex-kontenerem BYŁO `body`.
+ * Tu jest nim `#korzen`, więc reguła nie miała na co działać: na telefonie
+ * sidebar zabierał pół ekranu, a treść zwężała się do jednej litery na wiersz.
+ *
+ * Wyszło ze zrzutu przy 390 px. Ani `tsc`, ani build, ani testy HTTP tego nie
+ * widzą — trzeba obejrzeć.
+ *
+ * Nie ruszam `marka.css`: on jest wspólny z raportem (D14), a raport nie ma
+ * `#korzen`. Nadpisanie jest tutaj, bo ta warstwa jest specyficzna dla aplikacji.
+ */
+@media (max-width: 900px) {
+  #korzen {
+    flex-direction: column;
+  }
+  /* Sidebar staje się paskiem u góry: sam znak marki i wylogowanie. Nawigacja
+   * po klientach jest w drop-downie w pasku, więc na telefonie nie dubluje się. */
+  .sidebar {
+    flex: none;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-3) var(--space-4);
+  }
+  .sidebar__marka {
+    padding: 0;
+  }
+  .sidebar__marka img {
+    height: 24px;
+  }
+  .sidebar__marka small,
+  .sidebar nav {
+    display: none;
+  }
+  .sidebar__stopka {
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+  .sidebar__stopka p {
+    display: none;
+  }
+  .sidebar__wyloguj {
+    margin: 0;
+  }
+  .strona,
+  .pasek {
+    padding: var(--space-4);
+  }
+  /* Kafle i metryki na wąskim ekranie: dwie kolumny, nie jedna — liczby są
+   * krótkie, więc jedna kolumna marnowałaby ekran. */
+  .kafle-gorne,
+  .metryki {
+    grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  }
+  .finding {
+    padding: var(--space-4);
+  }
+  .kwota {
+    float: none;
+    display: block;
+    margin-bottom: var(--space-2);
+  }
+  /* Dowód: dwie kolumny grid nie mieszczą się poniżej ~500 px. */
+  dl.dowod {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+  dl.dowod dt {
+    margin-top: var(--space-2);
+  }
+}
