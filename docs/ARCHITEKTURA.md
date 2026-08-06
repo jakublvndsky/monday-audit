@@ -594,3 +594,50 @@ Instrukcja w `src/monday_audit/szablony/fonty/README.md`.
 **Co unieważni:** wykupienie licencji webfontowej Avenira i Clash Display albo
 zgoda ITF na piśmie. Wtedy fonty wchodzą do `szablony/fonty/`, a dwa testy
 strażnicze trzeba świadomie usunąć — nie obejść.
+
+---
+
+## D15. Front wraca do zakresu. Python zostaje przy danych, prezentacja jest wymienna
+
+**Decyzja:** powstaje front — panel wewnętrzny CXLABS z drop-downem klientów
+i panel dla klienta za hasłem. **Agregacja i granice zostają w Pythonie,
+prezentacja jest warstwą wymienną.**
+
+**To unieważnia D9 w części „brak frontu w v1".** Warunek unieważnienia był tam
+zapisany jako „produkt drugi (monitor subskrypcyjny). Tam React Artura ma sens,
+bo pojawia się interaktywność i notyfikacje". Panel dla klienta z logowaniem to
+dokładnie ten zwrot — zapisujemy go jako świadomą zmianę, nie przemilczamy.
+Raport z 3.12 **nie znika**: Kuba zdecydował „panel zastępuje raport" jako to,
+co dostaje klient, a dokument zostaje eksportem datowanej wersji.
+
+**Podział, który jest tu całą treścią decyzji:**
+
+| Warstwa | Gdzie | Dlaczego tam |
+|---|---|---|
+| agregacja, deanonimizacja, podział odbiorcy | **Python (`pulpit.py`)** | tu żyją dane i granice bezpieczeństwa; to najtrudniejsza i najlepiej testowalna część |
+| widok | **wymienny** — dziś jinja2, docelowo React albo komponenty Docs Publishera | Python nie jest technologią frontu: filtry, sortowanie po kliknięciu i wykresy wychodzą w nim topornie |
+
+Mechanizmem, który zamienia to z obietnicy w fakt, jest **`pulpit.do_json()`**:
+ta sama struktura idzie do szablonu i do payloadu. Test sprawdza, że przechodzi
+przez `json.dumps`. Bez tego „przepisujemy szablony, nie logikę" byłoby
+życzeniem.
+
+**Granica odbiorcy jest STRUKTURALNA, nie wizualna.** Payload dla klienta
+**nie zawiera** kluczy wewnętrznych — nie „nie wyświetla ich". Przy froncie
+w JS to jedyny wariant, który cokolwiek znaczy: odbiorca widzi payload
+w narzędziach przeglądarki, a szablon jest u niego, nie u nas. To zaostrzenie
+zasady, którą 3.12 zapisało jako „filtrowanie w SQL, nie w szablonie".
+
+**Poziom konta, bez podziału na workspace'y.** Decyzja Kuby, potwierdzona
+pomiarem: wszystkie 105 tablic snapshotu #5 siedzi w jednym workspace, a tylko
+2 z 11 znalezisk niesie `board_id` — reszta jest kontowa. Podział przestrzenny
+nie miałby czego pokazać. Wraca, gdy audyt obejmie całe konto i dojdą klasy
+przypisane do tablic.
+
+**Czego ta decyzja NIE obejmuje:** serwera. Bez FastAPI, uwierzytelniania
+i hostingu — makieta to statyczne pliki. Gdzie front zamieszka (moduł
+w Docs Publisherze czy osobna aplikacja) rozstrzyga się po obejrzeniu układu.
+
+**Co unieważni:** decyzja, że front idzie do Docs Publishera. Wtedy szablony
+jinja2 znikają, a `do_json` staje się jedynym wyjściem tego modułu — i o to
+w tym podziale chodziło.

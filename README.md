@@ -74,6 +74,9 @@ uv run python -m monday_audit.cli_cennik --odswiez --pokaz
 
 # 4. Raport: dwa dokumenty HTML z zapisanego runu. Darmowe i powtarzalne.
 uv run python -m monday_audit.cli_raport --run-id agent-pelny-19
+
+# 5. Dashboardy (makieta frontu): panel wewnętrzny + panel klienta.
+uv run python -m monday_audit.cli_pulpit --json
 ```
 
 Rozdzielenie 1 i 2 nie jest kosmetyczne: etap 4 wymaga przepuszczania **tego
@@ -132,7 +135,7 @@ przy prompt injection to fałszywe znalezisko w raporcie — nie wyciek, nie mod
 | [`STATUS.md`](STATUS.md) | zawsze, pierwszy |
 | [`docs/PODSUMOWANIE.md`](docs/PODSUMOWANIE.md) | **stan projektu w pięć minut, bez kodu** — dla kogoś z zewnątrz |
 | [`docs/ZBUDOWANE.md`](docs/ZBUDOWANE.md) | co faktycznie stoi, moduł po module, z pomiarami |
-| [`docs/ARCHITEKTURA.md`](docs/ARCHITEKTURA.md) | decyzje D1–D14 z uzasadnieniami — przed zmianą architektury |
+| [`docs/ARCHITEKTURA.md`](docs/ARCHITEKTURA.md) | decyzje D1–D15 z uzasadnieniami — przed zmianą architektury |
 | [`docs/etapy/`](docs/etapy/) | pełna specyfikacja każdego etapu |
 | [`docs/OTWARTE.md`](docs/OTWARTE.md) | założenia niepotwierdzone — nie fakty |
 | [`docs/PROMPT_AGENTA.md`](docs/PROMPT_AGENTA.md) | prompt agenta produkcyjnego |

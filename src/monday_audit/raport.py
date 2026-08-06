@@ -414,8 +414,14 @@ def odmiana(liczba: int, jeden: str, kilka: str, wiele: str) -> str:
     return wiele
 
 
-def _srodowisko(katalog: Path) -> Environment:
-    """Jinja z JAWNYM autoescapingiem.
+def srodowisko(katalog: Path) -> Environment:
+    """Jinja z JAWNYM autoescapingiem. Publiczne, bo używa jej też `pulpit`.
+
+    Nazwa bez podkreślnika świadomie: funkcja prywatna wołana z innego modułu
+    to sprzeczność, którą Kuba wyłapał już raz przy `_payload` w `narzedzia.py`.
+    Skoro panele budują szablony tym samym środowiskiem — a muszą, bo inaczej
+    autoescaping i polityka `tojson` rozjechałyby się między dokumentami —
+    to jest część API tego modułu.
 
     `Environment` domyślnie ma `autoescape=False`. W dokumencie niosącym nazwy
     tablic i kolumn klienta to znaczy, że nazwa `Oferty <b>2026</b>` rozwala
@@ -446,7 +452,7 @@ def _srodowisko(katalog: Path) -> Environment:
 def wyrenderuj(raport: Raport, *, katalog: Path = KATALOG_SZABLONOW, szablon: str = SZABLON) -> str:
     """Wstawia dane w szablon. Zwraca kompletny, samodzielny HTML."""
     return (
-        _srodowisko(katalog)
+        srodowisko(katalog)
         .get_template(szablon)
         .render(r=raport, logo=zasob_data_uri(LOGO, katalog=katalog / "zasoby"))
     )

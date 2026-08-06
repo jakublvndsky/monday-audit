@@ -923,3 +923,40 @@ audytu, więc jedno żądanie na stronę na odświeżenie, nie na klienta.
 cennika) i dopiero na tej podstawie zdecydować. Do wersji wewnętrznej scraper
 zostaje; przed publikacją albo jest zgoda, albo wchodzi ręczne wprowadzanie
 stawek przez front (`sposob = 'reczna'` jest już w schemacie i obsłużone).
+
+
+---
+
+## O23. Panel z danymi osobowymi klienta pod hasłem na publicznym hostingu
+
+**Status:** otwarte, do rozstrzygnięcia PRZED wystawieniem panelu
+**Waga:** wysoka — dotyczy danych osobowych ludzi klienta
+**Dotyczy:** `monday_audit.pulpit`, decyzja D15
+
+Raport z 3.12 był **plikiem na dysku**: leżał u nas, wysyłaliśmy go świadomie,
+a odbiorca dostawał kopię. Panel to inny profil ryzyka: **dane osobowe klienta
+leżą pod adresem URL**, dostępne dla każdego, kto ma link i hasło.
+
+Kuba wybrał wzorzec z Docs Publishera — jedno hasło na folder klienta,
+kopiowane przyciskiem. Zgodne z D11 (bez OAuth w v1) i klienci go już znają.
+**Czego to nie rozstrzyga:**
+
+1. **Hasło krąży mailem.** Link żyje dłużej niż powinien, a hasło raz wysłane
+   zostaje w skrzynkach. Do rozważenia: data ważności dostępu (np. 90 dni od
+   audytu), po której panel przestaje odpowiadać.
+2. **Co się dzieje po zakończeniu relacji z klientem.** D11 mówi wprost:
+   „token wygasa albo jest usuwany po audycie". Panel ma żyć dalej, więc
+   trzeba powiedzieć, jak długo i kto go kasuje.
+3. **Logi wejść.** Docs Publisher liczy wizyty; panel audytu z danymi osobowymi
+   tym bardziej powinien wiedzieć, kto i kiedy wchodził — i to samo trzeba
+   powiedzieć klientowi.
+4. **Nazwiska w panelu.** Decyzja z 3.12 (nazwiska w obu wersjach, bo raport
+   z hashami jest niewykonalny) przenosi się na panel. Słuszna, ale w pliku
+   znaczyła co innego niż pod URL-em.
+
+**Czego to NIE blokuje:** makiety. Dziś panel to statyczne pliki na dysku,
+bez serwera i bez hostingu, więc ryzyko jest zerowe. Pozycja istnieje, żeby
+nie wystawić go bez odpowiedzi na te cztery pytania.
+
+**Powiązane:** O22 (scrapowanie stron dostawcy przez aplikację z Marketplace) —
+oba dotyczą tego samego przejścia z narzędzia wewnętrznego na produkt.

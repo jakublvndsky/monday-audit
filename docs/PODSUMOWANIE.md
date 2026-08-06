@@ -2,6 +2,7 @@
 
 > **Dla kogo:** osoba nadzorująca projekt. Pięć minut czytania, bez kodu.
 > **Stan na:** 2026-08-05. Etap 3 (Build) zbudowany, czeka na odhaczenie 3.12.
+> Doszła makieta frontu (D15) — poza numeracją etapu 3.
 > **Szczegóły techniczne:** [`ZBUDOWANE.md`](ZBUDOWANE.md) · **decyzje:**
 > [`ARCHITEKTURA.md`](ARCHITEKTURA.md) · **niepewności:** [`OTWARTE.md`](OTWARTE.md)
 
@@ -106,8 +107,13 @@ cennik zaszyty u nas — ten rozjechałby się przy pierwszej zmianie cen.
 
 ## Co produkuje
 
-Dwa dokumenty HTML z jednego przebiegu. Otwierają się z dysku, bez internetu,
-drukują do PDF.
+Dwa dokumenty HTML z jednego przebiegu — otwierają się z dysku, bez internetu,
+drukują do PDF. Do tego **makietę dashboardów** (od 2026-08-05): panel
+wewnętrzny CXLABS z listą klientów i panel dla klienta, widzący tylko siebie.
+
+Panel docelowo **zastępuje raport** jako to, co dostaje klient — decyzja Kuby.
+Dokument zostaje eksportem datowanej wersji, bo panel czyta bazę na żywo i nie
+ma własności, którą raport miał: nie jest zamrożony.
 
 | | wewnętrzny | klientowy |
 |---|---|---|
@@ -243,6 +249,8 @@ Korpus 5 zamrożonych snapshotów gotowy na etap 4 (wymagane 3–5).
 ### Zostało w etapie 3
 
 - **odhaczenie 3.12** — decyzja człowieka, nie narzędzia
+- **front nie ma pozycji w `STATUS.md`** — należy do etapu 5, a jesteśmy w 3.
+  Makieta powstała, żeby ocenić układ; pozycję wpisuje człowiek
 
 ### Czeka na decyzję, nic nie blokuje
 
@@ -256,6 +264,14 @@ Korpus 5 zamrożonych snapshotów gotowy na etap 4 (wymagane 3–5).
 4. **Pełny przebieg ze stawką licencji** dałby 11 znalezisk **z kwotami**
    w jednym raporcie, zamiast dzisiejszego „11 bez kwot" albo „2 z kwotami".
    ~1,7 USD.
+
+### Ryzyko do rozstrzygnięcia przed wystawieniem panelu
+
+Raport był plikiem na dysku. Panel to **dane osobowe klienta pod adresem URL**,
+za jednym hasłem krążącym mailem. Cztery pytania bez odpowiedzi: wygasanie
+dostępu, logi wejść, co się dzieje po zakończeniu relacji z klientem, i to,
+że nazwiska w pliku znaczyły co innego niż pod URL-em. Szczegóły: **O23**.
+Makiety to nie dotyczy — dziś są to pliki na dysku.
 
 ### Ryzyko do rozstrzygnięcia przed Marketplace
 

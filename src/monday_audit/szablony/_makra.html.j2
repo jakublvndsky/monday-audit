@@ -1,0 +1,17 @@
+{# Makra wspólne dla raportu i paneli.
+
+   `wartosc_dowodu` renderuje jedno pole dowodu — skalar, listę albo
+   zagnieżdżoną strukturę. Wspólne, bo dowód wygląda tak samo w dokumencie
+   i w dashboardzie: to ta sama treść z tej samej kolumny `findings.dowod`.
+#}
+{% macro wartosc_dowodu(v) -%}
+  {% if v is mapping or (v is sequence and v is not string and v and v[0] is mapping) -%}
+    <pre>{{ v | tojson(indent=2) }}</pre>
+  {%- elif v is sequence and v is not string -%}
+    {{ v | join(', ') if v else '—' }}
+  {%- elif v is none -%}
+    —
+  {%- else -%}
+    {{ v }}
+  {%- endif %}
+{%- endmacro %}

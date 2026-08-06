@@ -41,6 +41,10 @@ snapshoty/
 # czyli zawiera prawdziwe imiona i e-maile klienta. Nie może trafić do repo.
 raporty/
 
+# Makieta dashboardów — to samo, i dodatkowo payloady `.json` dla frontu.
+# Panel klienta jest PO deanonimizacji, więc niesie nazwiska i nazwy tablic.
+pulpity/
+
 # Ewaluacje (etap 4) — blokujemy DANE, nie harness.
 #
 # Harness ewaluacyjny jest wersjonowany i ma być: bez niego nie da się powtórzyć

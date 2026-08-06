@@ -9,8 +9,9 @@
 > zmierzyliśmy, jest napisane, że nie.
 
 Etap 3, pozycje **3.1–3.12 zbudowane i przepuszczone przez prawdziwe konto**.
-Audyt kończy się dwoma dokumentami HTML. Publikacja pod URL-em przechodzi do
-etapu 5, gdzie i tak stoi Caddy.
+Audyt kończy się dwoma dokumentami HTML, a od 2026-08-05 także **makietą
+dashboardów** (D15). Publikacja pod URL-em przechodzi do etapu 5, gdzie stoi
+Caddy — a ryzyko danych osobowych pod URL-em opisuje O23.
 
 ---
 
@@ -23,6 +24,7 @@ etapu 5, gdzie i tak stoi Caddy.
    │  cli.py            collector: 5 modułów + sonda, 227 wywołań │
    │  cli_agent.py      agent: 1 sesja na hipotezę               │
    │  cli_cennik.py     scraper stawek — NIGDY w trakcie audytu  │
+   │  cli_raport.py     dokument HTML · cli_pulpit.py  dashboardy │
    └───────────────────────────────┬─────────────────────────────┘
                                    ▼
   KROK 1 ── collector (httpx, zero AI)
@@ -48,7 +50,8 @@ etapu 5, gdzie i tak stoi Caddy.
                  findings + findings_odrzucone + runy
                                    │
   KROK 5 ── renderer (jinja2, autoescape) — deanonimizacja DOPIERO TUTAJ
-  dwa pliki HTML: wewnętrzny i klientowy
+  raport: dwa pliki HTML · panel: dashboardy + payload JSON dla frontu w JS
+  granica odbiorcy jest STRUKTURALNA, nie wizualna (D15)
 ```
 
 **Agent jest w środku, nie na końcu.** Po nim dwie warstwy deterministyczne.
@@ -77,6 +80,7 @@ etapu 5, gdzie i tak stoi Caddy.
 | `cli_cennik.py` | scraper stawek | wzorce zakotwiczone w **zdaniach**, nie w HTML-u; porażka nic nie nadpisuje |
 | `deanonimizacja.py` | hash → nazwisko (3.12) | jedyny czytnik PII poza walidacją z 3.8; hashe siedzą też w KLUCZACH dowodu i w wolnym tekście |
 | `raport.py` | zebranie danych i render | filtrowanie odbiorcy w **SQL**, nie w szablonie — szablon nie może być ostatnią linią obrony |
+| `pulpit.py` | dashboardy: agregaty kontowe + kontrakt JSON (D15) | granica odbiorcy jest **strukturalna**: payload klienta nie ZAWIERA kluczy wewnętrznych, a nie tylko ich nie pokazuje |
 | `baza.py` | połączenie, migracje, rejestr wywołań | `polacz()` włącza klucze obce, więc kolejność zapisów nie jest dowolna |
 | `postep.py` | wskaźnik postępu | run collectora trwa minuty i cisza jest nieodróżnialna od zawieszenia |
 
@@ -288,11 +292,54 @@ zgodność = wydruk do PDF na maszynie z zainstalowanym fontem; instrukcja
 w `szablony/fonty/README.md`, dwa testy strażnicze pilnują, żeby nikt tego nie
 „poprawił".
 
+## Dashboardy (makieta frontu)
+
+Trzy statyczne pliki z jednego polecenia, linkowane relatywnie — klika się jak
+aplikacja, a jest zwykłym HTML-em:
+
+```bash
+uv run python -m monday_audit.cli_pulpit --json
+```
+
+```
+pulpity/index.html              panel wewnętrzny: lista klientów + drop-down
+pulpity/<klient>/wewnetrzny.html   pełny widok
+pulpity/<klient>/klient.html       to, co widzi klient
+```
+
+Układ z Docs Publishera: ciemny sidebar w ink, jasna treść, karty 16 px, duże
+liczby, sekcje zwijane. Cztery sekcje agregatów **z samego snapshotu** — ludzie
+i licencje, tablice, automatyzacje, aktywność — bez ani jednego nowego zapytania
+do monday.
+
+**Python zostaje przy danych, prezentacja jest wymienna (D15).** `pulpit.do_json()`
+zwraca payload, który zobaczy front w JS; szablony jinja2 są jednym z jego
+konsumentów, nie jedynym. Dzięki temu przejście na React albo komponenty
+Docs Publishera jest podmianą widoku, nie przepisaniem logiki.
+
+**Granica odbiorcy jest strukturalna.** Payload klienta **nie zawiera** kluczy
+wewnętrznych (`pinowanie`, `koszt_usd`, `hipotezy_odrzucone`, …) — nie „nie
+wyświetla ich". Przy froncie w JS to jedyny wariant, który cokolwiek znaczy,
+bo szablon jest u odbiorcy. Osiem testów pilnuje tego na obu warstwach: HTML
+i JSON.
+
+**Bez serwera i bez interaktywności.** Filtry, sortowanie po kliknięciu
+i porównania między audytami czekają na front w JS — w jinja2 zrobilibyśmy je
+dwa razy. Makieta pokazuje układ i treść.
+
+Dwie usterki wyszły dopiero ze **zrzutu ekranu**, nie z testów: znak marki
+w wersji ink był niewidoczny na ciemnym sidebarze (HTML zawierał `<img>`, tylko
+nikt go nie widział), a opis metryki zlewał się z procentem w jedno zdanie
+(„99.0% z 105 statystyki są na poziomie konta"). Dowód, że przy warstwie
+wizualnej trzeba patrzeć, nie tylko grepować.
+
 ## Czego jeszcze nie ma
 
 | Brak | Gdzie opisany |
 |---|---|
-| **publikacja raportu pod URL-em** | etap 5 — hosting i skill publishera; 3.12 daje pliki |
+| **publikacja raportu i panelu pod URL-em** | etap 5 — hosting, uwierzytelnianie, hasła per klient. Makieta to pliki na dysku; ryzyko danych osobowych pod URL-em: O23 |
+| interaktywność panelu (filtry, sortowanie, wykresy) | czeka na front w JS — D15 |
+| podział znalezisk po workspace'ach | tylko 2 z 11 znalezisk niesie `board_id`; wraca przy audycie całego konta |
 | zużycie kredytów AI | API tego nie oddaje w żadnej sprawdzonej wersji — O2, O20 |
 | liczba uruchomień automatyzacji per tablica | filtr `board_id` zepsuty w API — O12 |
 | `AI_UNUSED` | klasa nieaktywna, `status: do_weryfikacji` |
@@ -364,7 +411,7 @@ w Finderze i nieodtwarzalne.
 
 ## Testy
 
-**501 testów, 19 odznaczonych** (integracyjne, uderzają w prawdziwe monday —
+**518 testów, 19 odznaczonych** (integracyjne, uderzają w prawdziwe monday —
 `-m integracyjny` je włącza). `make sprawdz` to ruff + mypy + pytest.
 
 Warstwy: jednostkowe na danych syntetycznych, integracyjne na koncie CXLABS,

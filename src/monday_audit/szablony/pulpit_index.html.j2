@@ -1,0 +1,123 @@
+{# Panel WEWNĘTRZNY — lista klientów i wejście do ich audytów.
+
+   Lista pochodzi z bazy. Gdy jest jeden klient, jest jedna pozycja — i strona
+   mówi o tym wprost, zamiast dorabiać przykładowych klientów, żeby tabela
+   wyglądała pełniej.
+#}
+<title>Audyt monday.com — panel CXLABS</title>
+<style>
+{% include "_marka.css.j2" %}
+{% include "_pulpit.css.j2" %}
+</style>
+
+<aside class="sidebar">
+  <div class="sidebar__marka">
+    {% if logo %}<img src="{{ logo }}" alt="CXLABS">{% endif %}
+    <small>Audyt monday.com</small>
+  </div>
+  <nav>
+    <a class="aktywny" href="index.html">Klienci<span class="sidebar__licznik">{{ klienci | length }}</span></a>
+    {% for k in klienci %}
+      <a href="{{ k.client_id }}/wewnetrzny.html">{{ k.client_id }}</a>
+    {% endfor %}
+  </nav>
+  <div class="sidebar__stopka">
+    <p>panel wewnętrzny</p>
+    <p>dane z bazy audytów</p>
+  </div>
+</aside>
+
+<main class="tresc">
+  <div class="pasek">
+    <span class="okruszki"><b>Klienci</b></span>
+    <span class="pasek__prawo">
+      <select class="wybor-klienta" aria-label="Wybór klienta">
+        <option selected>— wybierz klienta —</option>
+        {% for k in klienci %}
+          <option>{{ k.client_id }} — {{ k.findingow }} znalezisk</option>
+        {% endfor %}
+        <option disabled>— kolejni pojawią się po audycie —</option>
+      </select>
+      <span class="plomba-odbiorcy plomba-odbiorcy--wewn">wewnętrzny</span>
+    </span>
+  </div>
+
+  <div class="strona">
+    <p class="eyebrow">Panel CXLABS</p>
+    <h1>Audyty monday.com</h1>
+    <p class="strona__adres">
+      {{ klienci | length }} {{ odmiana(klienci | length, 'klient', 'klienci', 'klientów') }}
+      z zakończonym audytem · {{ findingow_razem }}
+      {{ odmiana(findingow_razem, 'znalezisko', 'znaleziska', 'znalezisk') }} razem
+    </p>
+
+    <div class="kafle-gorne">
+      <div class="kafel-duzy">
+        <small>Klienci</small>
+        <b>{{ klienci | length }}</b>
+        <div class="pod">z zakończonym audytem</div>
+      </div>
+      <div class="kafel-duzy">
+        <small>Znaleziska</small>
+        <b>{{ findingow_razem }}</b>
+        <div class="pod">we wszystkich audytach</div>
+      </div>
+      {% if kwoty_razem %}
+        <div class="kafel-duzy kafel-duzy--akcent">
+          <small>Oszczędności wskazane klientom</small>
+          <b>{{ '{:,.0f}'.format(kwoty_razem).replace(',', ' ') }}</b>
+          <div class="pod">PLN rocznie, łącznie</div>
+        </div>
+      {% endif %}
+    </div>
+
+    <details class="sekcja" open>
+      <summary>Klienci <span class="opis">wejdź, żeby zobaczyć audyt</span></summary>
+      <div class="sekcja__ciało">
+        <div class="przewijane">
+          <table class="tabela-lista">
+            <thead>
+              <tr>
+                <th>klient</th><th>audytów</th><th>ostatni</th>
+                <th>znaleziska</th><th>oszczędność</th><th>widoki</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for k in klienci %}
+                <tr>
+                  <td><b>{{ k.client_id }}</b></td>
+                  <td>{{ k.audytow }}</td>
+                  <td>{{ k.ostatni_run_at[:10] if k.ostatni_run_at else '—' }}</td>
+                  <td>{{ k.findingow }}</td>
+                  <td>
+                    {% if k.suma_kwot %}
+                      {{ '{:,.0f}'.format(k.suma_kwot).replace(',', ' ') }} PLN
+                    {% else %}—{% endif %}
+                  </td>
+                  <td>
+                    <a href="{{ k.client_id }}/wewnetrzny.html">pełny</a> ·
+                    <a href="{{ k.client_id }}/klient.html">widok klienta</a>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <p class="brak-danych">
+          Lista pochodzi z bazy audytów, więc rośnie sama po każdym runie.
+          {% if klienci | length == 1 %}
+            Dziś jest w niej jeden klient — nie dorabiamy przykładowych, żeby
+            tabela wyglądała pełniej.
+          {% endif %}
+        </p>
+      </div>
+    </details>
+
+    <footer>
+      Makieta panelu. Drop-down i przełączanie widoków to na razie statyczne
+      pliki — interaktywność (filtry, sortowanie, porównania między audytami)
+      wchodzi z frontem w JS. CXLABS.
+    </footer>
+  </div>
+</main>

@@ -1,0 +1,272 @@
+{# Panel jednego klienta — wewnętrzny albo klientowy.
+
+   Co wchodzi do dokumentu, decyduje `pulpit.py`. Tutaj NIE MA filtrowania
+   odbiorcy „na wszelki wypadek": treść wewnętrzna nie dociera do tego pliku,
+   bo `do_json`/`zbuduj_pulpit` jej nie przekazują.
+#}
+{% from "_makra.html.j2" import wartosc_dowodu %}
+<title>{{ p.nazwa_konta }} — audyt monday.com{% if not p.dla_klienta %} (wewnętrzny){% endif %}</title>
+<style>
+{% include "_marka.css.j2" %}
+{% include "_pulpit.css.j2" %}
+</style>
+
+<aside class="sidebar">
+  <div class="sidebar__marka">
+    {% if logo %}<img src="{{ logo }}" alt="CXLABS">{% endif %}
+    <small>Audyt monday.com</small>
+  </div>
+  <nav>
+    {% if not p.dla_klienta %}
+      <a href="../index.html">Klienci<span class="sidebar__licznik">{{ klientow }}</span></a>
+      <a class="aktywny" href="wewnetrzny.html">{{ p.client_id }} — pełny</a>
+      <a href="klient.html">{{ p.client_id }} — widok klienta</a>
+    {% else %}
+      <span class="poz">Twój audyt</span>
+    {% endif %}
+  </nav>
+  <div class="sidebar__stopka">
+    <p>run <code>{{ p.run_id }}</code></p>
+    <p>audyt z {{ p.run_at[:10] }}</p>
+  </div>
+</aside>
+
+<main class="tresc">
+  <div class="pasek">
+    <span class="okruszki">
+      {% if not p.dla_klienta %}Klienci / {% endif %}<b>{{ p.client_id }}</b>
+    </span>
+    <span class="pasek__prawo">
+      {% if not p.dla_klienta %}
+        <select class="wybor-klienta" aria-label="Wybór klienta">
+          {% for k in klienci %}
+            <option {% if k.client_id == p.client_id %}selected{% endif %}>
+              {{ k.client_id }} — {{ k.findingow }} znalezisk
+            </option>
+          {% endfor %}
+          <option disabled>— kolejni pojawią się po audycie —</option>
+        </select>
+        <span class="plomba-odbiorcy plomba-odbiorcy--wewn">wewnętrzny</span>
+      {% else %}
+        <span class="plomba-odbiorcy plomba-odbiorcy--klient">Twoje konto</span>
+      {% endif %}
+    </span>
+  </div>
+
+  <div class="strona">
+    <p class="eyebrow">Audyt konta monday.com</p>
+    <h1>{{ p.nazwa_konta }}</h1>
+    <p class="strona__adres">
+      {{ p.zakres }} · plan {{ p.plan_tier }} · dane z {{ p.run_at[:10] }}
+    </p>
+
+    {# ── Kafle górne ───────────────────────────────────────────────── #}
+    <div class="kafle-gorne">
+      <div class="kafel-duzy">
+        <small>Znaleziska</small>
+        <b>{{ p.findingow }}</b>
+        <div class="pod">
+          {% for waga, ile in p.po_wagach.items() %}
+            {{ ile }} {{ waga | slownie }}{% if not loop.last %} · {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+      {% if p.ma_kwoty %}
+        <div class="kafel-duzy kafel-duzy--akcent">
+          <small>Możliwa oszczędność roczna</small>
+          <b>{{ '{:,.0f}'.format(p.suma_kwot).replace(',', ' ') }}</b>
+          <div class="pod">PLN na licencjach monday</div>
+        </div>
+      {% else %}
+        <div class="kafel-duzy">
+          <small>Oszczędność</small>
+          <b>—</b>
+          <div class="pod">nie podano stawki licencji</div>
+        </div>
+      {% endif %}
+      {% for m in kafle_kluczowe %}
+        <div class="kafel-duzy">
+          <small>{{ m.nazwa }}</small>
+          <b>{{ m.wartosc }}</b>
+          <div class="pod">
+            {% if m.udzial %}{{ m.udzial }}% z {{ m.z }}{% else %}{{ m.opis or '' }}{% endif %}
+          </div>
+        </div>
+      {% endfor %}
+      {% if not p.dla_klienta and p.koszt_usd %}
+        <div class="kafel-duzy">
+          <small>Koszt audytu</small>
+          <b>{{ '%.2f' % p.koszt_usd }}</b>
+          <div class="pod">USD za analizę</div>
+        </div>
+      {% endif %}
+    </div>
+
+    {% if not p.ma_porownanie %}
+      <p class="brak-danych">
+        To pierwszy audyt tego konta, więc nie ma z czym porównywać. Przy
+        następnym panel pokaże różnicę — na przykład „martwych kont: 7 → 4".
+      </p>
+    {% else %}
+      <p class="brak-danych">
+        Poprzedni audyt: {{ p.poprzedni_run_at[:10] }}. Porównanie liczb między
+        audytami dorobi front w JS — dziś panel pokazuje tylko stan bieżący.
+      </p>
+    {% endif %}
+
+    {# ── Konto w liczbach ──────────────────────────────────────────── #}
+    {% for s in p.sekcje %}
+      <details class="sekcja" open>
+        <summary>{{ s.tytul }} <span class="opis">{{ s.opis }}</span></summary>
+        <div class="sekcja__ciało">
+          <div class="metryki">
+            {% for m in s.metryki %}
+              <div class="metryka {% if m.uwaga %}metryka--uwaga{% endif %}">
+                <b>{{ m.wartosc }}</b>
+                <small>{{ m.nazwa }}</small>
+                {% if m.udzial is not none %}
+                  <div class="pasek-udzialu"><span style="width: {{ m.udzial }}%"></span></div>
+                  <small class="udzial">{{ m.udzial }}% z {{ m.z }}</small>
+                {% endif %}
+                {% if m.opis %}<small class="metryka__opis">{{ m.opis }}</small>{% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      </details>
+    {% endfor %}
+
+    {# ── Znaleziska ────────────────────────────────────────────────── #}
+    <details class="sekcja" open>
+      <summary>
+        Znaleziska
+        <span class="opis">kolejność z rubryki: waga, potem koszt naprawy</span>
+      </summary>
+      <div class="sekcja__ciało">
+        {% if not p.findingi %}
+          <p class="pusto">Ten audyt nie dał znalezisk widocznych w tej wersji panelu.</p>
+        {% endif %}
+        {% for f in p.findingi %}
+          <article class="finding {{ f.waga }}">
+            {% if f.kwota_pln %}
+              <span class="kwota">{{ '{:,.0f}'.format(f.kwota_pln).replace(',', ' ') }} PLN / rok</span>
+            {% endif %}
+            <h3>{{ loop.index }}. {{ f.nazwa }}</h3>
+            <p class="etykiety">
+              waga <b>{{ f.waga | slownie }}</b> · naprawa <b>{{ f.wysilek | slownie }}</b> ·
+              pewność <b>{{ f.pewnosc | slownie }}</b>
+            </p>
+            <p>{{ f.opis }}</p>
+            <div class="rekomendacja">
+              <strong>Co zrobić</strong>
+              {{ f.rekomendacja }}
+            </div>
+            {% if f.trop %}
+              <p class="trop"><b>Trop:</b> {{ f.trop }}</p>
+            {% endif %}
+            {% if f.dowod %}
+              <details>
+                <summary>Dowód ({{ f.dowod | length }} {{ odmiana(f.dowod | length, 'pole', 'pola', 'pól') }})</summary>
+                <dl class="dowod">
+                  {% for klucz, wartosc in f.dowod.items() %}
+                    <dt>{{ klucz | etykieta }}</dt>
+                    <dd>{{ wartosc_dowodu(wartosc) }}</dd>
+                  {% endfor %}
+                </dl>
+              </details>
+            {% endif %}
+          </article>
+        {% endfor %}
+      </div>
+    </details>
+
+    {# ── Czego audyt nie widzi — OBIE wersje ───────────────────────── #}
+    <details class="sekcja" open>
+      <summary>
+        Czego ten audyt nie widzi
+        <span class="opis">granice zebranych danych</span>
+      </summary>
+      <div class="sekcja__ciało">
+        {% if p.zastrzezenia %}
+          <div class="uwaga">
+            <p>Bez tej listy panel sugerowałby pokrycie, którego nie ma:</p>
+            <ul>
+              {% for z in p.zastrzezenia %}<li>{{ z }}</li>{% endfor %}
+            </ul>
+          </div>
+        {% else %}
+          <p class="pusto">Snapshot nie zgłosił zastrzeżeń co do zakresu.</p>
+        {% endif %}
+      </div>
+    </details>
+
+    {# ── Diagnostyka runu — WYŁĄCZNIE wewnętrznie ──────────────────── #}
+    {% if not p.dla_klienta %}
+      <details class="sekcja">
+        <summary>
+          Diagnostyka runu
+          <span class="opis">odrzucenia, pinowanie, koszt — nie dla klienta</span>
+        </summary>
+        <div class="sekcja__ciało">
+          <h3>Hipotezy obalone przez agenta ({{ p.hipotezy_odrzucone | length }})</h3>
+          {% if p.hipotezy_odrzucone %}
+            <div class="przewijane">
+              <table class="tabela-lista">
+                <thead><tr><th>klasa</th><th>obiekt</th><th>powód</th></tr></thead>
+                <tbody>
+                  {% for h in p.hipotezy_odrzucone %}
+                    <tr><td>{{ h.klasa_id }}</td><td>{{ h.obiekt_id or '—' }}</td><td>{{ h.powod }}</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <p class="pusto">
+              Brak zapisanych odrzuceń. Dla runów starszych niż 2026-08-05 to
+              normalne — tabela nie miała wtedy pisarza.
+            </p>
+          {% endif %}
+
+          <h3>Odrzucone na walidacji ({{ p.findingi_odrzucone | length }})</h3>
+          {% if p.findingi_odrzucone %}
+            <div class="przewijane">
+              <table class="tabela-lista">
+                <thead><tr><th>klasa</th><th>reguła</th><th>powód</th></tr></thead>
+                <tbody>
+                  {% for o in p.findingi_odrzucone %}
+                    <tr><td>{{ o.klasa_id or '—' }}</td><td>{{ o.regula }}</td><td>{{ o.powod }}</td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <p class="pusto">Nic nie odpadło na walidacji.</p>
+          {% endif %}
+
+          <h3>Pinowanie</h3>
+          <div class="przewijane">
+            <table class="tabela-lista">
+              <tbody>
+                {% for klucz, wartosc in p.pinowanie.items() %}
+                  <tr><th>{{ klucz }}</th><td>{{ wartosc if wartosc is not none else '—' }}</td></tr>
+                {% endfor %}
+                {% if p.nieznane_hashe %}
+                  <tr>
+                    <th>hashe bez mapowania</th>
+                    <td>{{ p.nieznane_hashe }} — sprawdź, czy snapshot i sól są od tego klienta</td>
+                  </tr>
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </details>
+    {% endif %}
+
+    <footer>
+      Panel zbudowany z zamrożonego snapshotu — run <code>{{ p.run_id }}</code>.
+      Każde znalezisko ma dowód wskazujący na konkretny fakt z tego snapshotu.
+      CXLABS.
+    </footer>
+  </div>
+</main>
