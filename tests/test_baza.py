@@ -73,9 +73,11 @@ def test_migracje_aplikuja_sie_od_zera(tmp_path: Path) -> None:
     zapisać, na których liczył (D7).
     005 dodała `runy.koszt_usd` — tokeny to nie koszt, a przy prompt cachingu
     nie da się jednego przeliczyć na drugie (3.12).
+    006 dodała dostęp do aplikacji webowej: konta, sesje, zadania, limit prób.
+    **Bez kolumny na klucz API klienta** — to decyzja, nie przeoczenie (D11).
     """
     con = polacz(tmp_path / "nowa.db")
-    assert zastosuj_migracje(con) == [1, 2, 3, 4, 5]
+    assert zastosuj_migracje(con) == [1, 2, 3, 4, 5, 6]
     con.close()
 
 
