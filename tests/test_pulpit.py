@@ -30,6 +30,7 @@ from monday_audit.deanonimizacja import WZORZEC_HASHA
 from monday_audit.pulpit import (
     KLUCZE_WEWNETRZNE,
     do_json,
+    lista_runow,
     wyrenderuj_indeks,
     wyrenderuj_pulpit,
     zbuduj_liste_klientow,
@@ -350,24 +351,93 @@ def test_indeks_mowi_wprost_ze_klient_jest_jeden(con: sqlite3.Connection) -> Non
     assert "cxlabs" in html
 
 
-def test_run_pelny_bije_pozniejszy_run_testowy(con: sqlite3.Connection) -> None:
-    """Regresja: sortowanie po dacie wybierało jednohipotezowe próby.
+# ── wybór wersji audytu ──────────────────────────────────────────────────
+#
+# Do 2026-08-06 `_ostatni_run` sortował `hipotez_zbadanych DESC` i test w tym
+# miejscu pilnował, żeby run techniczny nie przesłonił pełnego audytu. Obejście
+# zniknęło, gdy panel dostał jawny drop-down wersji — ale **puste miejsce po
+# teście to gorsze rozwiązanie niż test na starą regułę**. Trzy poniżej pilnują
+# tego, co dziś ma być prawdą, w tym najważniejszego: że starszy, obszerniejszy
+# audyt nadal daje się otworzyć.
 
-    Panel pokazywałby wtedy jedno znalezisko i sugerował, że konto jest prawie
-    czyste — bo run techniczny poszedł godzinę po pełnym audycie.
-    """
-    _finding(con, KLASA_KLIENTA, run_id="r1")
+
+def _run_testowy(con: sqlite3.Connection, run_id: str, kiedy: str, hipotez: int = 1) -> None:
     con.execute(
         "INSERT INTO runy (run_id, client_id, snapshot_id, status, started_at, "
-        "hipotez_zbadanych, findingow) "
-        "VALUES ('r2-proba', 'cxlabs', 5, 'zakonczony', '2026-08-05T10:00:00+00:00', 1, 1)"
+        "hipotez_zbadanych, findingow) VALUES (?, 'cxlabs', 5, 'zakonczony', ?, ?, 1)",
+        (run_id, kiedy, hipotez),
     )
-    _finding(con, KLASA_KLIENTA, run_id="r2-proba")
+    _finding(con, KLASA_KLIENTA, run_id=run_id)
+
+
+def test_domyslnie_najnowszy_audyt(con: sqlite3.Connection) -> None:
+    """Panel otwiera NAJNOWSZY audyt, nie najobszerniejszy.
+
+    Odwrotnie niż do 2026-08-06: wtedy wygrywał run z największą liczbą hipotez,
+    więc panel pokazywał dane z 1 sierpnia, choć audyt szedł 5 sierpnia — i nikt
+    nie wiedział dlaczego. Wersję wybiera się teraz jawnie, więc ukrywanie
+    najnowszej byłoby tylko zaskoczeniem.
+    """
+    _finding(con, KLASA_KLIENTA, run_id="r1")  # pełny, wcześniejszy
+    _run_testowy(con, "r2-proba", "2026-08-05T10:00:00+00:00")
     con.commit()
 
-    pulpit = zbuduj_pulpit(con, client_id="cxlabs", rubryka=RUBRYKA)
+    assert zbuduj_pulpit(con, client_id="cxlabs", rubryka=RUBRYKA).run_id == "r2-proba"
 
-    assert pulpit.run_id == "r1", "wybrał run testowy zamiast pełnego audytu"
+
+def test_starszy_audyt_zostaje_osiagalny(con: sqlite3.Connection) -> None:
+    """To jest cena za zmianę domyślnego wyboru — i musi być zapłacona.
+
+    Skoro panel nie chroni już odbiorcy przed chudym runem, MUSI dać mu dojść do
+    pełnego. Gdyby `run_id` przestało działać, zmiana domyślnego wyboru byłaby
+    regresją, nie poprawką.
+    """
+    _finding(con, KLASA_KLIENTA, run_id="r1")
+    _run_testowy(con, "r2-proba", "2026-08-05T10:00:00+00:00")
+    con.commit()
+
+    pulpit = zbuduj_pulpit(con, client_id="cxlabs", rubryka=RUBRYKA, run_id="r1")
+    assert pulpit.run_id == "r1"
+    # Lista wersji jedzie razem z danymi, więc drop-down ma z czego się zbudować.
+    assert [w.run_id for w in pulpit.wersje] == ["r2-proba", "r1"], "najnowszy pierwszy"
+
+
+def test_lista_wersji_liczy_findingi_z_tabeli(con: sqlite3.Connection) -> None:
+    """`runy.findingow` może się rozjechać z tabelą — liczymy WIERSZE.
+
+    Ten licznik zapisuje się przy domknięciu runu. Drop-down mówiący „5 znalezisk"
+    przy runie, który ma jedno, kłamie dokładnie w momencie, w którym odbiorca
+    wybiera, czemu zaufać.
+    """
+    _run_testowy(con, "r-rozjazd", "2026-08-05T10:00:00+00:00")
+    con.execute("UPDATE runy SET findingow = 99 WHERE run_id = 'r-rozjazd'")
+    con.commit()
+
+    wersje = {w.run_id: w.findingow for w in lista_runow(con, "cxlabs")}
+    assert wersje["r-rozjazd"] == 1, "wziął licznik z runy zamiast policzyć wiersze"
+
+
+def test_porownanie_liczy_sie_wzgledem_wybranej_wersji(con: sqlite3.Connection) -> None:
+    """Przełączenie na starszy audyt nie może porównywać go z PRZYSZŁOŚCIĄ.
+
+    `_poprzedni_run` szuka poprzednika względem wybranego runu, nie najnowszego.
+    Działało tak przed drop-downem wersji, ale nikt tego nie sprawdzał — a przy
+    jawnym wyborze wersji to jest różnica między liczbą prawdziwą i bezsensowną.
+    """
+    _finding(con, KLASA_KLIENTA, run_id="r1")  # 2026-08-01 (z fixture)
+    _run_testowy(con, "r-sroda", "2026-08-03T10:00:00+00:00")
+    _run_testowy(con, "r-piatek", "2026-08-05T10:00:00+00:00")
+    con.commit()
+
+    najnowszy = zbuduj_pulpit(con, client_id="cxlabs", rubryka=RUBRYKA)
+    sredni = zbuduj_pulpit(con, client_id="cxlabs", rubryka=RUBRYKA, run_id="r-sroda")
+    najstarszy = zbuduj_pulpit(con, client_id="cxlabs", rubryka=RUBRYKA, run_id="r1")
+
+    assert najnowszy.poprzedni_run_at is not None
+    assert najnowszy.poprzedni_run_at.startswith("2026-08-03"), "poprzednik piątku to środa"
+    assert sredni.poprzedni_run_at is not None
+    assert sredni.poprzedni_run_at.startswith("2026-08-01"), "poprzednik środy to 1 sierpnia"
+    assert najstarszy.ma_porownanie is False, "najstarszy audyt nie ma z czym się porównać"
 
 
 # ── braki i błędy ────────────────────────────────────────────────────────

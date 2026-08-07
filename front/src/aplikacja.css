@@ -110,13 +110,43 @@ select:focus {
   opacity: 0.5;
   cursor: default;
 }
+/* ── Formularz audytu: dwie kolumny ────────────────────────────────────
+ *
+ * Poprzednio `max-width: 34rem` w karcie rozciągniętej na całą szerokość
+ * treści — karta szeroka, zawartość wąska, dwie trzecie ekranu puste. Widać to
+ * było tylko na ZRZUCIE: żaden test ani `tsc` nie ma pojęcia o pustej przestrzeni.
+ *
+ * Teraz pola po lewej, ostrzeżenie o kluczu po prawej. Nie tylko wypełnia
+ * przestrzeń — ostrzeżenie stoi przy polu, którego dotyczy, a nie pod nim.
+ *
+ * `minmax(0, …)` w obu kolumnach, bo domyślne `min-width: auto` w gridzie nie
+ * pozwala kolumnie zwężyć się poniżej treści: długi placeholder w polu klucza
+ * rozepchnąłby siatkę poza kartę. */
 .formularz-audytu {
-  max-width: 34rem;
+  display: grid;
+  grid-template-columns: minmax(0, 22rem) minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+/* Pierwsze `label` w kolumnie nie potrzebuje górnego marginesu — ten margines
+ * rozdziela POLA od siebie, a nad pierwszym robi dziurę pod nagłówkiem karty. */
+.formularz-audytu__pola > label:first-child {
+  margin-top: 0;
+}
+/* Droga do klucza w monday jako druga linia etykiety, nie placeholder:
+ * placeholder znika po wpisaniu znaku i obcinał się w kolumnie 22rem. */
+.formularz-audytu__pola label .meta {
+  display: block;
+  margin-top: var(--space-1);
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: var(--fs-xs);
+  color: var(--fg-subtle);
 }
 /* Blok ostrzeżenia o kluczu admina. Marka używa lime oszczędnie, więc tu
  * świadomie neutralny akcent — to informacja, nie zachęta. */
 .uwaga--klucz {
-  margin: var(--space-4) 0 0;
+  margin: 0;
   font-size: var(--fs-small);
   line-height: 1.5;
 }
@@ -166,16 +196,85 @@ select:focus {
   transition: width 400ms ease;
 }
 
+/* ── Wyloguj: przycisk, nie link ───────────────────────────────────────
+ *
+ * Pierwsza wersja miała `border: 0; background: none; text-decoration: underline`
+ * — pisałem to jako element drugorzędny, a wyszedł podkreślony odnośnik z innej
+ * epoki. Wyszło ze zrzutu, nie z testu.
+ *
+ * Promień 12 px to `--radius-md`, wartość, którą README marki podaje dla
+ * przycisków. BEZ LIME: marka mówi „Never decorative", a wylogowanie nie jest
+ * akcją, do której zachęcamy — akcent należy do „Wygeneruj audyt". */
 .sidebar__wyloguj {
+  display: block;
+  width: 100%;
   margin-top: var(--space-4);
-  padding: 0;
-  border: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--cx-ink-60);
+  border-radius: var(--radius-md);
   background: none;
-  color: var(--fg-on-dark-subtle);
+  color: var(--fg-on-dark);
   font-family: var(--font-body);
   font-size: var(--fs-xs);
   cursor: pointer;
-  text-decoration: underline;
+  text-decoration: none;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+.sidebar__wyloguj:hover {
+  background: var(--cx-ink-80);
+  border-color: var(--cx-ink-40);
+}
+
+/* Na zrzucie przycisk kończył się przy samej krawędzi sidebara — stopka miała
+ * `padding` tylko u góry i po bokach. */
+.sidebar__stopka {
+  padding-bottom: var(--space-5);
+}
+
+/* ── Podnawigacja: sekcje otwartego audytu ─────────────────────────────
+ *
+ * Wcięcie i cieńszy krój odróżniają poziom drugi od listy klientów — bez tego
+ * sidebar byłby jedną płaską listą, w której nie widać, co należy do czego. */
+.sidebar__podnawigacja {
+  display: flex;
+  flex-direction: column;
+  margin: var(--space-1) 0 var(--space-2);
+}
+.sidebar__podnawigacja a {
+  padding: var(--space-2) var(--space-5) var(--space-2) var(--space-7);
+  font-size: var(--fs-xs);
+  color: var(--fg-on-dark-subtle);
+}
+.sidebar__podnawigacja a:hover {
+  color: var(--fg-on-dark);
+}
+/* „Twój audyt" w sesji klienta: jedyna pozycja, więc zaznaczamy ją tak samo jak
+ * aktywnego klienta u zespołu — inaczej podnawigacja wisiałaby pod niczym. */
+.sidebar span.poz.aktywny-poz {
+  color: var(--cx-white);
+  box-shadow: inset 3px 0 0 var(--cx-lime);
+}
+
+/* ── Drop-down wersji audytu ───────────────────────────────────────────
+ *
+ * Podpis jest częścią kontrolki, bo „5 sierpnia 2026 — 2 znaleziska" bez niego
+ * wygląda na wynik, nie na wybór. */
+.wybor-wersji {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.wybor-wersji > span {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-subtle);
+  white-space: nowrap;
+}
+.wybor-wersji select {
+  width: auto;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--fs-small);
 }
 
 /* ── Reset szerokości `<body>` dla aplikacji ───────────────────────────
@@ -270,6 +369,33 @@ body {
   .strona,
   .pasek {
     padding: var(--space-4);
+  }
+  /* Formularz audytu schodzi na jedną kolumnę przy TYM progu, nie własnym —
+   * drugi breakpoint znaczyłby drugie miejsce do rozjechania się. */
+  .formularz-audytu {
+    grid-template-columns: 1fr;
+    gap: var(--space-4);
+  }
+  /* Pasek zawija, gdy drop-down wersji nie mieści się obok okruszków.
+   *
+   * `flex-wrap` MUSI być też na `.pasek__prawo`, nie tylko na `.pasek`.
+   * ZMIERZONE: przy oknie 390 px ten wewnętrzny kontener miał 424 px i wypychał
+   * plombę odbiorcy za krawędź — cała strona przewijała się w poziomie. Pasek
+   * zewnętrzny zawijał się poprawnie, więc poprawka tylko na nim nic nie dała.
+   *
+   * To ten sam wzorzec, co przy bramie: winowajcą był element MIĘDZY tym, który
+   * poprawiałem, a tym, który wyglądał na winnego. Dlatego mierzę, który element
+   * wystaje, zamiast zgadywać. */
+  .pasek,
+  .pasek__prawo {
+    flex-wrap: wrap;
+  }
+  .wybor-wersji {
+    /* Podpis i kontrolka mogą zejść pod siebie na najwęższym ekranie. */
+    flex-wrap: wrap;
+  }
+  .wybor-wersji select {
+    max-width: 100%;
   }
   /* Kafle i metryki na wąskim ekranie: dwie kolumny, nie jedna — liczby są
    * krótkie, więc jedna kolumna marnowałaby ekran. */

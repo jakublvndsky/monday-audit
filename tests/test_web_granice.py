@@ -488,3 +488,93 @@ def test_klucz_api_nie_zostaje_w_bazie_po_nieudanym_runie(tmp_path: Path) -> Non
     # Szukamy też samego KSZTAŁTU tokenu, nie tylko tego jednego znacznika:
     # następny wyciek będzie miał inną treść, ale ten sam prefiks JWT.
     assert PREFIKS_JWT not in zrzut, "w bazie jest coś w kształcie klucza monday"
+
+
+# ── 5. wersja audytu: nowy parametr, ta sama reguła ──────────────────────
+#
+# `run` różni się od `klient` tym, że NIE MOŻNA go zignorować: klient ma prawo
+# obejrzeć swój starszy audyt. Więc granicą nie jest „pomiń parametr", a
+# „sprawdź właściciela" — i to jest dokładnie ten rodzaj granicy, który w tym
+# projekcie pękał trzy razy, bo wyglądał na działający.
+
+
+def test_klient_nie_otworzy_audytu_cudzego_klienta(klient_http: TestClient) -> None:
+    """Podanie `run` obcego klienta daje 404, nie cudzy panel.
+
+    Bez sprawdzenia właściciela `zbuduj_pulpit(run_id=...)` zbudowałby panel
+    klienta „inny-klient" — razem z nazwiskami z jego tabeli mapowania. Sama ta
+    funkcja nie pyta, czyj run dostała, i nie powinna: granica należy do
+    endpointu, bo to on wie, kto pyta.
+    """
+    _zaloguj_klienta(klient_http, "cxlabs")
+
+    odp = klient_http.get("/api/pulpit?run=r-inny")
+
+    assert odp.status_code == 404, "sesja klienta dosięgnęła cudzego audytu"
+    # 404, nie 403: 403 potwierdziłoby, że run `r-inny` istnieje.
+    assert "Anna" not in odp.text and "inny-klient" not in odp.text
+
+
+def test_klient_otwiera_swoj_audyt_po_run_id(klient_http: TestClient) -> None:
+    """Druga strona tej samej granicy — bez niej „bezpieczne" znaczy „zepsute".
+
+    Test sprawdzający tylko odmowę przechodziłby też wtedy, gdyby endpoint
+    odrzucał KAŻDY `run`. Wtedy drop-down wersji nie działałby wcale, a granica
+    wyglądałaby na szczelną.
+    """
+    _zaloguj_klienta(klient_http, "cxlabs")
+
+    odp = klient_http.get("/api/pulpit?run=r-cxlabs")
+
+    assert odp.status_code == 200, odp.text
+    assert odp.json()["run_id"] == "r-cxlabs"
+
+
+def test_nieistniejacy_run_tez_daje_404(klient_http: TestClient) -> None:
+    """Ten sam kod dla „nie ma" i „nie twój".
+
+    Rozróżnienie pozwoliłoby zgadywać identyfikatory cudzych runów: 404 dla
+    nieistniejącego i 403 dla obcego to wyrocznia istnienia.
+    """
+    _zaloguj_klienta(klient_http, "cxlabs")
+    assert klient_http.get("/api/pulpit?run=nie-ma-takiego").status_code == 404
+
+
+def test_lista_wersji_klienta_zawiera_tylko_jego_runy(klient_http: TestClient) -> None:
+    """Drop-down nie może wyliczyć cudzych audytów — nawet bez ich treści.
+
+    Lista identyfikatorów i dat obcych runów sama jest informacją: mówi, ilu
+    klientów mamy i kiedy ich audytowaliśmy.
+    """
+    _zaloguj_klienta(klient_http, "cxlabs")
+
+    wersje = klient_http.get("/api/pulpit").json()["wersje"]
+
+    assert [w["run_id"] for w in wersje] == ["r-cxlabs"]
+    assert all("inny" not in w["run_id"] for w in wersje)
+
+
+def test_zespol_przelacza_wersje_wybranego_klienta(klient_http: TestClient) -> None:
+    """Zespół ma oba parametry naraz: kogo (`klient`) i z kiedy (`run`)."""
+    _zaloguj_zespol(klient_http)
+
+    odp = klient_http.get("/api/pulpit?klient=inny-klient&run=r-inny")
+
+    assert odp.status_code == 200, odp.text
+    dane = odp.json()
+    assert dane["client_id"] == "inny-klient"
+    assert dane["run_id"] == "r-inny"
+
+
+def test_zespol_z_niedopasowanym_run_dostaje_404(klient_http: TestClient) -> None:
+    """Sprawdzenie właściciela dotyczy TAKŻE zespołu.
+
+    Nie dla ochrony przed nami samymi, a dlatego, że `klient=A&run=B` to pomyłka
+    — panel zbudowany z runu B pod nagłówkiem klienta A pokazywałby cudze liczby
+    z właściwą nazwą u góry. Cichy błąd, najgorszy rodzaj.
+    """
+    _zaloguj_zespol(klient_http)
+
+    odp = klient_http.get("/api/pulpit?klient=cxlabs&run=r-inny")
+
+    assert odp.status_code == 404, "zbudował panel z runu innego klienta"

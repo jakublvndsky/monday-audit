@@ -129,3 +129,39 @@ def test_klucz_api_idzie_w_ciele_nie_w_adresie() -> None:
     fragment = klient[klient.index("odpalAudyt") : klient.index("stanAudytu")]
     assert "klucz_api: kluczApi" in fragment
     assert "klucz_api=" not in fragment, "klucz w query stringu"
+
+
+def test_dwie_rozne_daty_sa_nazwane() -> None:
+    """`run_at` w nagłówku i `run_at` wersji to DWIE różne daty.
+
+    `Pulpit.run_at` mówi, kiedy dane ZEBRANO (ze snapshotu), a `PozycjaRunu.run_at`
+    kiedy agent je BADAŁ (`runy.started_at`). Oba są prawdziwe i potrafią się
+    różnić: dwie analizy tego samego snapshotu mają jedną datę zbiórki i dwie daty
+    badania.
+
+    Wyszło ze ZRZUTU po dodaniu drop-downu wersji: kontrolka mówiła „5 sierpnia",
+    a pod tytułem stało „dane z 2026-08-01" — wyglądało na sprzeczność w danych,
+    a było brakiem dwóch słów. Test pilnuje, żeby nikt nie „uprościł" tego z powrotem
+    do samego „audyt z".
+    """
+    panel = (KORZEN / "front" / "src" / "Panel.tsx").read_text(encoding="utf-8")
+
+    assert "dane zebrane" in panel, "nagłówek nie mówi, że to data ZEBRANIA danych"
+    assert "analiza z" in panel, "drop-down nie mówi, że to data ANALIZY"
+    # Stare, dwuznaczne sformułowania nie mogą wrócić.
+    assert "dane z {" not in panel and "audyt z {" not in panel
+
+
+def test_podnawigacja_i_sekcje_uzywaja_jednej_funkcji_slug() -> None:
+    """Dwie kopie reguły slugowania rozjechałyby się CICHO.
+
+    Link po prostu przestałby przewijać — bez błędu w konsoli, bez czerwonego
+    testu. Dlatego `slugSekcji` jest jedną funkcją, importowaną w obu miejscach.
+    """
+    sekcje = (KORZEN / "front" / "src" / "komponenty" / "Sekcje.tsx").read_text(encoding="utf-8")
+    panel = (KORZEN / "front" / "src" / "Panel.tsx").read_text(encoding="utf-8")
+
+    assert "export function slugSekcji" in sekcje, "brak wspólnej funkcji slugu"
+    assert "slugSekcji" in panel, "Panel liczy identyfikatory sekcji po swojemu"
+    # `id` na `<details>` musi pochodzić z tej funkcji, nie z wpisanego napisu.
+    assert "id={slugSekcji(" in sekcje

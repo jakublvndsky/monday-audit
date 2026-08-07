@@ -104,6 +104,20 @@ class PozycjaKlienta:
 
 
 @dataclass(frozen=True, slots=True)
+class PozycjaRunu:
+    """Wiersz drop-downu wersji — jeden audyt tego samego klienta.
+
+    Osobno od `PozycjaKlienta`, bo to inne pytanie: tam „którego klienta",
+    tu „z kiedy". Front pokazuje datę i liczbę znalezisk, żeby było widać,
+    który run jest pełny, a który był próbą techniczną.
+    """
+
+    run_id: str
+    run_at: str
+    findingow: int
+
+
+@dataclass(frozen=True, slots=True)
 class Pulpit:
     """Wszystko, co panel jednego klienta dostaje. Serializowalne przez `do_json`."""
 
@@ -119,6 +133,9 @@ class Pulpit:
     suma_kwot: float
     sekcje: tuple[Sekcja, ...]
     zastrzezenia: tuple[str, ...]
+    # Wszystkie audyty tego klienta — drop-down wersji. Zawiera też run WŁAŚNIE
+    # pokazywany, bo kontrolka musi mieć zaznaczoną pozycję.
+    wersje: tuple[PozycjaRunu, ...] = ()
     # Puste, gdy klient ma jeden audyt. Panel MUSI to napisać, a nie pokazać
     # zera udającego brak zmian.
     poprzedni_run_at: str | None = None
@@ -289,23 +306,79 @@ def _poprzedni_run(con: sqlite3.Connection, client_id: str, run_id: str) -> str 
 
 
 def _ostatni_run(con: sqlite3.Connection, client_id: str) -> str | None:
-    """Najświeższy audyt klienta — czyli PEŁNY, nie ostatni jakikolwiek.
+    """Najświeższy zakończony audyt klienta. Po dacie, bez sztuczek.
 
-    Sortowanie po samej dacie wybierało jednohipotezowe runy testowe zamiast
-    pełnego audytu: `agent-klucz-api` z jednym findingiem bije `agent-pelny-19`
-    z jedenastoma, bo poszedł godzinę później. Panel klienta pokazywałby wtedy
-    jedno znalezisko i sugerował, że konto jest prawie czyste.
+    ## Dlaczego stąd zniknęło sortowanie po liczbie hipotez
 
-    Kolejność: liczba hipotez zbadanych, potem data. Run, który zbadał 19
-    hipotez, jest audytem; run, który zbadał jedną, jest próbą techniczną —
-    niezależnie od tego, który był później.
+    Do 2026-08-06 ta funkcja sortowała `hipotez_zbadanych DESC, started_at DESC`,
+    czyli wybierała audyt **najobszerniejszy**, nie najnowszy. Powód był realny:
+    nasze runy diagnostyczne z jedną hipotezą przesłaniały pełny audyt, więc panel
+    pokazywał jedno znalezisko i sugerował, że konto jest prawie czyste.
+
+    Obejście przestało być potrzebne, gdy panel dostał **jawny wybór wersji**
+    (drop-down z `lista_runow`). Skoro odbiorca widzi wszystkie audyty z datami
+    i liczbą znalezisk, ukrywanie najnowszego jest już tylko zaskoczeniem: wchodzi
+    się na panel i widzi dane z 1 sierpnia, choć audyt szedł 5 sierpnia.
+
+    **Nie przywracaj sortowania po hipotezach.** Jeśli chude runy znowu zaśmiecą
+    listę, właściwą odpowiedzią jest próg w `lista_runow` albo oznaczenie runu jako
+    diagnostycznego przy zapisie — nie ciche podmienianie tego, co panel pokazuje.
     """
     wiersz = con.execute(
         "SELECT run_id FROM runy WHERE client_id = ? AND status = 'zakonczony' "
-        "AND findingow > 0 ORDER BY hipotez_zbadanych DESC, started_at DESC LIMIT 1",
+        "AND findingow > 0 ORDER BY started_at DESC LIMIT 1",
         (client_id,),
     ).fetchone()
     return str(wiersz["run_id"]) if wiersz else None
+
+
+def lista_runow(con: sqlite3.Connection, client_id: str) -> list[PozycjaRunu]:
+    """Audyty jednego klienta, najnowszy pierwszy — do drop-downu wersji.
+
+    Ta sama zasada co w `zbuduj_liste_klientow`: **runy z bazy, żadnych wymyślonych
+    pozycji.** Gdy klient ma jeden audyt, lista ma jeden element, a front nie
+    pokazuje martwej kontrolki.
+
+    Liczymy WIERSZE w `findings`, nie czytamy `runy.findingow`: ten licznik zapisuje
+    się przy domknięciu runu i może się rozjechać z tabelą. Drop-down pokazujący
+    „11 znalezisk" przy runie, który ma ich 9, kłamie w miejscu, w którym odbiorca
+    właśnie wybiera, czemu zaufać.
+    """
+    pozycje: list[PozycjaRunu] = []
+    for wiersz in con.execute(
+        "SELECT r.run_id, r.started_at, "
+        "(SELECT COUNT(*) FROM findings f WHERE f.run_id = r.run_id) findingow "
+        "FROM runy r WHERE r.client_id = ? AND r.status = 'zakonczony' "
+        "AND r.findingow > 0 ORDER BY r.started_at DESC",
+        (client_id,),
+    ):
+        pozycje.append(
+            PozycjaRunu(
+                run_id=str(wiersz["run_id"]),
+                run_at=str(wiersz["started_at"]),
+                findingow=int(wiersz["findingow"]),
+            )
+        )
+    return pozycje
+
+
+def run_nalezy_do(con: sqlite3.Connection, run_id: str, client_id: str) -> bool:
+    """Czy ten run jest audytem TEGO klienta.
+
+    Granica z D16: `run_id` przychodzi z przeglądarki, więc jest parametrem od
+    atakującego, dopóki serwer go nie sprawdzi. Bez tej funkcji sesja klienta
+    „acme" mogłaby wpisać identyfikator runu klienta „cxlabs" i przeczytać cudzy
+    audyt razem z nazwiskami — bo `zbuduj_pulpit` z podanym `run_id` nie pyta,
+    czyj on jest.
+
+    Zwraca `False` także dla runu nieistniejącego, żeby wywołujący mógł oddać
+    **404 na oba przypadki**. Rozróżnienie „nie ma" od „nie twój" potwierdzałoby
+    istnienie cudzych audytów.
+    """
+    wiersz = con.execute(
+        "SELECT 1 FROM runy WHERE run_id = ? AND client_id = ?", (run_id, client_id)
+    ).fetchone()
+    return wiersz is not None
 
 
 def zbuduj_liste_klientow(con: sqlite3.Connection) -> list[PozycjaKlienta]:
@@ -388,6 +461,7 @@ def zbuduj_pulpit(
         suma_kwot=raport.suma_kwot,
         sekcje=_sekcje_konta(payload),
         zastrzezenia=raport.zastrzezenia,
+        wersje=tuple(lista_runow(con, client_id)),
         poprzedni_run_at=_poprzedni_run(con, client_id, wybrany),
         hipotezy_odrzucone=raport.hipotezy_odrzucone if wewnetrzny else (),
         findingi_odrzucone=raport.findingi_odrzucone if wewnetrzny else (),

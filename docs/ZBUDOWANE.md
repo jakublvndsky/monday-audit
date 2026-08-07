@@ -363,6 +363,21 @@ klienta pytająca o cudzego klienta dostaje **404, nie 403**, bo 403 potwierdza,
 | `POST /api/audyt` | z sesji | id zadania; klucz API **w ciele**, nie w URL-u |
 | `GET /api/audyt/<id>` | z sesji | stan, etap, postęp |
 
+**Wybór wersji audytu.** Drop-down w pasku przełącza audyty tego samego klienta
+po dacie („3 sierpnia 2026 — 11 znalezisk"); lewa strona wybiera klienta, drop-down
+wersję. Klik w klienta rozwija pod nim sekcje otwartego audytu, a klik w sekcję
+przewija do niej — rozwijając ją, jeśli była zwinięta.
+
+`run_id` przychodzi z przeglądarki, więc serwer **sprawdza właściciela**
+(`pulpit.run_nalezy_do`): obcy albo nieistniejący run daje 404 na oba przypadki.
+Inaczej niż przy `client_id`, którego po prostu nie honorujemy — tu parametru nie
+wolno zignorować, bo klient ma prawo obejrzeć swój starszy audyt.
+
+Domyślnie panel pokazuje **najnowszy** zakończony audyt. Do 2026-08-06 pokazywał
+najobszerniejszy — obejście chroniące przed naszymi runami diagnostycznymi, które
+przy jawnym wyborze wersji zaczęło tylko zaskakiwać (dane z 1 sierpnia przy audycie
+z 5 sierpnia). Szczegóły w aneksie do D16.
+
 **Klucz API klienta nie ma kolumny w schemacie** i nie zostawia śladu. Zmierzone
 2026-08-06 znacznikiem w kształcie JWT: przeszedł POST → collector → 401 z monday
 i nie pojawił się ani w zrzucie bazy, ani w logu serwera, ani w argv procesów.

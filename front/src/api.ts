@@ -41,6 +41,12 @@ export interface Finding {
   trop: string | null;
 }
 
+export interface PozycjaRunu {
+  run_id: string;
+  run_at: string;
+  findingow: number;
+}
+
 export interface Pulpit {
   odbiorca: string;
   client_id: string;
@@ -54,6 +60,7 @@ export interface Pulpit {
   suma_kwot: number;
   sekcje: Sekcja[];
   zastrzezenia: string[];
+  wersje: PozycjaRunu[];
   poprzedni_run_at: string | null;
   hipotezy_odrzucone?: Record<string, unknown>[];
   findingi_odrzucone?: Record<string, unknown>[];

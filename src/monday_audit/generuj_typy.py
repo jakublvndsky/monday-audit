@@ -28,7 +28,14 @@ import types
 import typing
 from pathlib import Path
 
-from monday_audit.pulpit import KLUCZE_WEWNETRZNE, Metryka, PozycjaKlienta, Pulpit, Sekcja
+from monday_audit.pulpit import (
+    KLUCZE_WEWNETRZNE,
+    Metryka,
+    PozycjaKlienta,
+    PozycjaRunu,
+    Pulpit,
+    Sekcja,
+)
 from monday_audit.raport import Finding
 
 logger = logging.getLogger(__name__)
@@ -37,7 +44,7 @@ CEL = Path("front/src/api.ts")
 
 # Kolejność ma znaczenie: TypeScript wymaga definicji przed użyciem tylko
 # w typach rekurencyjnych, ale czytelniej jest od dołu do góry.
-KLASY = (Metryka, Sekcja, Finding, Pulpit, PozycjaKlienta)
+KLASY = (Metryka, Sekcja, Finding, PozycjaRunu, Pulpit, PozycjaKlienta)
 
 NAGLOWEK = """// PLIK GENEROWANY — nie edytuj ręcznie.
 //

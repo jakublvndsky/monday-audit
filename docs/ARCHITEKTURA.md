@@ -711,3 +711,48 @@ później więcej niż jej opisanie.
 **Warunek przed wystawieniem publicznym pozostaje OAuth.** Klucz w pamięci jest
 wariantem dla relacji doradczej, gdzie klienta znamy. Dla obcego prospekta
 zakres tokenu musi być ograniczony przez dostawcę, nie przez naszą obietnicę.
+
+---
+
+## D16 — aneks (2026-08-07). Wybór wersji audytu i koniec ukrytego obejścia
+
+Panel dostał drop-down z **wersjami audytu**: lewa strona wybiera, *którego
+klienta*, drop-down — *z kiedy*. Przy audycie powtarzanym cyklicznie to jest
+właśnie to, po co odbiorca wraca do panelu.
+
+**Granica dla `run_id` jest inna niż dla `client_id`, i to celowo.** `client_id`
+od klienta po prostu **ignorujemy** — sesja wie, kim jest. `run_id` zignorować
+nie można, bo klient ma prawo obejrzeć swój starszy audyt. Więc regułą nie jest
+„pomiń parametr", a **„sprawdź właściciela"**: `pulpit.run_nalezy_do` porównuje
+`runy.client_id` z celem, a obcy albo nieistniejący run daje **404 na oba
+przypadki** — rozróżnienie byłoby wyrocznią istnienia cudzych audytów.
+
+Sprawdzenie stoi w endpointcie, nie w `zbuduj_pulpit`, i to jest właściwe
+miejsce: funkcja budująca panel nie wie, kto pyta, a endpoint wie. Test padł przy
+wyłączonym sprawdzeniu, więc pilnuje mechanizmu, nie siebie.
+
+### Zniknęło obejście, o którym nikt nie wiedział
+
+`_ostatni_run` sortował `hipotez_zbadanych DESC, started_at DESC` — wybierał audyt
+**najobszerniejszy**, nie najnowszy. Powód był realny (nasze runy diagnostyczne
+z jedną hipotezą przesłaniały pełny audyt i panel sugerował, że konto jest prawie
+czyste), ale skutek uboczny brzmiał: panel otwierał dane z 1 sierpnia, choć audyt
+szedł 5 sierpnia, i **nie było tego po czym poznać**.
+
+Przy jawnym wyborze wersji obejście przestało chronić i zaczęło zaskakiwać.
+Domyślnie jest teraz **najnowszy zakończony**. Cena: chude runy widać na liście —
+zaakceptowana, bo drop-down pokazuje przy każdym liczbę znalezisk, a na koncie
+klienta każdy run jest pełny.
+
+Cenę trzeba było zapłacić w drugą stronę: **starszy run musi zostać osiągalny.**
+Gdyby `run_id` przestało działać, zmiana domyślnego wyboru byłaby regresją, nie
+poprawką — dlatego jeden z testów pilnuje właśnie tego, a nie samej odmowy.
+
+### Dwie daty, obie prawdziwe, obie nazwane
+
+`Pulpit.run_at` to **kiedy dane zebrano** (ze snapshotu), `PozycjaRunu.run_at` to
+**kiedy agent je badał** (`runy.started_at`). Dwie analizy tego samego snapshotu
+mają jedną datę zbiórki i dwie daty badania — więc drop-down mówiący „5 sierpnia"
+obok nagłówka „dane z 2026-08-01" wyglądał na sprzeczność w danych, a był brakiem
+dwóch słów. Panel mówi teraz „analiza z" i „dane zebrane". Wyszło ze zrzutu, nie
+z testu; test dopisany, żeby nikt tego nie „uprościł" z powrotem.

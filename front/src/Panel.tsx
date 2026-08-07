@@ -12,25 +12,84 @@ import { useCallback, useEffect, useState } from "react";
 import type { Ja, PozycjaKlienta, Pulpit } from "./api";
 import { Audyt } from "./Audyt";
 import { api } from "./klient";
-import { CzegoNieWidac, KafelDuzy, SekcjaMetryk, Znaleziska } from "./komponenty/Sekcje";
+import {
+  CzegoNieWidac,
+  KafelDuzy,
+  przewinDoSekcji,
+  SekcjaMetryk,
+  slugSekcji,
+  Znaleziska,
+} from "./komponenty/Sekcje";
 
 const KAFLE_KLUCZOWE = ["agentów AI", "zdominowanych jednym autorem"];
+
+/** Data audytu po polsku, do drop-downu wersji. */
+function dataWersji(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? iso.slice(0, 10)
+    : d.toLocaleDateString("pl-PL", { day: "numeric", month: "long", year: "numeric" });
+}
+
+function odmianaZnalezisk(ile: number): string {
+  if (ile === 1) return "znalezisko";
+  if (ile % 10 >= 2 && ile % 10 <= 4 && (ile % 100 < 12 || ile % 100 > 14)) return "znaleziska";
+  return "znalezisk";
+}
+
+/** Sekcje otwartego audytu pod pozycją klienta. Klik przewija do sekcji.
+ *
+ * Rysuje to, co przysłał serwer w `pulpit.sekcje` — nie ma tu listy tytułów
+ * wpisanej na sztywno. Gdyby collector przestał zbierać automatyzacje, sekcja
+ * zniknie z panelu I z nawigacji naraz, bez osobnej poprawki.
+ */
+function PodnawigacjaSekcji({ pulpit }: { pulpit: Pulpit | null }) {
+  if (!pulpit) return null;
+  const pozycje = [
+    { id: slugSekcji("Znaleziska"), etykieta: "Znaleziska", licznik: pulpit.findingow },
+    ...pulpit.sekcje.map((s) => ({
+      id: slugSekcji(s.tytul),
+      etykieta: s.tytul,
+      licznik: s.metryki.length,
+    })),
+  ];
+  return (
+    <div className="sidebar__podnawigacja">
+      {pozycje.map((p) => (
+        <a
+          key={p.id}
+          href={`#${p.id}`}
+          onClick={(e) => {
+            e.preventDefault();
+            przewinDoSekcji(p.id);
+          }}
+        >
+          {p.etykieta}
+          <span className="sidebar__licznik">{p.licznik}</span>
+        </a>
+      ))}
+    </div>
+  );
+}
 
 export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void }) {
   const [pulpit, ustawPulpit] = useState<Pulpit | null>(null);
   const [klienci, ustawKlienci] = useState<PozycjaKlienta[]>([]);
   const [wybrany, ustawWybranego] = useState<string | undefined>(undefined);
+  // Wybrana WERSJA audytu. `undefined` znaczy „domyślna", czyli najnowsza —
+  // serwer to rozstrzyga (`_ostatni_run`), front nie zgaduje.
+  const [wersja, ustawWersje] = useState<string | undefined>(undefined);
   const [blad, ustawBlad] = useState<string | null>(null);
 
   const wczytaj = useCallback(async () => {
     try {
-      ustawPulpit(await api.pulpit(wybrany));
+      ustawPulpit(await api.pulpit(wybrany, wersja));
       ustawBlad(null);
     } catch {
       ustawPulpit(null);
       ustawBlad("nie ma jeszcze audytu tego konta");
     }
-  }, [wybrany]);
+  }, [wybrany, wersja]);
 
   useEffect(() => {
     // Lista klientów tylko dla zespołu. Sesja klienta dostałaby 404, więc nawet
@@ -59,23 +118,36 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
               <span className="poz">
                 Klienci<span className="sidebar__licznik">{klienci.length}</span>
               </span>
-              {klienci.map((k) => (
-                <a
-                  key={k.client_id}
-                  href="#"
-                  className={k.client_id === (wybrany ?? pulpit?.client_id) ? "aktywny" : ""}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    ustawWybranego(k.client_id);
-                  }}
-                >
-                  {k.client_id}
-                  <span className="sidebar__licznik">{k.findingow}</span>
-                </a>
-              ))}
+              {klienci.map((k) => {
+                const aktywny = k.client_id === (wybrany ?? pulpit?.client_id);
+                return (
+                  <div key={k.client_id}>
+                    <a
+                      href="#"
+                      className={aktywny ? "aktywny" : ""}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        // Zmiana klienta zeruje wersję: run poprzedniego klienta
+                        // nie należy do nowego, więc serwer oddałby 404. Panel
+                        // pokazałby wtedy „nie ma audytu" przy kliencie, który
+                        // audyt ma.
+                        ustawWersje(undefined);
+                        ustawWybranego(k.client_id);
+                      }}
+                    >
+                      {k.client_id}
+                      <span className="sidebar__licznik">{k.findingow}</span>
+                    </a>
+                    {aktywny && <PodnawigacjaSekcji pulpit={pulpit} />}
+                  </div>
+                );
+              })}
             </>
           ) : (
-            <span className="poz">Twój audyt</span>
+            <>
+              <span className="poz aktywny-poz">Twój audyt</span>
+              <PodnawigacjaSekcji pulpit={pulpit} />
+            </>
           )}
         </nav>
         <div className="sidebar__stopka">
@@ -84,7 +156,7 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
               <p>
                 run <code>{pulpit.run_id}</code>
               </p>
-              <p>audyt z {pulpit.run_at.slice(0, 10)}</p>
+              <p>dane zebrane {pulpit.run_at.slice(0, 10)}</p>
             </>
           )}
           <button type="button" className="sidebar__wyloguj" onClick={poWylogowaniu}>
@@ -100,19 +172,34 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
             <b>{pulpit?.client_id ?? ja.client_id ?? "—"}</b>
           </span>
           <span className="pasek__prawo">
-            {ja.rola === "zespol" && klienci.length > 0 && (
-              <select
-                className="wybor-klienta"
-                aria-label="Wybór klienta"
-                value={wybrany ?? pulpit?.client_id ?? ""}
-                onChange={(e) => ustawWybranego(e.target.value)}
-              >
-                {klienci.map((k) => (
-                  <option key={k.client_id} value={k.client_id}>
-                    {k.client_id} — {k.findingow} znalezisk
-                  </option>
-                ))}
-              </select>
+            {/* Drop-down odpowiada na inne pytanie niż sidebar: tam „którego
+                klienta", tu „z kiedy". Pokazujemy go dopiero od dwóch wersji —
+                przy jednym audycie kontrolka byłaby martwa. Dostają go OBIE role,
+                bo klient też ma prawo obejrzeć swój starszy audyt; granicę trzyma
+                serwer, sprawdzając właściciela runu. */}
+            {(pulpit?.wersje.length ?? 0) > 1 && (
+              <label className="wybor-wersji">
+                {/* „analiza z", nie „wersja audytu" — bo `PozycjaRunu.run_at` to
+                    `runy.started_at`, czyli kiedy agent BADAŁ dane, a nagłówek
+                    strony pokazuje `Pulpit.run_at`, czyli kiedy dane ZEBRANO.
+                    Oba są prawdziwe i potrafią się różnić: dwie analizy tego
+                    samego snapshotu mają jedną datę zbiórki i dwie daty badania.
+                    Zobaczyłem to na zrzucie — drop-down mówił „5 sierpnia", a pod
+                    tytułem stało „dane z 2026-08-01" i wyglądało na sprzeczność.
+                    Nazwanie obu rozwiązuje to bez zmiany danych. */}
+                <span>analiza z</span>
+                <select
+                  aria-label="Wersja audytu — data analizy"
+                  value={wersja ?? pulpit?.run_id ?? ""}
+                  onChange={(e) => ustawWersje(e.target.value)}
+                >
+                  {pulpit?.wersje.map((w) => (
+                    <option key={w.run_id} value={w.run_id}>
+                      {dataWersji(w.run_at)} — {w.findingow} {odmianaZnalezisk(w.findingow)}
+                    </option>
+                  ))}
+                </select>
+              </label>
             )}
             <span
               className={`plomba-odbiorcy plomba-odbiorcy--${
@@ -129,7 +216,8 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
           <h1>{pulpit?.nazwa_konta ?? ja.client_id ?? "Audyty"}</h1>
           {pulpit && (
             <p className="strona__adres">
-              {pulpit.zakres} · plan {pulpit.plan_tier} · dane z {pulpit.run_at.slice(0, 10)}
+              {pulpit.zakres} · plan {pulpit.plan_tier} · dane zebrane{" "}
+              {pulpit.run_at.slice(0, 10)}
             </p>
           )}
 

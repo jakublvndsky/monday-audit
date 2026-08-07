@@ -56,7 +56,7 @@ from monday_audit.dostep import (
     zaloguj,
 )
 from monday_audit.konfiguracja import Ustawienia, wczytaj
-from monday_audit.pulpit import do_json, zbuduj_liste_klientow, zbuduj_pulpit
+from monday_audit.pulpit import do_json, run_nalezy_do, zbuduj_liste_klientow, zbuduj_pulpit
 from monday_audit.raport import ODBIORCA_KLIENT, ODBIORCA_WEWNETRZNY, RaportError
 from monday_audit.rubryka import Rubryka, wczytaj_rubryke
 from monday_audit.web.run import uruchom_audyt_w_tle
@@ -236,12 +236,29 @@ def zbuduj_aplikacje(*, baza: Path | None = None, ustawienia: Ustawienia | None 
     # ── dane ─────────────────────────────────────────────────────────
 
     @aplikacja.get("/api/pulpit")
-    def pulpit(sesja: ZSesji, con: Polaczenie, klient: str | None = None) -> dict[str, Any]:
+    def pulpit(
+        sesja: ZSesji, con: Polaczenie, klient: str | None = None, run: str | None = None
+    ) -> dict[str, Any]:
         """Panel. **Bez parametru `odbiorca`** — wynika z roli sesji.
 
         `klient` jest opcjonalny i **działa wyłącznie dla zespołu** (przełączanie
-        drop-downem). Sesja klienta go ignoruje: podanie cudzego identyfikatora
+        po lewej stronie). Sesja klienta go ignoruje: podanie cudzego identyfikatora
         nie zmienia niczego, bo `client_id` i tak bierzemy z sesji.
+
+        `run` wybiera **wersję audytu** — i tu granica działa inaczej niż przy
+        `klient`. Klienta nie da się zignorować „w drugą stronę": klient MA prawo
+        wybrać swój starszy audyt, więc parametru nie wolno wyrzucić. Zamiast tego
+        serwer **sprawdza właściciela** przez `run_nalezy_do`. Obcy run daje 404,
+        nie 403 — 403 potwierdzałoby, że taki audyt istnieje.
+
+        Bez tego sprawdzenia `zbuduj_pulpit(run_id=...)` zbudowałby panel cudzego
+        klienta razem z nazwiskami, bo sama ta funkcja nie pyta, czyj run dostała.
+
+        Lista wersji jedzie w TYM SAMYM payloadzie (`Pulpit.wersje`), nie osobnym
+        endpointem: front potrzebuje jej razem z danymi, a drugie żądanie znaczyłoby
+        drugi moment, w którym może się nie udać. Siedzi w dataclassie, więc typ dla
+        frontu **generuje się sam** — dopisywanie klucza tutaj byłoby polem, którego
+        `api.ts` nie zna.
         """
         if sesja.to_klient:
             cel = sesja.client_id
@@ -252,8 +269,13 @@ def zbuduj_aplikacje(*, baza: Path | None = None, ustawienia: Ustawienia | None 
         if not cel:
             raise HTTPException(status_code=404, detail="brak audytu")
 
+        if run is not None and not run_nalezy_do(con, run, cel):
+            raise HTTPException(status_code=404, detail="nie znaleziono audytu")
+
         try:
-            return do_json(zbuduj_pulpit(con, client_id=cel, rubryka=rubryka, odbiorca=odbiorca))
+            return do_json(
+                zbuduj_pulpit(con, client_id=cel, rubryka=rubryka, odbiorca=odbiorca, run_id=run)
+            )
         except RaportError as blad:
             raise HTTPException(status_code=404, detail=str(blad)) from None
 

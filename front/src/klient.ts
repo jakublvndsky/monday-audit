@@ -59,8 +59,17 @@ export const api = {
 
   // `klient` działa TYLKO dla sesji zespołu. Dla klienta serwer go ignoruje,
   // więc przekazanie go tu nic nie łamie — ale i nic nie daje.
-  pulpit: (klient?: string) =>
-    pobierz<Pulpit>(klient ? `/api/pulpit?klient=${encodeURIComponent(klient)}` : "/api/pulpit"),
+  //
+  // `run` wybiera WERSJĘ audytu i działa dla obu ról — klient ma prawo obejrzeć
+  // swój starszy audyt. Serwer sprawdza właściciela runu i oddaje 404 na cudzy
+  // (`pulpit.run_nalezy_do`), więc granica nie stoi na tym pliku.
+  pulpit: (klient?: string, run?: string) => {
+    const parametry = new URLSearchParams();
+    if (klient) parametry.set("klient", klient);
+    if (run) parametry.set("run", run);
+    const zapytanie = parametry.toString();
+    return pobierz<Pulpit>(zapytanie ? `/api/pulpit?${zapytanie}` : "/api/pulpit");
+  },
 
   klienci: () => pobierz<PozycjaKlienta[]>("/api/klienci"),
 

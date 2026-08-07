@@ -118,18 +118,62 @@ export function Audyt({ klient, poZakonczeniu }: { klient?: string; poZakonczeni
           </div>
         ) : (
           <form onSubmit={odpal} className="formularz-audytu">
-            <label htmlFor="klucz">Klucz API monday</label>
-            <input
-              id="klucz"
-              type="password"
-              value={kluczApi}
-              onChange={(e) => ustawKlucz(e.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-              required
-              minLength={20}
-              placeholder="wklej klucz z monday: Profil → Developers → My Access Tokens"
-            />
+            {/* Dwie kolumny: pola po lewej, ostrzeżenie o kluczu po prawej.
+                Wcześniej ostrzeżenie stało POD polami, a formularz miał
+                `max-width: 34rem` w karcie na pełną szerokość — dwie trzecie
+                ekranu stało puste. Obok pól nie tylko wypełnia przestrzeń:
+                ostrzeżenie jest przy polu, którego dotyczy. */}
+            <div className="formularz-audytu__pola">
+              <label htmlFor="klucz">
+                Klucz API monday <span className="meta">Profil → Developers → My Access Tokens</span>
+              </label>
+              <input
+                id="klucz"
+                type="password"
+                value={kluczApi}
+                onChange={(e) => ustawKlucz(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                required
+                minLength={20}
+                // Krótki, bo w kolumnie 22rem dłuższy się obcina — a obcięta
+                // instrukcja jest gorsza niż żadna. Pełna droga stoi pod polem.
+                placeholder="wklej klucz API"
+              />
+
+              <label htmlFor="zakres">Zakres</label>
+              <select id="zakres" value={zakres} onChange={(e) => ustawZakres(e.target.value)}>
+                <option value="cale_konto">całe konto</option>
+                <option value="workspace">jeden workspace</option>
+              </select>
+
+              {zakres === "workspace" && (
+                <>
+                  <label htmlFor="ws">Identyfikator workspace</label>
+                  <input
+                    id="ws"
+                    value={workspaceId}
+                    onChange={(e) => ustawWorkspace(e.target.value)}
+                    placeholder="np. 6576039"
+                    required
+                  />
+                </>
+              )}
+
+              {blad && (
+                <p className="brama__blad" role="alert">
+                  {blad}
+                </p>
+              )}
+
+              <button type="submit" className="cx-btn">
+                Wygeneruj audyt
+              </button>
+              <p className="meta">
+                Audyt trwa około kwadransa i zużyje ~230 wywołań z twojego dziennego
+                limitu monday.
+              </p>
+            </div>
 
             <div className="uwaga uwaga--klucz">
               <p>
@@ -149,39 +193,6 @@ export function Audyt({ klient, poZakonczeniu }: { klient?: string; poZakonczeni
                 Możesz go unieważnić w monday zaraz po audycie — to dobra praktyka.
               </p>
             </div>
-
-            <label htmlFor="zakres">Zakres</label>
-            <select id="zakres" value={zakres} onChange={(e) => ustawZakres(e.target.value)}>
-              <option value="cale_konto">całe konto</option>
-              <option value="workspace">jeden workspace</option>
-            </select>
-
-            {zakres === "workspace" && (
-              <>
-                <label htmlFor="ws">Identyfikator workspace</label>
-                <input
-                  id="ws"
-                  value={workspaceId}
-                  onChange={(e) => ustawWorkspace(e.target.value)}
-                  placeholder="np. 6576039"
-                  required
-                />
-              </>
-            )}
-
-            {blad && (
-              <p className="brama__blad" role="alert">
-                {blad}
-              </p>
-            )}
-
-            <button type="submit" className="cx-btn">
-              Wygeneruj audyt
-            </button>
-            <p className="meta">
-              Audyt trwa około kwadransa i zużyje ~230 wywołań z twojego dziennego
-              limitu monday.
-            </p>
           </form>
         )}
       </div>

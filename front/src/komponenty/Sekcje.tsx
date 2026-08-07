@@ -45,9 +45,40 @@ function KartaMetryki({ m }: { m: Metryka }) {
   );
 }
 
+// Identyfikator sekcji dla nawigacji w sidebarze. Liczony Z TYTUŁU, bo
+// `Sekcja` w `pulpit.py` ma tylko `tytul`, `opis` i `metryki` — pola `id` tam
+// nie ma. Dodanie go rozszerzyłoby kontrakt (i wymusiło regenerację `api.ts`)
+// dla czegoś, co jest wyłącznie sprawą wyglądu.
+//
+// Jedna funkcja używana w OBU miejscach: tutaj jako `id` na `<details>`
+// i w `Panel.tsx` jako cel linku. Dwie kopie tej reguły rozjechałyby się przy
+// pierwszej zmianie tytułu sekcji, i to cicho — link po prostu przestałby
+// przewijać, bez żadnego błędu.
+export function slugSekcji(tytul: string): string {
+  return `sekcja-${tytul
+    .toLowerCase()
+    .normalize("NFD")
+    // Zdejmujemy znaki diakrytyczne: „Aktywność" → „aktywnosc". Bez tego
+    // `id` miałoby polskie ogonki, a te w selektorach CSS wymagają ucieczek.
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/ł/g, "l")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")}`;
+}
+
+/** Przewija do sekcji, rozwijając ją, jeśli ktoś ją wcześniej zwinął. */
+export function przewinDoSekcji(id: string): void {
+  const cel = document.getElementById(id);
+  if (!cel) return;
+  // Sekcje to `<details>`. Przewinięcie do ZWINIĘTEJ sekcji pokazuje sam
+  // nagłówek i wygląda, jakby klik nic nie zrobił — więc najpierw rozwijamy.
+  if (cel instanceof HTMLDetailsElement) cel.open = true;
+  cel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
 export function SekcjaMetryk({ s }: { s: Sekcja }) {
   return (
-    <details className="sekcja" open>
+    <details className="sekcja" id={slugSekcji(s.tytul)} open>
       <summary>
         {s.tytul} <span className="opis">{s.opis}</span>
       </summary>
@@ -131,7 +162,7 @@ export function Znaleziska({ findingi }: { findingi: Finding[] }) {
   const widoczne = filtr ? findingi.filter((f) => f.waga === filtr) : findingi;
 
   return (
-    <details className="sekcja" open>
+    <details className="sekcja" id={slugSekcji("Znaleziska")} open>
       <summary>
         Znaleziska <span className="opis">kolejność z rubryki: waga, potem koszt naprawy</span>
       </summary>
