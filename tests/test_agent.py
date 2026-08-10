@@ -345,3 +345,29 @@ def test_hash_liczony_z_tresci_promptu_a_nie_z_calego_pliku(tmp_path: Path) -> N
 
     assert hash_promptu(a) == hash_promptu(b), "otoczka nie może zmieniać hasha"
     assert hash_promptu(a) != hash_promptu(c), "treść promptu MUSI zmieniać hash"
+
+
+# ── przełącznik rozliczeń ────────────────────────────────────────────────
+#
+# Ta rzecz pękła już raz i to CICHO: do 2026-08-05 klucz nie dochodził do
+# podprocesu, runy szły na subskrypcję, `koszt_usd` zapisywał zero, a 493 testy
+# były zielone. Dlatego oba tryby sprawdzamy przez to, co FAKTYCZNIE ląduje
+# w `opcje.env`, a nie przez to, że funkcja się wykonała.
+
+
+def test_tryb_subskrypcyjny_nie_wysyla_klucza() -> None:
+    """Pusty `klucz_api` → `env` BEZ `ANTHROPIC_API_KEY`, żeby SDK spadło na login.
+
+    Kluczowe, żeby `env` był pusty, a nie zawierał pustą wartość: SDK zobaczyłby
+    zmienną `ANTHROPIC_API_KEY=""` i NIE spadł na `~/.claude`, więc run wywrócił
+    się na uwierzytelnianiu zamiast pójść z subskrypcji.
+    """
+    opcje = _opcje("")
+
+    assert "ANTHROPIC_API_KEY" not in opcje.env, "klucz poszedł mimo trybu subskrypcyjnego"
+    assert opcje.env == {}, f"env niesie coś nieoczekiwanego: {opcje.env}"
+
+
+def test_tryb_kluczowy_nadal_wysyla_klucz() -> None:
+    """Druga strona przełącznika — bez tego „działa" znaczyłoby „nic nie wysyła"."""
+    assert _opcje("sk-ant-konkretny").env["ANTHROPIC_API_KEY"] == "sk-ant-konkretny"

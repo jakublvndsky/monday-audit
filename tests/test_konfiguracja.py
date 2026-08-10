@@ -23,6 +23,8 @@ from pydantic import SecretStr
 
 from monday_audit.konfiguracja import (
     DOMYSLNA_BAZA,
+    ROZLICZENIE_KLUCZ,
+    ROZLICZENIE_SUBSKRYPCJA,
     ZMIENNA_PLIKU,
     KonfiguracjaError,
     Ustawienia,
@@ -304,3 +306,70 @@ def test_klucz_anthropic_wraca_bez_bialych_znakow(
     monkeypatch.setenv("ANTHROPIC_API_KEY", "  sk-atrapa  ")
 
     assert klucz_anthropic(wczytaj(plik)) == "sk-atrapa"
+
+
+# ── tryb rozliczenia ─────────────────────────────────────────────────────
+#
+# Rozliczenie pękło już raz i to CICHO: do 2026-08-05 klucz nie dochodził do
+# podprocesu, runy szły na subskrypcję, a 493 testy były zielone. Te testy
+# pilnują, że przełącznik jest DECYZJĄ, nie stanem, w który się wpada.
+
+
+def test_domyslnie_rozliczamy_kluczem(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Domyślna wartość nie jest kosmetyką: audyt klienta ma być rozliczalny."""
+    monkeypatch.delenv("AGENT_ROZLICZENIE", raising=False)
+    plik = zapisz_env(tmp_path, token="t", sol=SOL)
+
+    assert wczytaj(plik).agent_rozliczenie == ROZLICZENIE_KLUCZ
+
+
+def test_tryb_subskrypcyjny_nie_wymaga_klucza(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Wymaganie klucza w trybie, który go NIE UŻYWA, blokowałoby ten tryb.
+
+    Zwracamy pusty napis, a `agent.zbuduj_opcje` na tej podstawie pomija `env` —
+    jedna decyzja, dwa miejsca, żadnego dublowania warunku.
+    """
+    from monday_audit.konfiguracja import klucz_anthropic
+
+    monkeypatch.setenv("AGENT_ROZLICZENIE", "subskrypcja")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    plik = zapisz_env(tmp_path, token="t", sol=SOL)
+
+    ustawienia = wczytaj(plik)
+
+    assert ustawienia.agent_rozliczenie == ROZLICZENIE_SUBSKRYPCJA
+    assert klucz_anthropic(ustawienia) == "", "tryb subskrypcyjny nie może wymagać klucza"
+
+
+def test_tryb_kluczowy_bez_klucza_mowi_o_drugim_trybie(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Komunikat ma prowadzić do decyzji, a nie tylko odmawiać."""
+    from monday_audit.konfiguracja import klucz_anthropic
+
+    monkeypatch.delenv("AGENT_ROZLICZENIE", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    plik = zapisz_env(tmp_path, token="t", sol=SOL)
+
+    with pytest.raises(KonfiguracjaError, match="AGENT_ROZLICZENIE=subskrypcja"):
+        klucz_anthropic(wczytaj(plik))
+
+
+def test_literowka_w_trybie_nie_przechodzi_cicho(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`subskrybcja` bez walidatora byłaby traktowana jak „nie klucz".
+
+    Czyli literówka zmieniałaby sposób płacenia, i to niezauważalnie — dopóki nie
+    zabrakłoby kosztów w konsoli platformy.
+    """
+    monkeypatch.setenv("AGENT_ROZLICZENIE", "subskrybcja")
+    plik = zapisz_env(tmp_path, token="t", sol=SOL)
+
+    # Komunikat używa nazwy ZMIENNEJ ŚRODOWISKOWEJ, nie pola — bo to ją poprawia
+    # człowiek. Sprawdzamy też, że wymienia dozwolone wartości.
+    with pytest.raises(KonfiguracjaError, match="AGENT_ROZLICZENIE") as blad:
+        wczytaj(plik)
+    assert "klucz, subskrypcja" in str(blad.value), "komunikat nie mówi, co jest dozwolone"

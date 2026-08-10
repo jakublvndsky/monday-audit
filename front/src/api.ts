@@ -66,6 +66,7 @@ export interface Pulpit {
   findingi_odrzucone?: Record<string, unknown>[];
   pinowanie?: Record<string, unknown>;
   koszt_usd?: number | null;
+  rozliczenie?: string | null;
   nieznane_hashe?: number;
   // dokładane przez `do_json()` z `@property` — nie są polami dataclassy
   findingow: number;

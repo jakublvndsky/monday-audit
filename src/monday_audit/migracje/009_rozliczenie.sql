@@ -1,0 +1,21 @@
+-- Czym run był rozliczony: kluczem API czy subskrypcją.
+--
+-- POWÓD. `runy.koszt_usd` bierze `total_cost_usd` z Agent SDK i do 2026-08-10
+-- znaczyło to zawsze to samo. Po dodaniu przełącznika `AGENT_ROZLICZENIE` ta sama
+-- liczba znaczy dwie różne rzeczy:
+--
+--   klucz       → faktyczny wydatek, można nim wycenić usługę
+--   subskrypcja → wycena teoretyczna; nikt tych pieniędzy nie zapłacił
+--
+-- Bez tej kolumny nie da się później odpowiedzieć na pytanie, które zada się przy
+-- wycenie audytu: „ile faktycznie kosztowały runy tego klienta". Suma po
+-- `koszt_usd` mieszałaby wtedy wydatki z wycenami — i to CICHO, bo obie są
+-- liczbami w tej samej kolumnie.
+--
+-- NULL dla runów sprzed tej migracji. Świadomie nie wpisujemy im 'klucz':
+-- 11 z 17 runów w bazie produkcyjnej poszło na subskrypcję (klucz nie dochodził
+-- do podprocesu do 2026-08-05), a część później na klucz. Zgadywanie po dacie
+-- dałoby liczby wyglądające na pewne i takie nie będące — NULL mówi „nie wiem",
+-- co jest prawdą.
+
+ALTER TABLE runy ADD COLUMN rozliczenie TEXT;

@@ -149,6 +149,9 @@ class Pulpit:
     findingi_odrzucone: tuple[dict[str, Any], ...] = ()
     pinowanie: dict[str, Any] = field(default_factory=dict)
     koszt_usd: float | None = None
+    # Patrz `Raport.rozliczenie`. Panel pokazuje kwotę inaczej, gdy run szedł
+    # z subskrypcji — bo wtedy `koszt_usd` nie jest fakturą.
+    rozliczenie: str | None = None
     nieznane_hashe: int = 0
 
     @property
@@ -175,6 +178,7 @@ KLUCZE_WEWNETRZNE = (
     "findingi_odrzucone",
     "pinowanie",
     "koszt_usd",
+    "rozliczenie",
     "nieznane_hashe",
 )
 
@@ -513,6 +517,7 @@ def zbuduj_pulpit(
         findingi_odrzucone=raport.findingi_odrzucone if wewnetrzny else (),
         pinowanie=raport.pinowanie if wewnetrzny else {},
         koszt_usd=raport.koszt_usd if wewnetrzny else None,
+        rozliczenie=raport.rozliczenie if wewnetrzny else None,
         nieznane_hashe=raport.nieznane_hashe if wewnetrzny else 0,
     )
 

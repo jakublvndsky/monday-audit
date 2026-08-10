@@ -164,6 +164,86 @@ function NadajDostep({ clientId, poNadaniu }: { clientId: string; poNadaniu: () 
   );
 }
 
+/** Dodanie NOWEGO klienta: identyfikator plus wygenerowane hasło.
+ *
+ * Do 2026-08-10 konto zakładało się tylko z konsoli (`--dodaj-klienta`), więc
+ * każdy nowy klient wymagał dostępu do serwera. CLI zostaje jako droga ratunkowa.
+ *
+ * Identyfikator waliduje SERWER (wzorzec `WZORZEC_CLIENT_ID`), nie ten formularz.
+ * `pattern` na `<input>` jest tylko podpowiedzią dla przeglądarki — trafia do
+ * adresów i nazw plików raportu, więc reguła musi stać tam, gdzie jej nie da się
+ * pominąć.
+ */
+function DodajKlienta({ poDodaniu }: { poDodaniu: () => void }) {
+  const [clientId, ustawClientId] = useState("");
+  const [wynik, ustawWynik] = useState<{ haslo: string; kto: string } | null>(null);
+  const [blad, ustawBlad] = useState<string | null>(null);
+  const [czeka, ustawCzeka] = useState(false);
+
+  async function wyslij(zdarzenie: React.FormEvent) {
+    zdarzenie.preventDefault();
+    ustawCzeka(true);
+    ustawBlad(null);
+    const kto = clientId.trim().toLowerCase();
+    try {
+      const odp = await api.nadajDostep(kto);
+      ustawWynik({ haslo: odp.haslo, kto });
+      ustawClientId("");
+      poDodaniu();
+    } catch (e) {
+      ustawBlad(e instanceof BladApi ? e.message : "nie udało się dodać klienta");
+    } finally {
+      ustawCzeka(false);
+    }
+  }
+
+  return (
+    <div className="dodaj-klienta">
+      {wynik ? (
+        <>
+          <NoweHaslo wynik={{ haslo: wynik.haslo, wazne_sesje: 0, godzin_sesji: 0 }} kogo={wynik.kto} />
+          <button
+            type="button"
+            className="cx-btn cx-btn--cichy"
+            onClick={() => ustawWynik(null)}
+          >
+            Dodaj kolejnego klienta
+          </button>
+        </>
+      ) : (
+        <form onSubmit={wyslij}>
+          <label htmlFor="nowy-klient">
+            Identyfikator nowego klienta
+            <span className="meta">
+              małe litery, cyfry i łączniki — trafia do adresu panelu, np.
+              kancelaria-eko
+            </span>
+          </label>
+          <div className="dodaj-klienta__wiersz">
+            <input
+              id="nowy-klient"
+              value={clientId}
+              onChange={(e) => ustawClientId(e.target.value)}
+              placeholder="kancelaria-eko"
+              autoComplete="off"
+              spellCheck={false}
+              required
+            />
+            <button type="submit" className="cx-btn" disabled={czeka}>
+              {czeka ? "dodaję…" : "Dodaj klienta"}
+            </button>
+          </div>
+          {blad && (
+            <p className="brama__blad" role="alert">
+              {blad}
+            </p>
+          )}
+        </form>
+      )}
+    </div>
+  );
+}
+
 /** Strona administracyjna: własne konto plus dostępy wszystkich klientów.
  *
  * Osobna strona, nie sekcja wśród danych audytu. Poprzednia wersja miała „Moje
@@ -195,6 +275,7 @@ export function MojeKonto({
           <p className="meta">
             Hasła nie odczytamy — w bazie jest tylko hash. Zgubione zastępujemy nowym.
           </p>
+          <DodajKlienta poDodaniu={odswiez} />
           <div className="przewijane">
             <table className="tabela-lista">
               <thead>

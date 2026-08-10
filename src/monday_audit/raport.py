@@ -128,6 +128,13 @@ class Raport:
     findingi_odrzucone: tuple[dict[str, Any], ...] = ()
     pinowanie: dict[str, Any] = field(default_factory=dict)
     koszt_usd: float | None = None
+    # CZYM run był rozliczony: `klucz` (faktyczny wydatek) albo `subskrypcja`
+    # (wycena teoretyczna). `None` dla runów sprzed migracji 009 — wtedy nie
+    # wiemy, i panel musi to powiedzieć, a nie zgadywać.
+    #
+    # Tą samą drogą co `koszt_usd`, czyli TYLKO do wersji wewnętrznej: klient
+    # nie ma po co wiedzieć, jak rozliczamy własne narzędzia.
+    rozliczenie: str | None = None
     nieznane_hashe: int = 0
 
     @property
@@ -304,6 +311,7 @@ def zbuduj_raport(
         findingi_odrzucone=_findingi_odrzucone(con, run_id) if wewnetrzne else (),
         pinowanie=_pinowanie(run, meta, snapshot_id) if wewnetrzne else {},
         koszt_usd=float(run["koszt_usd"]) if wewnetrzne and run["koszt_usd"] is not None else None,
+        rozliczenie=(str(run["rozliczenie"]) if wewnetrzne and run["rozliczenie"] else None),
         nieznane_hashe=len(deanon.nieznane),
     )
     deanon.podsumuj()

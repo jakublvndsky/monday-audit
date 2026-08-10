@@ -430,6 +430,19 @@ def zbuduj_opcje(
 ) -> ClaudeAgentOptions:
     """Opcje jednej sesji. Wydzielone, ŻEBY DAŁO SIĘ SPRAWDZIĆ PODŁĄCZENIE.
 
+    ## Dwa tryby rozliczenia
+
+    `klucz_api` niepusty → idzie do `env` podprocesu, run obciąża klucz API
+    i `koszt_usd` jest faktycznym wydatkiem.
+
+    `klucz_api` pusty → `env` zostaje PUSTE, więc SDK spada na login w `~/.claude`
+    i run idzie z subskrypcji. `konfiguracja.klucz_anthropic` zwraca pusty napis
+    właśnie w trybie `AGENT_ROZLICZENIE=subskrypcja`.
+
+    Klucz zostaje PARAMETREM, nie odczytem z konfiguracji w środku — inaczej test
+    nie ma jak sprawdzić, co naprawdę poszło do SDK. To lekcja z dwóch usterek
+    tej klasy, opisanych niżej.
+
     Poprzednia usterka tej klasy — `can_use_tool`, który nigdy nie był wołany —
     przeszła przez testy, bo sprawdzały samą funkcję, a nie to, czy jest
     podpięta. To samo powtórzyło się z kluczem API: 493 testy były zielone,
@@ -447,7 +460,11 @@ def zbuduj_opcje(
         # `options.env` DOKŁADA się do odziedziczonego środowiska (SDK:
         # `{**inherited_env, ..., **options.env}`), więc PATH i reszta zostają.
         # Klucz idzie do env podprocesu, NIE do argv — argv widać w `ps` (D12).
-        env={"ANTHROPIC_API_KEY": klucz_api},
+        # PUSTY słownik w trybie subskrypcyjnym, nie `{"ANTHROPIC_API_KEY": ""}`.
+        # Pusta zmienna byłaby GORSZA niż jej brak: SDK zobaczyłby ją i nie spadł
+        # na login w `~/.claude`, więc run wywróciłby się na uwierzytelnianiu
+        # zamiast pójść z subskrypcji. Test pilnuje obu trybów.
+        env=({"ANTHROPIC_API_KEY": klucz_api} if klucz_api else {}),
         system_prompt=f"{prompt}\n\n## INWENTARZ (snapshot {snapshot_id})\n\n{inwentarz}",
         mcp_servers={SERWER: serwer},
         allowed_tools=list(NASZE_NARZEDZIA),

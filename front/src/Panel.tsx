@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Ja, PozycjaKlienta, Pulpit } from "./api";
 import { Audyt } from "./Audyt";
-import { MojeKonto, ResetHaslaKlienta } from "./Hasla";
+import { MojeKonto } from "./Hasla";
 import { api } from "./klient";
 import {
   CzegoNieWidac,
@@ -201,7 +201,11 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
         <div className="pasek">
           <span className="okruszki">
             {ja.rola === "zespol" && "Klienci / "}
-            <b>{pulpit?.client_id ?? ja.client_id ?? "—"}</b>
+            {/* `wybrany` PRZED `ja.client_id`: dla zespołu to drugie jest `null`,
+                a dla klienta `wybrany` jest `undefined` — jeden łańcuch obsługuje
+                obie role. Bez `wybrany` panel przy kliencie bez audytu pokazywał
+                „—" i „Audyty", czyli gubił, którego klienta oglądasz. */}
+            <b>{pulpit?.client_id ?? wybrany ?? ja.client_id ?? "—"}</b>
           </span>
           <span className="pasek__prawo">
             {/* Drop-down odpowiada na inne pytanie niż sidebar: tam „którego
@@ -245,7 +249,7 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
 
         <div className="strona">
           <p className="eyebrow">Audyt konta monday.com</p>
-          <h1>{pulpit?.nazwa_konta ?? ja.client_id ?? "Audyty"}</h1>
+          <h1>{pulpit?.nazwa_konta ?? wybrany ?? ja.client_id ?? "Audyty"}</h1>
           {pulpit && (
             <p className="strona__adres">
               {pulpit.zakres} · plan {pulpit.plan_tier} · dane zebrane{" "}
@@ -255,26 +259,24 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
 
           <Audyt klient={ja.rola === "zespol" ? wybrany : undefined} poZakonczeniu={wczytaj} />
 
-          {/* Dostęp klienta — tylko dla zespołu. Klient nie ma tu nic, bo reset
-              jego hasła robimy my; granica stoi w API, nie w tym warunku. */}
-          {ja.rola === "zespol" && (pulpit?.client_id ?? wybrany) && (
-            <details className="sekcja">
-              <summary>
-                Dostęp klienta{" "}
-                <span className="opis">hasło do panelu, nie klucz API monday</span>
-              </summary>
-              <div className="sekcja__ciało">
-                <p className="meta">
-                  Klient wchodzi na ten sam adres i podaje nazwę konta oraz hasło,
-                  które od nas dostał. Hasła nie odczytamy — jeśli je zgubił, wydaj
-                  nowe.
-                </p>
-                <ResetHaslaKlienta clientId={(pulpit?.client_id ?? wybrany) as string} />
-              </div>
-            </details>
+          {/* Sekcji „Dostęp klienta" TU NIE MA i to jest celowe.
+              Reset hasła klienta żyje w „Moje konto" → „Dostępy klientów", razem
+              z dodawaniem klienta i widokiem, kto może się zalogować. Trzymanie
+              tego samego przycisku w dwóch miejscach było dublowaniem — dokładnie
+              tym, co Kuba zakwestionował przy „Moje hasło". Widok audytu pokazuje
+              audyt. */}
+          {blad && (
+            <div className="brak-danych">
+              <p>
+                <strong>Ten klient nie ma jeszcze audytu.</strong> Ma dostęp do
+                panelu, ale nikt jeszcze nie uruchomił zbierania danych.
+              </p>
+              <p className="meta">
+                Poproś go, żeby wszedł na swój panel i wklejił klucz API monday,
+                albo zrób to wyżej jego kluczem.
+              </p>
+            </div>
           )}
-
-          {blad && <p className="brak-danych">{blad}</p>}
 
           {pulpit && (
             <>
@@ -310,9 +312,20 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
                     ten kafel nie ma jak się pojawić — niezależnie od warunku. */}
                 {pulpit.koszt_usd != null && (
                   <KafelDuzy
-                    podpis="Koszt audytu"
+                    podpis={
+                      pulpit.rozliczenie === "subskrypcja" ? "Koszt (szacunek)" : "Koszt audytu"
+                    }
                     wartosc={pulpit.koszt_usd.toFixed(2)}
-                    pod="USD za analizę"
+                    /* Ta sama liczba znaczy dwie różne rzeczy zależnie od trybu
+                       rozliczenia: wydatek albo wycenę. Bez tego podpisu wyceniałoby
+                       się usługę po kwocie, za którą nikt nie zapłacił. */
+                    pod={
+                      pulpit.rozliczenie === "subskrypcja"
+                        ? "USD — run szedł z subskrypcji, to nie faktura"
+                        : pulpit.rozliczenie === "klucz"
+                          ? "USD za analizę, z klucza API"
+                          : "USD za analizę"
+                    }
                   />
                 )}
               </div>

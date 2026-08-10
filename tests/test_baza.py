@@ -82,9 +82,12 @@ def test_migracje_aplikuja_sie_od_zera(tmp_path: Path) -> None:
     008 dodała tokeny „nie pamiętam hasła": reset z panelu wymaga sesji, a kto
     zgubił hasło, sesji nie ma — błędne koło. Token jest jednorazowy i wygasa,
     bo link leży w skrzynce dłużej niż powinien działać.
+    009 dodała `runy.rozliczenie` — po przełączniku AGENT_ROZLICZENIE ta sama
+    liczba w `koszt_usd` znaczy wydatek ALBO wycenę teoretyczną, więc bez tej
+    kolumny sumowanie mieszałoby jedno z drugim.
     """
     con = polacz(tmp_path / "nowa.db")
-    assert zastosuj_migracje(con) == [1, 2, 3, 4, 5, 6, 7, 8]
+    assert zastosuj_migracje(con) == [1, 2, 3, 4, 5, 6, 7, 8, 9]
     con.close()
 
 

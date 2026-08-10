@@ -560,3 +560,41 @@ body {
 .tabela-lista .nowe-haslo__wartosc {
   font-size: var(--fs-body);
 }
+
+/* ── Dodawanie klienta ─────────────────────────────────────────────────
+ *
+ * Pole i przycisk w jednym wierszu, bo to jedna czynność. Przycisk nie zawija się
+ * pod pole na szerokim ekranie ani nie rozpycha kolumny na wąskim. */
+.dodaj-klienta {
+  margin: 0 0 var(--space-5);
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.dodaj-klienta__wiersz {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: start;
+}
+.dodaj-klienta__wiersz input {
+  flex: 1 1 14rem;
+  min-width: 0;
+}
+.dodaj-klienta__wiersz .cx-btn {
+  width: auto;
+  margin-top: 0;
+  flex: none;
+}
+/* Podpowiedź w etykiecie: bez wielkich liter i bez rozstrzelenia, bo to zdanie,
+ * nie nagłówek kolumny. */
+.dodaj-klienta label .meta {
+  display: block;
+  margin-top: var(--space-1);
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: var(--fs-xs);
+  color: var(--fg-subtle);
+}
+.dodaj-klienta .nowe-haslo {
+  margin-bottom: var(--space-3);
+}

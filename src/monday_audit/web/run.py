@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 
 from monday_audit.agent import zbadaj_hipotezy
@@ -147,7 +148,15 @@ async def _audyt(
                 run_agenta,
                 client_id,
                 raport_runu.snapshot_id,
-                raport_runu.run_id,
+                # DRUGA instancja tej samej usterki co przy `finished_at`:
+                # `started_at` dostawało `raport_runu.run_id`, czyli identyfikator
+                # zamiast daty. Kolumna jest `TEXT`, więc nic nie protestowało,
+                # a panel sortuje wersje audytu WŁAŚNIE po `started_at` — run
+                # z panelu wylądowałby w losowym miejscu listy.
+                #
+                # Obie przeżyły, bo żaden run z panelu nie doszedł jeszcze do
+                # zapisu (`runy` z sufiksem `-agent`: 0 wierszy). Zmierzone.
+                datetime.now(tz=UTC).isoformat(),
                 "claude-sonnet-5",
                 rubryka.wersja,
             ),
@@ -203,14 +212,21 @@ async def _audyt(
         con.execute(
             "UPDATE runy SET status = 'zakonczony', finished_at = ?, findingow = ?, "
             "odrzuconych_walidacja = ?, hipotez_zbadanych = ?, hipotez_odrzuconych = ?, "
-            "koszt_usd = ? WHERE run_id = ?",
+            "koszt_usd = ?, rozliczenie = ? WHERE run_id = ?",
             (
-                raport_runu.run_id,
+                # ZMIERZONA USTERKA (2026-08-10): tu stało `raport_runu.run_id`,
+                # czyli IDENTYFIKATOR runu collectora wpisywany do `finished_at`.
+                # Kolumna jest `TEXT`, więc SQLite przyjmował to bez szemrania,
+                # a `finished_at` niosłoby napis w miejscu daty. Nie wyszło
+                # wcześniej, bo żaden run Z PANELU nie doszedł jeszcze do końca —
+                # CLI ma własny, poprawny `UPDATE`.
+                datetime.now(tz=UTC).isoformat(),
                 len(wynik.przyjete),
                 len(wynik.odrzucone),
                 len(hipotezy),
                 len(wynik.hipotezy_odrzucone),
                 float(odpowiedz["zuzycie"].get("koszt_usd") or 0.0) or None,
+                ustawienia.agent_rozliczenie,
                 run_agenta,
             ),
         )

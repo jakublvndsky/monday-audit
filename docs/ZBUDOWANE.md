@@ -384,6 +384,16 @@ nie może sam** — nie ma dla niego endpointu, a sesja klienta dostaje 404 na o
 Droga ratunkowa z terminala: `--zresetuj-haslo EMAIL_LUB_CLIENT_ID`, na wypadek
 zgubienia wszystkich haseł zespołu.
 
+**Dodawanie klienta z panelu** — „Moje konto" → „Dostępy klientów": identyfikator
+i wygenerowane hasło pokazane raz. Identyfikator waliduje serwer wzorcem
+`^[a-z0-9][a-z0-9-]{1,49}$`, bo trafia do adresów i nazw plików raportu. CLI
+(`--dodaj-klienta`) zostaje jako droga ratunkowa.
+
+**Przełącznik rozliczeń** `AGENT_ROZLICZENIE=klucz|subskrypcja` (domyślnie `klucz`).
+`runy.rozliczenie` zapisuje, czym run był rozliczony — bez tego `koszt_usd` znaczy
+raz wydatek, raz wycenę teoretyczną. Panel oznacza kwotę przy runach
+subskrypcyjnych. Szczegóły w D17.
+
 **Panel administracyjny „Moje konto"** (sidebar, tylko zespół) — własne hasło
 i tabela dostępów wszystkich klientów: kto ma hasło, kto nie może się zalogować,
 reset i nadanie dostępu. Lista klientów to suma tych z AUDYTAMI i tych z KONTEM;

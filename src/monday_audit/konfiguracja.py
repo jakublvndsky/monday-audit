@@ -42,6 +42,18 @@ DOMYSLNY_PLIK = Path(".env")
 ZMIENNA_PLIKU = "MONDAY_AUDIT_ENV_FILE"
 DOMYSLNA_BAZA = Path("monday_audit.db")
 
+# Czym rozliczana jest pętla agenta.
+#
+# `klucz`       — `ANTHROPIC_API_KEY` idzie do środowiska podprocesu SDK; zużycie
+#                 widać w konsoli platformy, a `koszt_usd` to faktyczny wydatek.
+# `subskrypcja` — nie przekazujemy klucza, więc SDK spada na login w `~/.claude`.
+#                 Runy nie obciążają karty, ale `koszt_usd` staje się wyceną
+#                 teoretyczną — i panel musi to napisać, żeby nikt nie wyceniał
+#                 usługi po liczbie, za którą nikt nie zapłacił.
+ROZLICZENIE_KLUCZ = "klucz"
+ROZLICZENIE_SUBSKRYPCJA = "subskrypcja"
+ROZLICZENIA = (ROZLICZENIE_KLUCZ, ROZLICZENIE_SUBSKRYPCJA)
+
 
 class KonfiguracjaError(RuntimeError):
     """Konfiguracji nie da się zebrać. Komunikat NIGDY nie zawiera wartości."""
@@ -119,6 +131,17 @@ class Ustawienia(UstawieniaPoczty):
     anthropic_api_key: SecretStr | None = None
     monday_audit_db: Path = DOMYSLNA_BAZA
 
+    # Czym rozliczamy pętlę agenta. **Domyślnie `klucz`** i to nie kosmetyka:
+    # audyt klienta ma być rozliczalny, a tryb subskrypcyjny musi być DECYZJĄ,
+    # nie stanem, w który wpada się przez zapomnienie. Dokładnie ta pomyłka
+    # zdarzyła się już raz: do 2026-08-05 klucz nie dochodził do podprocesu,
+    # runy szły na subskrypcję i `runy.koszt_usd` zapisywał zero.
+    #
+    # `subskrypcja` = SDK spada na login w `~/.claude`. Wtedy `total_cost_usd`
+    # z SDK jest wyceną teoretyczną, nie fakturą — dlatego `runy.rozliczenie`
+    # zapisuje, którym trybem run poszedł (migracja 009).
+    agent_rozliczenie: str = ROZLICZENIE_KLUCZ
+
     @field_validator(
         "monday_token",
         "sol_pseudonimizacji",
@@ -137,6 +160,20 @@ class Ustawienia(UstawieniaPoczty):
         if wartosc is None:
             return None
         return SecretStr(wartosc.get_secret_value().strip())
+
+    @field_validator("agent_rozliczenie", mode="after")
+    @classmethod
+    def _znane_rozliczenie(cls, wartosc: str) -> str:
+        """Literówka nie może cicho zmienić sposobu płacenia.
+
+        `AGENT_ROZLICZENIE=subskrybcja` bez tego walidatora byłoby traktowane jak
+        „nie klucz", czyli przeszłoby na subskrypcję — i nikt by nie zauważył,
+        dopóki nie zabrakłoby kosztów w konsoli platformy.
+        """
+        czysta = wartosc.strip().lower()
+        if czysta not in ROZLICZENIA:
+            raise ValueError(f"nieznany tryb {wartosc!r}; dozwolone: {', '.join(ROZLICZENIA)}")
+        return czysta
 
     @field_validator("sol_pseudonimizacji", mode="after")
     @classmethod
@@ -274,12 +311,26 @@ def klucz_anthropic(ustawienia: Ustawienia) -> str:
     Zwracaną wartość trzeba przekazać do `ClaudeAgentOptions(env=...)` —
     i `agent.py` to robi. Ta funkcja nadal istnieje po to, żeby run przerwał
     się WCZEŚNIE i z czytelnym komunikatem, przed pierwszym wywołaniem monday.
+
+    **W trybie `subskrypcja` zwraca pusty napis.** Klucz jest wtedy niepotrzebny,
+    więc wymaganie go blokowałoby tryb, który go nie używa. Wywołujący MUSI wtedy
+    pominąć `env` — pusty klucz w środowisku podprocesu byłby gorszy niż jego brak,
+    bo SDK zobaczyłby zmienną i nie spadł na login.
     """
+    if ustawienia.agent_rozliczenie == ROZLICZENIE_SUBSKRYPCJA:
+        logger.warning(
+            "AGENT_ROZLICZENIE=subskrypcja — run NIE obciąży klucza API, a koszt_usd "
+            "będzie wyceną teoretyczną, nie fakturą"
+        )
+        return ""
+
     surowy = ustawienia.anthropic_api_key
     wartosc = surowy.get_secret_value().strip() if surowy else ""
     if not wartosc:
         raise KonfiguracjaError(
-            "brak ANTHROPIC_API_KEY — pętla agenta (3.11) go wymaga. Wpisz go "
-            "do .env albo wyeksportuj w środowisku"
+            "brak ANTHROPIC_API_KEY — pętla agenta (3.11) go wymaga przy "
+            "AGENT_ROZLICZENIE=klucz. Wpisz go do .env, wyeksportuj w środowisku "
+            "albo ustaw AGENT_ROZLICZENIE=subskrypcja, jeśli świadomie chcesz "
+            "płacić subskrypcją (wtedy koszt_usd nie jest fakturą)"
         )
     return wartosc

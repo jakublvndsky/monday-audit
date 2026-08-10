@@ -929,3 +929,71 @@ z migracji 007.
 cudzego audytu, co Kuba zakwestionował. Jest teraz osobną stroną (`MojeKonto`),
 z wejściem w sidebarze pod listą klientów: własne hasło plus tabela dostępów
 wszystkich klientów z resetem i nadaniem dostępu w jednym miejscu.
+
+---
+
+## D17 (2026-08-10). Przełącznik rozliczeń agenta
+
+`AGENT_ROZLICZENIE=klucz|subskrypcja`, **domyślnie `klucz`**.
+
+Kuba zapytał, ile kosztuje powrót na rozliczanie subskrypcją. Odpowiedź: jedno
+pole konfiguracji i jedna gałąź — SDK spada na login w `~/.claude`, gdy nie dostanie
+`env` z kluczem. Ale sama zmiana byłaby cicha, więc dołożone są trzy rzeczy:
+
+**Pusty `env`, nie pusta wartość.** `{"ANTHROPIC_API_KEY": ""}` byłoby GORSZE niż
+brak: SDK zobaczyłby zmienną i nie spadł na login, więc run wywróciłby się na
+uwierzytelnianiu. Test sprawdza `opcje.env == {}`, nie samą obecność klucza.
+
+**`klucz_anthropic` zależy od trybu.** Wymóg klucza zostaje w trybie `klucz`
+(przerywa PRZED wywołaniami monday), a w `subskrypcja` zwraca pusty napis —
+wymaganie klucza w trybie, który go nie używa, blokowałoby ten tryb.
+
+**`runy.rozliczenie` (migracja 009).** Bez tej kolumny `koszt_usd` znaczy dwie
+różne rzeczy w tej samej kolumnie: wydatek albo wycenę teoretyczną. Sumowanie
+mieszałoby jedno z drugim, i to cicho, bo obie są liczbami. Panel oznacza kwotę
+podpisem „Koszt (szacunek) — run szedł z subskrypcji, to nie faktura".
+
+Walidator odrzuca literówkę: `subskrybcja` bez niego byłaby traktowana jak „nie
+klucz", czyli zmieniałaby sposób płacenia niezauważalnie.
+
+Runy sprzed migracji mają `NULL`, nie zgadywaną wartość: 11 z 17 poszło na
+subskrypcję (klucz nie dochodził do 2026-08-05), część później na klucz.
+Zgadywanie po dacie dałoby liczby wyglądające na pewne i takie nie będące.
+
+### Przy okazji: dwie daty, które nie były datami
+
+W `web/run.py` — ścieżce, którą klient odpala audyt z panelu — `started_at`
+**i** `finished_at` dostawały `raport_runu.run_id`, czyli identyfikator runu
+zamiast znacznika czasu. Kolumny są `TEXT`, więc SQLite przyjmował to bez
+protestu.
+
+Obie przeżyły, bo **żaden run z panelu nie doszedł jeszcze do zapisu** (`runy`
+z sufiksem `-agent`: 0 wierszy — zmierzone). Drop-down wersji sortuje właśnie po
+`started_at`, więc pierwszy prawdziwy run z panelu wylądowałby w losowym miejscu
+listy. Ścieżka CLI miała własny, poprawny `UPDATE` — dlatego testy tego nie
+pokazały.
+
+### Dodawanie klienta z panelu
+
+`POST /api/klient/dostep` przyjmuje teraz też **nowy** identyfikator, walidowany
+wzorcem `^[a-z0-9][a-z0-9-]{1,49}$`: `client_id` trafia do adresów (`?klient=`)
+i do nazw plików raportu, więc „Kancelaria Sp. z o.o." nie może tam wejść.
+Surowy 422 pydantica zamieniamy na zdanie mówiące, co jest dozwolone — front
+i tak spłaszczał listę błędów do „nieprawidłowe dane w formularzu".
+
+Reset istniejącego klienta **nie** ma tego wzorca (`DaneResetuKlienta`): konta
+założone wcześniej mogą mieć identyfikatory, których dzisiejsza reguła nie
+przepuszcza, a odmowa resetu dla działającego konta zamieniłaby walidację
+w blokadę.
+
+### Panel nie gubi już, którego klienta oglądasz
+
+Przy kliencie bez audytu `pulpit` jest `null`, a `ja.client_id` dla sesji zespołu
+też — więc nagłówek spadał na „Audyty", a okruszek na „—". Łańcuch to teraz
+`pulpit?.client_id ?? wybrany ?? ja.client_id`; `wybrany` przed `ja.client_id`,
+bo jeden łańcuch obsługuje obie role. Komunikat mówi, **co dalej**, a nie tylko
+że czegoś nie ma.
+
+Sekcja „Dostęp klienta" wypadła z widoku audytu: reset żyje w „Moje konto", a ten
+sam przycisk w dwóch miejscach był dublowaniem — tym samym, które Kuba
+zakwestionował przy „Moje hasło".

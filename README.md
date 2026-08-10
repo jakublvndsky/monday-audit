@@ -97,6 +97,30 @@ da się go odzyskać, tylko wydać nowe. Konto zespołowe wymaga adresu w domeni
 zakładało drugie konto, a stare hasło nadal wpuszczało — więc „wydałem nowe hasło"
 nie odbierało starego dostępu. Do wymiany hasła służy `--zresetuj-haslo`.
 
+### Rozliczanie agenta
+
+```bash
+AGENT_ROZLICZENIE=klucz         # domyślnie: run obciąża ANTHROPIC_API_KEY
+AGENT_ROZLICZENIE=subskrypcja   # run idzie z zalogowania Claude Code
+```
+
+Tryb `klucz` wymaga `ANTHROPIC_API_KEY` i przerywa run **przed** wywołaniami monday,
+gdy go nie ma. Tryb `subskrypcja` klucza nie potrzebuje, ale wtedy `koszt_usd`
+przestaje być fakturą — jest wyceną teoretyczną z SDK. `runy.rozliczenie` zapisuje,
+którym trybem poszedł każdy run, a panel oznacza kwotę.
+
+Do 2026-08-05 klucz nie dochodził do podprocesu SDK i runy szły na subskrypcję
+niezależnie od konfiguracji. Dlatego domyślną wartością jest `klucz`: tryb
+subskrypcyjny ma być decyzją, nie stanem, w który wpada się przez zapomnienie.
+
+### Dodawanie klienta
+
+Z panelu: **Moje konto → Dostępy klientów → Dodaj klienta**. Identyfikator musi
+pasować do `^[a-z0-9][a-z0-9-]{1,49}$`, bo trafia do adresu panelu i do nazw plików
+raportu. Hasło pokazuje się raz.
+
+Z terminala, jako droga ratunkowa: `--dodaj-klienta acme`.
+
 ### Reset haseł
 
 | Kto | Jak |

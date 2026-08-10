@@ -43,6 +43,9 @@ from fastapi import (
     Request,
     Response,
 )
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -112,7 +115,34 @@ class DaneZmianyHasla(BaseModel):
 
 
 class DaneResetuKlienta(BaseModel):
+    """Reset hasła ISTNIEJĄCEGO klienta — bez wzorca.
+
+    Wzorzec byłby tu szkodliwy: konta założone wcześniej (choćby z CLI) mogą mieć
+    identyfikatory, których dzisiejsza reguła nie przepuszcza. Odmowa resetu dla
+    konta, które istnieje i działa, zamieniłaby walidację w blokadę.
+    """
+
     client_id: str = Field(min_length=1, max_length=100)
+
+
+# Identyfikator NOWEGO klienta. `client_id` trafia do adresów (`?klient=`), do nazw
+# plików raportu i do `runy.client_id`, więc nie może być dowolnym napisem —
+# „Kancelaria Ekologiczna sp. z o.o." wygląda na dobry pomysł, dopóki nie trafi
+# do URL-a albo do nazwy pliku.
+#
+# Reguła: małe litery, cyfry i łączniki; zaczyna się od znaku alfanumerycznego.
+# Bez podkreśleń i kropek, bo kropka w nazwie pliku myli się z rozszerzeniem.
+WZORZEC_CLIENT_ID = r"^[a-z0-9][a-z0-9-]{1,49}$"
+OPIS_CLIENT_ID = (
+    "identyfikator: małe litery, cyfry i łączniki, 2–50 znaków, "
+    "zaczyna się od litery lub cyfry (np. kancelaria-eko)"
+)
+
+
+class DaneNowegoKlienta(BaseModel):
+    """Nowy klient — TU wzorzec obowiązuje, bo identyfikator powstaje teraz."""
+
+    client_id: str = Field(pattern=WZORZEC_CLIENT_ID, description=OPIS_CLIENT_ID)
 
 
 def _pelne(ustawienia: UstawieniaPoczty) -> Ustawienia:
@@ -269,6 +299,25 @@ def zbuduj_aplikacje(
     rubryka: Rubryka = wczytaj_rubryke()
 
     aplikacja = FastAPI(title="monday.com Account Audit", docs_url=None, redoc_url=None)
+
+    @aplikacja.exception_handler(RequestValidationError)
+    def _blad_walidacji(_zadanie: Request, blad: RequestValidationError) -> JSONResponse:
+        """Zamienia surowy 422 pydantica na zdanie dla człowieka.
+
+        Domyślna odpowiedź to lista obiektów z `loc`/`type`/`ctx`, której front
+        nie umie pokazać — `klient.ts` spłaszcza ją do „nieprawidłowe dane
+        w formularzu", czyli komunikatu, który nie mówi, co poprawić.
+
+        Tłumaczymy TYLKO to, co wiemy nazwać (dziś wzorzec `client_id`); resztę
+        oddajemy bez zmian, żeby nie ukryć błędu, którego nie przewidzieliśmy.
+        """
+        for szczegol in blad.errors():
+            if szczegol.get("type") == "string_pattern_mismatch" and "client_id" in [
+                str(cz) for cz in szczegol.get("loc", ())
+            ]:
+                return JSONResponse(status_code=422, content={"detail": OPIS_CLIENT_ID})
+        return JSONResponse(status_code=422, content={"detail": jsonable_encoder(blad.errors())})
+
     aplikacja.state.baza = sciezka_bazy
     aplikacja.state.rubryka = rubryka
 
@@ -513,7 +562,7 @@ def zbuduj_aplikacje(
 
     @aplikacja.post("/api/klient/dostep")
     def nadaj_dostep_klientowi(
-        dane: DaneResetuKlienta, sesja: ZSesji, con: Polaczenie
+        dane: DaneNowegoKlienta, sesja: ZSesji, con: Polaczenie
     ) -> dict[str, Any]:
         """Zakłada konto dostępu klientowi, który go jeszcze nie ma.
 

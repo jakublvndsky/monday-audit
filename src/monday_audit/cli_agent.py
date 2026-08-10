@@ -258,7 +258,7 @@ async def _zbadaj_i_zapisz(
     con.execute(
         "UPDATE runy SET status = 'zakonczony', finished_at = ?, findingow = ?, "
         "odrzuconych_walidacja = ?, hipotez_zbadanych = ?, hipotez_odrzuconych = ?, "
-        "tokens_in = ?, tokens_out = ?, koszt_usd = ? WHERE run_id = ?",
+        "tokens_in = ?, tokens_out = ?, koszt_usd = ?, rozliczenie = ? WHERE run_id = ?",
         (
             datetime.now(tz=UTC).isoformat(),
             len(wynik.przyjete),
@@ -270,6 +270,10 @@ async def _zbadaj_i_zapisz(
             # Z `total_cost_usd` Agent SDK, nie z mnożenia tokenów przez własny
             # cennik — ten rozjechałby się przy pierwszej zmianie cen.
             float(odpowiedz["zuzycie"].get("koszt_usd") or 0.0) or None,
+            # CZYM run był rozliczony. Bez tego `koszt_usd` znaczy dwie różne
+            # rzeczy w tej samej kolumnie: wydatek albo wycenę teoretyczną
+            # (migracja 009).
+            ustawienia.agent_rozliczenie,
             run_id,
         ),
     )
