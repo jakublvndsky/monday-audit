@@ -191,11 +191,23 @@ def test_reset_hasla_jest_tylko_dla_zespolu() -> None:
     """
     panel = (KORZEN / "front" / "src" / "Panel.tsx").read_text(encoding="utf-8")
 
-    for fragment in ("ResetHaslaKlienta", "MojeHaslo"):
-        assert fragment in panel, f"{fragment} nie jest wpięty w panel"
-        # Każde użycie musi stać za sprawdzeniem roli zespołu.
-        przed = panel[: panel.index(f"<{fragment}")]
-        assert 'ja.rola === "zespol"' in przed[-600:], f"{fragment} bez warunku roli"
+    # `MojeKonto` to strona administracyjna (własne hasło + dostępy klientów),
+    # `ResetHaslaKlienta` siedzi w środku niej. Do 2026-08-10 „Moje hasło" wisiało
+    # wśród danych audytu klienta — przeniesione, bo własne konto nie należy do
+    # widoku cudzego audytu.
+    assert "MojeKonto" in panel, "strona administracyjna nie jest wpięta"
+    assert "naKoncie ? (" in panel, "brak przełączania na stronę administracyjną"
+
+    # Wejście na stronę administracyjną tylko dla zespołu — pozycja w sidebarze
+    # musi stać za sprawdzeniem roli.
+    przed_admin = panel[: panel.index("sidebar__admin")]
+    assert 'ja.rola === "zespol"' in przed_admin[-400:], "wejscie na strone konta bez roli"
+
+    hasla = (KORZEN / "front" / "src" / "Hasla.tsx").read_text(encoding="utf-8")
+    assert "ResetHaslaKlienta" in hasla and "MojeHaslo" in hasla
+    # Reset klienta jest w tabeli dostępów, więc widzi go tylko ten, kto wszedł na
+    # stronę administracyjną. Granica i tak stoi w API (klient dostaje 404).
+    assert "<ResetHaslaKlienta" in hasla, "reset klienta nie jest wpięty w stronę konta"
 
 
 def test_klient_nie_ma_wywolania_resetu_wlasnego_hasla() -> None:

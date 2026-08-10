@@ -81,6 +81,7 @@ export interface PozycjaKlienta {
   ostatni_run_at: string | null;
   findingow: number;
   suma_kwot: number;
+  ma_konto: boolean;
 }
 
 export interface Ja {

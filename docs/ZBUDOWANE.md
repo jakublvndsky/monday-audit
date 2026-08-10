@@ -384,6 +384,12 @@ nie może sam** — nie ma dla niego endpointu, a sesja klienta dostaje 404 na o
 Droga ratunkowa z terminala: `--zresetuj-haslo EMAIL_LUB_CLIENT_ID`, na wypadek
 zgubienia wszystkich haseł zespołu.
 
+**Panel administracyjny „Moje konto"** (sidebar, tylko zespół) — własne hasło
+i tabela dostępów wszystkich klientów: kto ma hasło, kto nie może się zalogować,
+reset i nadanie dostępu. Lista klientów to suma tych z AUDYTAMI i tych z KONTEM;
+do 2026-08-10 powstawała tylko z runów, więc panel ukrywał klienta z wydanym
+hasłem, ale bez audytu, ORAZ klienta z audytem, który nie mógł się zalogować.
+
 **„Nie pamiętam hasła"** (brama, zakładka zespołu) — jedyna droga hasła BEZ sesji,
 i tak musi być: kto zgubił hasło, zalogować się nie może. Link na skrzynkę
 `@cxlabs.digital`, ważny 30 minut, działa raz. Odpowiedź jest identyczna dla konta

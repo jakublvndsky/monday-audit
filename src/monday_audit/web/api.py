@@ -50,12 +50,15 @@ from monday_audit.baza import polacz, zastosuj_migracje
 from monday_audit.dostep import (
     GODZIN_SESJI,
     MINUT_TOKENU_RESETU,
+    ROLA_KLIENT,
     DostepError,
     Sesja,
     WynikResetu,
     konto_klienta,
     poproszono_o_reset,
+    utworz_konto,
     wczytaj_sesje,
+    wygeneruj_haslo,
     wyloguj,
     zaloguj,
     zresetuj_haslo,
@@ -393,6 +396,9 @@ def zbuduj_aplikacje(
                 "ostatni_run_at": p.ostatni_run_at,
                 "findingow": p.findingow,
                 "suma_kwot": p.suma_kwot,
+                # Czy klient MOŻE się zalogować. Panel administracyjny pokazuje
+                # brak konta jako stan do naprawy, nie ukrywa wiersza.
+                "ma_konto": p.ma_konto,
             }
             for p in zbuduj_liste_klientow(con)
         ]
@@ -504,6 +510,33 @@ def zbuduj_aplikacje(
         except DostepError as blad:
             raise HTTPException(status_code=404, detail=str(blad)) from None
         return _odpowiedz_resetu(wynik)
+
+    @aplikacja.post("/api/klient/dostep")
+    def nadaj_dostep_klientowi(
+        dane: DaneResetuKlienta, sesja: ZSesji, con: Polaczenie
+    ) -> dict[str, Any]:
+        """Zakłada konto dostępu klientowi, który go jeszcze nie ma.
+
+        Potrzebne, bo panel pokazuje teraz „BRAK KONTA" jako stan (patrz
+        `zbuduj_liste_klientow`) — a pokazywanie braku bez drogi do naprawienia go
+        byłoby połową roboty. Klient `cxlabs` miał w bazie 17 audytów i żadnego
+        konta: audyt istniał, a odbiorca nie mógł go zobaczyć.
+
+        Tylko zespół; klient dostaje 404, jak przy każdym endpoincie zespołowym.
+        Gdy konto już jest, **odmawiamy zamiast po cichu wydać drugie hasło** —
+        to ta sama reguła, którą wymusza `utworz_konto` i indeks z migracji 007.
+        """
+        if not sesja.to_zespol:
+            raise HTTPException(status_code=404, detail="nie znaleziono")
+
+        haslo = wygeneruj_haslo()
+        try:
+            utworz_konto(con, rola=ROLA_KLIENT, haslo=haslo, client_id=dane.client_id)
+        except DostepError as blad:
+            raise HTTPException(status_code=409, detail=str(blad)) from None
+
+        logger.info("nadano dostęp klientowi %s", dane.client_id)
+        return {"haslo": haslo, "wazne_sesje": 0, "godzin_sesji": GODZIN_SESJI}
 
     @aplikacja.post("/api/haslo/klienta")
     def zresetuj_haslo_klienta(

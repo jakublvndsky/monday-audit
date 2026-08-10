@@ -119,6 +119,14 @@ export const api = {
       body: JSON.stringify({ token }),
     }),
 
+  // Nadanie dostępu klientowi, który go nie ma. Panel pokazuje „BRAK KONTA"
+  // jako stan, więc musi też dawać drogę do naprawienia go.
+  nadajDostep: (clientId: string) =>
+    pobierz<WynikResetu>("/api/klient/dostep", {
+      method: "POST",
+      body: JSON.stringify({ client_id: clientId }),
+    }),
+
   zmienMojeHaslo: (obecneHaslo: string) =>
     pobierz<WynikResetu>("/api/haslo/moje", {
       method: "POST",

@@ -18,7 +18,15 @@
 // wprost, zamiast pokazać hasło i liczyć, że ktoś je zapisze.
 
 import { useState } from "react";
+import type { PozycjaKlienta } from "./api";
 import { api, BladApi, type WynikResetu } from "./klient";
+
+/** Polska odmiana po liczbie: 1 audyt, 2 audyty, 5 audytów. */
+function odmiana(ile: number, poj: string, mnoga: string, dopelniacz: string): string {
+  if (ile === 1) return poj;
+  if (ile % 10 >= 2 && ile % 10 <= 4 && (ile % 100 < 12 || ile % 100 > 14)) return mnoga;
+  return dopelniacz;
+}
 
 /** Pokazane raz nowe hasło. Świadomie nie ma tu „skopiuj i zamknij" — dopóki
  *  widok jest otwarty, hasło jest widoczne i można je przepisać. */
@@ -111,6 +119,132 @@ export function ResetHaslaKlienta({ clientId }: { clientId: string }) {
           Zresetuj hasło klienta
         </button>
       )}
+    </div>
+  );
+}
+
+/** Nadanie dostępu klientowi, który konta nie ma.
+ *
+ * Panel pokazuje „BRAK KONTA" jako stan (patrz `zbuduj_liste_klientow`), więc musi
+ * dawać drogę do naprawienia go — pokazywanie braku bez możliwości działania to
+ * połowa roboty. W bazie produkcyjnej `cxlabs` miał 17 audytów i żadnego konta:
+ * audyt istniał, a odbiorca nie mógł go zobaczyć.
+ */
+function NadajDostep({ clientId, poNadaniu }: { clientId: string; poNadaniu: () => void }) {
+  const [wynik, ustawWynik] = useState<WynikResetu | null>(null);
+  const [blad, ustawBlad] = useState<string | null>(null);
+  const [czeka, ustawCzeka] = useState(false);
+
+  async function nadaj() {
+    ustawCzeka(true);
+    ustawBlad(null);
+    try {
+      ustawWynik(await api.nadajDostep(clientId));
+      poNadaniu();
+    } catch (e) {
+      ustawBlad(e instanceof BladApi ? e.message : "nie udało się nadać dostępu");
+    } finally {
+      ustawCzeka(false);
+    }
+  }
+
+  if (wynik) return <NoweHaslo wynik={wynik} kogo={clientId} />;
+
+  return (
+    <>
+      {blad && (
+        <p className="brama__blad" role="alert">
+          {blad}
+        </p>
+      )}
+      <button type="button" className="cx-btn cx-btn--cichy" onClick={nadaj} disabled={czeka}>
+        {czeka ? "zakładam…" : "Nadaj dostęp"}
+      </button>
+    </>
+  );
+}
+
+/** Strona administracyjna: własne konto plus dostępy wszystkich klientów.
+ *
+ * Osobna strona, nie sekcja wśród danych audytu. Poprzednia wersja miała „Moje
+ * hasło" pomiędzy kaflami klienta, co Kuba słusznie zakwestionował: własne konto
+ * nie należy do widoku audytu cudzego konta.
+ */
+export function MojeKonto({
+  email,
+  klienci,
+  odswiez,
+}: {
+  email: string;
+  klienci: PozycjaKlienta[];
+  odswiez: () => void;
+}) {
+  return (
+    <div className="strona">
+      <p className="eyebrow">Panel administracyjny</p>
+      <h1>Moje konto</h1>
+      <p className="strona__adres">{email}</p>
+
+      <MojeHaslo email={email} />
+
+      <details className="sekcja" open>
+        <summary>
+          Dostępy klientów <span className="opis">kto może wejść na swój panel</span>
+        </summary>
+        <div className="sekcja__ciało">
+          <p className="meta">
+            Hasła nie odczytamy — w bazie jest tylko hash. Zgubione zastępujemy nowym.
+          </p>
+          <div className="przewijane">
+            <table className="tabela-lista">
+              <thead>
+                <tr>
+                  <th>Klient</th>
+                  <th>Audyty</th>
+                  <th>Dostęp</th>
+                  <th>Hasło</th>
+                </tr>
+              </thead>
+              <tbody>
+                {klienci.map((k) => (
+                  <tr key={k.client_id}>
+                    <td>
+                      <b>{k.client_id}</b>
+                    </td>
+                    <td>
+                      {k.audytow > 0 ? (
+                        // „5 audytów · 1 znalezisko" — liczba znalezisk dotyczy
+                        // NAJNOWSZEGO runu, nie sumy, więc odmiana musi się zgadzać
+                        // z jedynką. Wcześniej wychodziło „1 znalezisk".
+                        `${k.audytow} ${odmiana(k.audytow, "audyt", "audyty", "audytów")} · ` +
+                        `${k.findingow} ${odmiana(k.findingow, "znalezisko", "znaleziska", "znalezisk")}`
+                      ) : (
+                        <span className="pusto">brak audytu</span>
+                      )}
+                    </td>
+                    <td>
+                      {k.ma_konto ? (
+                        "ma hasło"
+                      ) : (
+                        /* Ten stan był dotąd NIEWIDOCZNY: klient z audytem, ale bez
+                           konta, nie mógł się zalogować i nikt tego nie wiedział. */
+                        <span className="stan-brak">nie może się zalogować</span>
+                      )}
+                    </td>
+                    <td>
+                      {k.ma_konto ? (
+                        <ResetHaslaKlienta clientId={k.client_id} />
+                      ) : (
+                        <NadajDostep clientId={k.client_id} poNadaniu={odswiez} />
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </details>
     </div>
   );
 }

@@ -27,6 +27,7 @@ import pytest
 
 from monday_audit.baza import polacz, zastosuj_migracje
 from monday_audit.deanonimizacja import WZORZEC_HASHA
+from monday_audit.dostep import ROLA_KLIENT, utworz_konto
 from monday_audit.pulpit import (
     KLUCZE_WEWNETRZNE,
     do_json,
@@ -506,3 +507,68 @@ def test_panel_nie_ma_zasobow_zewnetrznych_ani_fontow(con: sqlite3.Connection) -
         assert re.search(r"""(src|href)\s*=\s*["']https?://""", html) is None
         assert "@font-face" not in html
         assert "data:image/png;base64," in html, "znak marki ma być osadzony"
+
+
+# ── lista klientów: konta ORAZ audyty ────────────────────────────────────
+#
+# ZMIERZONA USTERKA. Do 2026-08-10 lista powstawała tylko z `runy`, więc panel
+# ukrywał dwa stany naraz. W bazie produkcyjnej: `acme` miał konto i zero
+# audytów (niewidoczny, choć hasło wydane), `cxlabs` miał 17 audytów i żadnego
+# konta (widoczny, ale klient nie mógł się zalogować — tego nie było widać
+# w ogóle). Zgłosił to Kuba pytaniem „czy nie powinienem widzieć również acme".
+
+
+def test_klient_z_kontem_bez_audytu_jest_widoczny(con: sqlite3.Connection) -> None:
+    """Administrator MUSI widzieć, komu wydał hasło — także przed pierwszym audytem.
+
+    Inaczej między założeniem konta a pierwszym audytem klient jest niewidoczny,
+    a panel nie ma miejsca, w którym widać wydane dostępy.
+    """
+    utworz_konto(con, rola=ROLA_KLIENT, haslo="haslo55-testowe66-dlugie77", client_id="acme")
+    con.commit()
+
+    pozycje = {p.client_id: p for p in zbuduj_liste_klientow(con)}
+
+    assert "acme" in pozycje, "klient z kontem, ale bez audytu, jest niewidoczny"
+    assert pozycje["acme"].audytow == 0
+    assert pozycje["acme"].ma_konto is True
+    # Bez runu nie ma czego liczyć — i to nie może wywalić budowania listy.
+    assert pozycje["acme"].ostatni_run_id is None
+    assert pozycje["acme"].findingow == 0
+
+
+def test_klient_z_audytem_bez_konta_jest_oznaczony(con: sqlite3.Connection) -> None:
+    """Najgroźniejszy z dwóch stanów: audyt jest, a odbiorca nie może go zobaczyć.
+
+    Wcześniej taki klient wyglądał w panelu identycznie jak każdy inny, więc nikt
+    nie wiedział, że brakuje mu hasła.
+    """
+    _finding(con, KLASA_KLIENTA)
+    con.commit()
+
+    pozycje = {p.client_id: p for p in zbuduj_liste_klientow(con)}
+
+    assert pozycje["cxlabs"].audytow == 1
+    assert pozycje["cxlabs"].ma_konto is False, "brak konta nie jest oznaczony"
+
+
+def test_lista_nie_dubluje_klienta_z_kontem_i_audytem(con: sqlite3.Connection) -> None:
+    """`UNION` łączy dwa źródła — bez tego klient normalny byłby na liście dwa razy."""
+    _finding(con, KLASA_KLIENTA)
+    utworz_konto(con, rola=ROLA_KLIENT, haslo="haslo55-testowe66-dlugie77", client_id="cxlabs")
+    con.commit()
+
+    identyfikatory = [p.client_id for p in zbuduj_liste_klientow(con)]
+
+    assert identyfikatory.count("cxlabs") == 1, f"duplikat na liście: {identyfikatory}"
+    assert zbuduj_liste_klientow(con)[0].ma_konto is True
+
+
+def test_dezaktywowane_konto_nie_liczy_sie_jako_dostep(con: sqlite3.Connection) -> None:
+    """Konto z `aktywne = 0` nie wpuszcza, więc panel nie może mówić, że wpuszcza."""
+    _finding(con, KLASA_KLIENTA)
+    utworz_konto(con, rola=ROLA_KLIENT, haslo="haslo55-testowe66-dlugie77", client_id="cxlabs")
+    con.execute("UPDATE konta_dostepu SET aktywne = 0 WHERE client_id = 'cxlabs'")
+    con.commit()
+
+    assert zbuduj_liste_klientow(con)[0].ma_konto is False

@@ -520,3 +520,43 @@ body {
   width: 100%;
   margin-top: var(--space-3);
 }
+
+/* ── Pozycja administracyjna w sidebarze ───────────────────────────────
+ *
+ * „Moje konto" stoi POD listą klientów i nad stopką, oddzielone kreską: to inny
+ * poziom niż nawigacja po klientach. Wcześniej „Moje hasło" było sekcją wśród
+ * danych audytu klienta — własne konto nie należy do widoku cudzego audytu. */
+.sidebar__admin {
+  margin-top: auto;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--cx-ink-60);
+}
+.sidebar__admin a {
+  font-size: var(--fs-small);
+}
+/* Stopka miała `margin-top: auto` i wypychała się na dół sama. Teraz tę rolę
+ * gra `.sidebar__admin`, więc stopka nie może się już o to bić. */
+.sidebar__admin ~ .sidebar__stopka {
+  margin-top: var(--space-3);
+}
+
+/* Stan, który do 2026-08-10 był NIEWIDOCZNY: klient z audytem, ale bez konta
+ * dostępu. Audyt istniał, a odbiorca nie mógł się zalogować i nikt tego nie
+ * wiedział, bo lista klientów powstawała tylko z runów. */
+.stan-brak {
+  color: var(--waga-wysoka);
+  font-weight: 500;
+}
+/* W tabeli dostępów przyciski są w komórce, więc nie mogą rozpychać kolumny. */
+.tabela-lista .cx-btn {
+  width: auto;
+  margin-top: 0;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--fs-xs);
+}
+.tabela-lista .nowe-haslo {
+  padding: var(--space-3);
+}
+.tabela-lista .nowe-haslo__wartosc {
+  font-size: var(--fs-body);
+}

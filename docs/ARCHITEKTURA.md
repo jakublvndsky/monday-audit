@@ -900,3 +900,32 @@ domyślna, która cicho psuje link, jest gorsza od jej braku.
 
 Dwa testy: link nie może wskazywać starej stałej i musi nieść adres z żądania;
 `ADRES_PUBLICZNY` musi wygrywać, gdy jest podany.
+
+### Poprawka (2026-08-10): panel ukrywał dwa stany naraz
+
+Kuba zapytał, czy nie powinien widzieć w panelu klienta `acme`, któremu sam
+zakładał konto. Powinien — a sprawdzenie odsłoniło **dwa** niewidoczne stany,
+bo `zbuduj_liste_klientow` budowała listę wyłącznie z `runy`:
+
+| klient | stan w bazie | co widział panel |
+|---|---|---|
+| `acme` | konto dostępu, 0 audytów | **nic** — mimo wydanego hasła |
+| `cxlabs` | 17 audytów, 0 kont | wiersz jak każdy inny |
+
+Drugi przypadek był groźniejszy: audyt istniał, klient nie mógł się zalogować,
+i **nie było tego widać nigdzie**. Lista jest teraz sumą obu źródeł (`UNION`),
+a `PozycjaKlienta.ma_konto` mówi, czy klient może wejść. Braki są stanem do
+pokazania, nie powodem do ukrycia wiersza — ukryty wiersz to brak, o którym nikt
+się nie dowie.
+
+Doszedł `POST /api/klient/dostep`, bo pokazywanie braku bez drogi do naprawienia
+go byłoby połową roboty. Przy istniejącym koncie odmawia z **409** i komunikatem
+kierującym na reset: to ta sama reguła, którą wymusza `utworz_konto` i indeks
+z migracji 007.
+
+### „Moje konto" wyszło z widoku audytu
+
+„Moje hasło" wisiało wśród kafli klienta — własne konto nie należy do widoku
+cudzego audytu, co Kuba zakwestionował. Jest teraz osobną stroną (`MojeKonto`),
+z wejściem w sidebarze pod listą klientów: własne hasło plus tabela dostępów
+wszystkich klientów z resetem i nadaniem dostępu w jednym miejscu.

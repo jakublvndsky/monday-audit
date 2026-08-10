@@ -863,3 +863,59 @@ def test_adres_publiczny_wygrywa_gdy_ustawiony(baza: Path) -> None:
     assert "https://audyt.cxlabs.digital/?reset=" in linki[0], (
         f"nie użył ADRES_PUBLICZNY: {linki[0]}"
     )
+
+
+def test_klient_nie_nada_sobie_dostepu(klient_http: TestClient) -> None:
+    """Nadawanie dostępu to akcja administracyjna — klient dostaje 404.
+
+    Bez tego klient mógłby zakładać konta dowolnym identyfikatorom, w tym cudzym.
+    """
+    _zaloguj_klienta(klient_http, "cxlabs")
+
+    odp = klient_http.post("/api/klient/dostep", json={"client_id": "nowy-klient"})
+
+    assert odp.status_code == 404
+    assert "haslo" not in odp.text
+
+
+def test_zespol_nadaje_dostep_klientowi_bez_konta(klient_http: TestClient) -> None:
+    """Panel pokazuje „nie może się zalogować", więc musi dać to naprawić.
+
+    `inny-klient` ma w fixture audyt, ale nie ma konta — dokładnie stan, który
+    w bazie produkcyjnej miał `cxlabs` z 17 audytami.
+    """
+    _zaloguj_zespol(klient_http)
+
+    odp = klient_http.post("/api/klient/dostep", json={"client_id": "inny-klient"})
+
+    assert odp.status_code == 200, odp.text
+    nowe = odp.json()["haslo"]
+    # Nadane hasło musi FAKTYCZNIE wpuszczać — inaczej „nadałem dostęp" kłamie.
+    with TestClient(klient_http.app, base_url="https://test") as swieza:
+        wejscie = swieza.post("/api/sesja/klient", json={"client_id": "inny-klient", "haslo": nowe})
+        assert wejscie.status_code == 200, "nadane hasło nie wpuszcza"
+
+
+def test_nadanie_dostepu_dwa_razy_odmawia(klient_http: TestClient) -> None:
+    """409, nie ciche wydanie drugiego hasła.
+
+    Ta sama reguła co w `utworz_konto` i w indeksie z migracji 007: dwa aktywne
+    konta jednego klienta to stan, w którym `zaloguj` wpuszcza dowolne z nich.
+    """
+    _zaloguj_zespol(klient_http)
+
+    assert klient_http.post("/api/klient/dostep", json={"client_id": "nowy"}).status_code == 200
+    powtorka = klient_http.post("/api/klient/dostep", json={"client_id": "nowy"})
+
+    assert powtorka.status_code == 409
+    assert "reset" in powtorka.json()["detail"], "komunikat nie mówi, co zrobić"
+
+
+def test_lista_klientow_niesie_stan_dostepu(klient_http: TestClient) -> None:
+    """Front rysuje „nie może się zalogować" z tego pola, więc musi ono dojść."""
+    _zaloguj_zespol(klient_http)
+
+    pozycje = {p["client_id"]: p for p in klient_http.get("/api/klienci").json()}
+
+    assert pozycje["cxlabs"]["ma_konto"] is True, "klient z kontem oznaczony jako bez"
+    assert pozycje["inny-klient"]["ma_konto"] is False, "brak konta nieoznaczony"

@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Ja, PozycjaKlienta, Pulpit } from "./api";
 import { Audyt } from "./Audyt";
-import { MojeHaslo, ResetHaslaKlienta } from "./Hasla";
+import { MojeKonto, ResetHaslaKlienta } from "./Hasla";
 import { api } from "./klient";
 import {
   CzegoNieWidac,
@@ -80,6 +80,10 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
   // Wybrana WERSJA audytu. `undefined` znaczy „domyślna", czyli najnowsza —
   // serwer to rozstrzyga (`_ostatni_run`), front nie zgaduje.
   const [wersja, ustawWersje] = useState<string | undefined>(undefined);
+  // Który widok: audyt klienta czy własne konto. „Moje konto" było wcześniej
+  // sekcją WŚRÓD danych audytu klienta, co Kuba słusznie zakwestionował —
+  // własne konto nie należy do widoku cudzego audytu.
+  const [naKoncie, ustawNaKoncie] = useState(false);
   const [blad, ustawBlad] = useState<string | null>(null);
 
   const wczytaj = useCallback(async () => {
@@ -134,6 +138,7 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
                         // audyt ma.
                         ustawWersje(undefined);
                         ustawWybranego(k.client_id);
+                        ustawNaKoncie(false);
                       }}
                     >
                       {k.client_id}
@@ -151,6 +156,20 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
             </>
           )}
         </nav>
+        {ja.rola === "zespol" && (
+          <div className="sidebar__admin">
+            <a
+              href="#"
+              className={naKoncie ? "aktywny" : ""}
+              onClick={(e) => {
+                e.preventDefault();
+                ustawNaKoncie(true);
+              }}
+            >
+              Moje konto
+            </a>
+          </div>
+        )}
         <div className="sidebar__stopka">
           {pulpit && (
             <>
@@ -167,6 +186,18 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
       </aside>
 
       <main className="tresc">
+        {naKoncie ? (
+          <MojeKonto
+            email={ja.email ?? ""}
+            klienci={klienci}
+            odswiez={() => {
+              // Po nadaniu dostępu lista musi się przerysować, inaczej wiersz
+              // dalej mówi „nie może się zalogować".
+              api.klienci().then(ustawKlienci).catch(() => undefined);
+            }}
+          />
+        ) : (
+        <>
         <div className="pasek">
           <span className="okruszki">
             {ja.rola === "zespol" && "Klienci / "}
@@ -242,8 +273,6 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
               </div>
             </details>
           )}
-
-          {ja.rola === "zespol" && ja.email && <MojeHaslo email={ja.email} />}
 
           {blad && <p className="brak-danych">{blad}</p>}
 
@@ -347,6 +376,8 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
             wskazujący na konkretny fakt. CXLABS.
           </footer>
         </div>
+        </>
+        )}
       </main>
     </>
   );

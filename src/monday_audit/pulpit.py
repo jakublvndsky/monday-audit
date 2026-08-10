@@ -101,6 +101,11 @@ class PozycjaKlienta:
     ostatni_run_at: str | None
     findingow: int
     suma_kwot: float
+    # Czy klient ma aktywne konto dostępu, czyli czy MOŻE się zalogować.
+    # Bez tego pola panel nie odróżniał „klient z audytem, ale bez hasła"
+    # od „klient, który normalnie wchodzi" — a to pierwsze znaczy, że audyt
+    # zrobiliśmy i nikt go po drugiej stronie nie widzi.
+    ma_konto: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -382,34 +387,75 @@ def run_nalezy_do(con: sqlite3.Connection, run_id: str, client_id: str) -> bool:
 
 
 def zbuduj_liste_klientow(con: sqlite3.Connection) -> list[PozycjaKlienta]:
-    """Klienci Z BAZY, do drop-downu. Żadnych wymyślonych pozycji.
+    """Klienci Z BAZY: suma tych z AUDYTAMI i tych z KONTEM DOSTĘPU.
 
-    Panel z fałszywymi klientami wyglądałby lepiej i kłamał. Gdy jest jeden
-    klient, lista ma jedną pozycję — a widok mówi o tym wprost.
+    ## ZMIERZONA USTERKA, którą to naprawia
+
+    Do 2026-08-10 lista powstawała wyłącznie z `runy`, więc panel pokazywał tylko
+    klientów, którzy mają zakończony audyt ze znaleziskami. W bazie produkcyjnej
+    dawało to dwa niewidoczne stany naraz:
+
+    - **`acme`** miał konto dostępu i ZERO audytów → nie było go w panelu, choć
+      hasło zostało wydane. Administrator nie widział, komu dał dostęp.
+    - **`cxlabs`** miał 17 audytów i ŻADNEGO konta → był w panelu, ale klient nie
+      mógł się zalogować. Tego nie było widać w ogóle.
+
+    Zgłosił to Kuba pytaniem „czy nie powinienem widzieć również acme". Powinien —
+    i to jest ta sama rodzina usterek co poprzednie: każdy element działał osobno,
+    a brakowało widoku na ich POŁĄCZENIE.
+
+    Teraz lista jest sumą obu źródeł, a `ma_konto` i `audytow` mówią, czego danej
+    pozycji brakuje. Braki są stanem do pokazania, nie powodem do ukrycia wiersza:
+    ukryty wiersz to brak, o którym nikt się nie dowie.
     """
     pozycje: list[PozycjaKlienta] = []
     for wiersz in con.execute(
-        "SELECT client_id, COUNT(*) audytow FROM runy WHERE status = 'zakonczony' "
-        "AND findingow > 0 GROUP BY client_id ORDER BY client_id"
+        # Suma dwóch źródeł. `LEFT JOIN` nie wystarczy: potrzebujemy klientów
+        # obecnych w JEDNYM z nich, więc łączymy zbiory identyfikatorów.
+        "WITH ident AS ("
+        "  SELECT client_id FROM runy WHERE status = 'zakonczony' AND findingow > 0"
+        "  UNION"
+        "  SELECT client_id FROM konta_dostepu WHERE rola = 'klient' AND aktywne = 1"
+        ") "
+        "SELECT i.client_id, "
+        "  (SELECT COUNT(*) FROM runy r WHERE r.client_id = i.client_id "
+        "    AND r.status = 'zakonczony' AND r.findingow > 0) audytow, "
+        "  EXISTS(SELECT 1 FROM konta_dostepu k WHERE k.client_id = i.client_id "
+        "    AND k.rola = 'klient' AND k.aktywne = 1) ma_konto "
+        "FROM ident i ORDER BY i.client_id"
     ):
         client_id = str(wiersz["client_id"])
+        # Klient z kontem, ale bez audytu, NIE MA runu — i to jest poprawny stan,
+        # nie błąd. Zapytania o findingi wykonujemy tylko wtedy, gdy jest czego
+        # szukać; wcześniej poleciałyby z `run_id = None` i cicho zwróciły zera.
         run_id = _ostatni_run(con, client_id)
-        szczegol = con.execute("SELECT started_at FROM runy WHERE run_id = ?", (run_id,)).fetchone()
-        # Liczymy WIERSZE, nie czytamy `runy.findingow`. Ten licznik zapisuje się
-        # przy domknięciu runu i może się rozjechać z tabelą — a panel ma
-        # pokazywać to, co w bazie faktycznie jest.
-        suma = con.execute(
-            "SELECT COUNT(*) n, COALESCE(SUM(kwota_pln), 0) s FROM findings WHERE run_id = ?",
-            (run_id,),
-        ).fetchone()
+        run_at: str | None = None
+        findingow = 0
+        suma_kwot = 0.0
+        if run_id is not None:
+            szczegol = con.execute(
+                "SELECT started_at FROM runy WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            run_at = str(szczegol["started_at"]) if szczegol else None
+            # Liczymy WIERSZE, nie czytamy `runy.findingow`. Ten licznik zapisuje
+            # się przy domknięciu runu i może się rozjechać z tabelą — a panel ma
+            # pokazywać to, co w bazie faktycznie jest.
+            suma = con.execute(
+                "SELECT COUNT(*) n, COALESCE(SUM(kwota_pln), 0) s FROM findings WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            findingow = int(suma["n"])
+            suma_kwot = round(float(suma["s"]), 2)
+
         pozycje.append(
             PozycjaKlienta(
                 client_id=client_id,
                 audytow=int(wiersz["audytow"]),
                 ostatni_run_id=run_id,
-                ostatni_run_at=str(szczegol["started_at"]) if szczegol else None,
-                findingow=int(suma["n"]),
-                suma_kwot=round(float(suma["s"]), 2),
+                ostatni_run_at=run_at,
+                findingow=findingow,
+                suma_kwot=suma_kwot,
+                ma_konto=bool(wiersz["ma_konto"]),
             )
         )
     logger.info("panel wewnętrzny: %d klientów w bazie", len(pozycje))
