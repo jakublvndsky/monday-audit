@@ -493,3 +493,30 @@ body {
 .formularz-hasla {
   max-width: 22rem;
 }
+
+/* Odnośnik w bramie — „Nie pamiętam hasła". To `<button>`, nie `<a>`, bo nie
+ * prowadzi nigdzie: przełącza widok w tej samej stronie. Wygląda jak odnośnik,
+ * bo taka jest jego rola w formularzu, i nie zabiera uwagi przyciskowi „Wejdź". */
+.brama__link {
+  display: block;
+  width: 100%;
+  margin-top: var(--space-4);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cx-ink-10);
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  text-align: center;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.brama__link:hover {
+  color: var(--cx-ink);
+}
+/* W bramie przyciski są pod sobą, więc „Wróć do logowania" nie może mieć
+ * `width: auto` z odmiany cichej — inaczej wisi po lewej. */
+.brama__karta .cx-btn--cichy {
+  width: 100%;
+  margin-top: var(--space-3);
+}

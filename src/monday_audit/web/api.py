@@ -49,16 +49,20 @@ from pydantic import BaseModel, Field
 from monday_audit.baza import polacz, zastosuj_migracje
 from monday_audit.dostep import (
     GODZIN_SESJI,
+    MINUT_TOKENU_RESETU,
     DostepError,
     Sesja,
     WynikResetu,
     konto_klienta,
+    poproszono_o_reset,
     wczytaj_sesje,
     wyloguj,
     zaloguj,
     zresetuj_haslo,
+    zuzyj_token_resetu,
 )
-from monday_audit.konfiguracja import Ustawienia, wczytaj
+from monday_audit.konfiguracja import Ustawienia, UstawieniaPoczty, wczytaj
+from monday_audit.poczta import PocztaError, wyslij_link_resetu
 from monday_audit.pulpit import do_json, run_nalezy_do, zbuduj_liste_klientow, zbuduj_pulpit
 from monday_audit.raport import ODBIORCA_KLIENT, ODBIORCA_WEWNETRZNY, RaportError
 from monday_audit.rubryka import Rubryka, wczytaj_rubryke
@@ -82,6 +86,16 @@ class DaneKlienta(BaseModel):
 class DaneZespolu(BaseModel):
     email: str = Field(min_length=3, max_length=200)
     haslo: str = Field(min_length=1, max_length=200)
+
+
+class DaneZapomnianego(BaseModel):
+    """„Nie pamiętam hasła". Sam e-mail — reszta dzieje się przez skrzynkę."""
+
+    email: str = Field(min_length=3, max_length=200)
+
+
+class DaneTokenu(BaseModel):
+    token: str = Field(min_length=20, max_length=200)
 
 
 class DaneZmianyHasla(BaseModel):
@@ -193,9 +207,16 @@ def zbuduj_aplikacje(*, baza: Path | None = None, ustawienia: Ustawienia | None 
     """
     if baza is not None:
         sciezka_bazy = baza.absolute()
+        # Testy granic wołają fabrykę BEZ sekretów (patrz docstring), a poczta
+        # potrzebuje tylko własnych pól. `UstawieniaPoczty` daje je bez wymagania
+        # `MONDAY_TOKEN` — więc „nie pamiętam hasła" da się testować bez
+        # produkcyjnych poświadczeń, i to jest cały powód tej gałęzi.
+        konf_poczty: Ustawienia | UstawieniaPoczty = ustawienia or UstawieniaPoczty()
     else:
         konf = ustawienia or wczytaj()
         sciezka_bazy = konf.monday_audit_db.absolute()
+        konf_poczty = konf
+    ustawienia_aplikacji = konf_poczty
     rubryka: Rubryka = wczytaj_rubryke()
 
     aplikacja = FastAPI(title="monday.com Account Audit", docs_url=None, redoc_url=None)
@@ -338,6 +359,74 @@ def zbuduj_aplikacje(*, baza: Path | None = None, ustawienia: Ustawienia | None 
     # Dlatego klient nie ma tu ŻADNEGO endpointu — nie „ma, ale zabroniony".
     # Wołając zespołowy dostaje 404, bo 403 znaczyłoby „istnieje i nie wolno ci",
     # a to podpowiedź, że taka droga jest.
+
+    @aplikacja.post("/api/haslo/zapomniane")
+    def zapomniane_haslo(
+        dane: DaneZapomnianego, zadanie: Request, con: Polaczenie
+    ) -> dict[str, str]:
+        """„Nie pamiętam hasła" — JEDYNY endpoint hasła BEZ sesji, i tak musi być.
+
+        Reset z panelu wymaga sesji, a kto zgubił hasło, sesji nie ma. Bez tej
+        drogi mieliśmy błędne koło: „zmień hasło, gdy je znasz" zamiast „nie
+        pamiętam hasła". To była luka w poprzedniej wersji.
+
+        ## Odpowiedź jest ZAWSZE taka sama
+
+        Dla konta istniejącego, nieistniejącego, obcej domeny i przekroczonego
+        limitu — ten sam kod i ten sam komunikat. Inaczej brama staje się
+        wyrocznią: „ten adres @cxlabs.digital jest prawdziwy, tamten nie". Ta
+        sama zasada, którą stosuje `zaloguj` dla „nie ma konta" i „złe hasło".
+
+        Dlatego też **nie zmieniamy odpowiedzi, gdy wysyłka maila zawiedzie** —
+        różnica w kodzie HTTP też jest różnicą.
+
+        ## Tylko zespół
+
+        Hasło klienta wydaje CXLABS z panelu (D16 aneks). Klient nie ma skrzynki
+        w naszej domenie, więc nie mamy czym potwierdzić, że to on prosi.
+        """
+        email = dane.email.strip().lower()
+        ip = zadanie.client.host if zadanie.client else None
+
+        token = poproszono_o_reset(con, email=email, ip=ip)
+        if token is not None:
+            link = f"{ustawienia_aplikacji.adres_publiczny.rstrip('/')}/?reset={token}"
+            try:
+                wyslij_link_resetu(
+                    ustawienia_aplikacji,
+                    email=email,
+                    link=link,
+                    minut=MINUT_TOKENU_RESETU,
+                )
+            except PocztaError:
+                # Log już to zapisał. Odpowiedź bez zmian — patrz docstring.
+                # Bez śladu stosu (TRY400 świadomie): `poczta.py` już zapisał typ
+                # błędu, a stos z `smtplib` niesie poświadczenia SMTP.
+                logger.error(  # noqa: TRY400
+                    "wysyłka linku resetu zawiodła dla %s", email
+                )
+
+        return {
+            "komunikat": (
+                "Jeśli ten adres ma konto w panelu, link do zmiany hasła jest "
+                f"w drodze. Ważny {MINUT_TOKENU_RESETU} minut."
+            )
+        }
+
+    @aplikacja.post("/api/haslo/z-linku")
+    def haslo_z_linku(dane: DaneTokenu, con: Polaczenie) -> dict[str, Any]:
+        """Wymienia token z maila na nowe hasło. Też BEZ sesji — z tego samego powodu.
+
+        Token jest jednorazowy i wygasa po `MINUT_TOKENU_RESETU`; sprawdzenie
+        siedzi w `zuzyj_token_resetu`, żeby jedna implementacja pilnowała obu
+        warunków. Komunikat błędu nie rozróżnia „nie ma", „wygasł" i „już użyty" —
+        rozróżnienie mówiłoby, czy token kiedykolwiek istniał.
+        """
+        try:
+            wynik = zuzyj_token_resetu(con, dane.token)
+        except DostepError as blad:
+            raise HTTPException(status_code=400, detail=str(blad)) from None
+        return _odpowiedz_resetu(wynik)
 
     @aplikacja.post("/api/haslo/moje")
     def zmien_moje_haslo(dane: DaneZmianyHasla, sesja: ZSesji, con: Polaczenie) -> dict[str, Any]:

@@ -816,3 +816,67 @@ ktoś kliknąłby „reset" i uznał, że odciął dostęp.
 
 Nowe hasło jest **zwracane, nie logowane**. Sprawdzone po realnym resecie: 0
 trafień w logu serwera i 0 w pliku bazy — w bazie leży tylko hash.
+
+---
+
+## D16 — aneks (2026-08-10, druga poprawka). „Nie pamiętam hasła"
+
+### Błędne koło, które sam zbudowałem
+
+Poprzedni aneks dodał reset haseł **za sesją**: `/api/haslo/moje` i
+`/api/haslo/klienta` wymagają `ZSesji`. Kuba zgłosił to jednym zdaniem: „dalej
+nie mogę zresetować hasła z panelu logowania". I miał rację — kto zgubił hasło,
+sesji nie ma, więc dostał „zmień hasło, gdy je znasz" zamiast „nie pamiętam
+hasła".
+
+Usterka nie polegała na braku funkcji, a na **braku drogi dla osoby, która nie
+może się zalogować**. Żaden test tego nie złapał, bo wszystkie logowały się
+najpierw.
+
+### Skrzynka jako dowód tożsamości
+
+Bez SSO (O24) nie mamy czym potwierdzić, kto prosi o reset. Wybór Kuby: **SMTP**,
+czyli link na adres `@cxlabs.digital` — właściciel skrzynki dowodzi tożsamości.
+
+Alternatywa „podaj e-mail, dostaniesz hasło na ekranie" byłaby otwartą bramą:
+każdy znający adres przejąłby konto zespołu z dostępem do danych wszystkich
+klientów. Dlatego takiej drogi nie ma i nie może być.
+
+**Bez nowej zależności** — `smtplib`, `email.message` i `ssl` są w stdlib.
+Sprawdzone przed napisaniem kodu, bo `CLAUDE.md` zabrania dodawania zależności
+bez pytania.
+
+### Trzy warunki na token, każdy z konkretnego ryzyka
+
+Migracja **008** (`reset_tokeny`): hash tokenu, nie token (wyciek bazy nie daje
+linków); `uzyty_o` (mail bywa przekazywany i cytowany, więc link użyty raz musi
+umrzeć); `wazny_do` 30 minut (link leży w skrzynce latami).
+
+Nowe żądanie usuwa poprzednie tokeny konta: pięć kliknięć „nie pamiętam" nie ma
+zostawiać pięciu ważnych linków.
+
+### Odpowiedź jest ZAWSZE identyczna
+
+`/api/haslo/zapomniane` odpowiada tak samo dla konta istniejącego,
+nieistniejącego, obcej domeny, przekroczonego limitu **i nieudanej wysyłki maila**.
+Inaczej brama staje się wyrocznią: „ten adres @cxlabs.digital jest prawdziwy,
+tamten nie". Zweryfikowane na żywo — odpowiedzi znak w znak takie same.
+
+Limit żądań idzie przez `proby_logowania`, ten sam mechanizm co przy logowaniu:
+endpoint bez sesji jest otwarty na świat, więc bez limitu da się zasypać czyjąś
+skrzynkę i sprawdzać adresy hurtowo.
+
+### Klient nadal nie resetuje sam
+
+Ta droga jest **wyłącznie dla zespołu**. Klient nie ma skrzynki w naszej domenie,
+więc nie mamy czym potwierdzić, że to on prosi — jego hasło wydaje CXLABS z panelu.
+Brama mówi mu to wprost, zamiast pokazywać formularz, który nic nie zrobi.
+
+### Tryb awaryjny bez SMTP
+
+Bez `SMTP_HOST` link trafia do **logu serwera** z ostrzeżeniem. To nie stan
+docelowy (log widzi każdy, kto ma dostęp do logów) i log mówi o tym wprost — ale
+brak konfiguracji poczty nie może znaczyć „nikt nigdy nie odzyska hasła".
+
+Konfiguracja siedzi w `UstawieniaPoczty`, osobno od sekretów collectora, żeby
+testy odzyskiwania hasła dały się uruchomić bez `MONDAY_TOKEN`.

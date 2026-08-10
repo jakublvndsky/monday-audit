@@ -79,9 +79,12 @@ def test_migracje_aplikuja_sie_od_zera(tmp_path: Path) -> None:
     `--dodaj-klienta` wywołane drugi raz nie zmieniało hasła, tylko zakładało
     kolejne konto, a stare hasło nadal wpuszczało. Unikalny indeks CZĘŚCIOWY,
     bo historia dezaktywowanych kont ma prawo mieć wiele wierszy na klienta.
+    008 dodała tokeny „nie pamiętam hasła": reset z panelu wymaga sesji, a kto
+    zgubił hasło, sesji nie ma — błędne koło. Token jest jednorazowy i wygasa,
+    bo link leży w skrzynce dłużej niż powinien działać.
     """
     con = polacz(tmp_path / "nowa.db")
-    assert zastosuj_migracje(con) == [1, 2, 3, 4, 5, 6, 7]
+    assert zastosuj_migracje(con) == [1, 2, 3, 4, 5, 6, 7, 8]
     con.close()
 
 

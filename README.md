@@ -83,11 +83,56 @@ cd front && npm install && npm run build && cd ..   # raz, po zmianach we fronci
 uv run python -m monday_audit.cli_web --dodaj-klienta acme        # wypisuje hasło
 uv run python -m monday_audit.cli_web --dodaj-osobe jle@cxlabs.digital
 uv run python -m monday_audit.cli_web --serwuj --port 8010
+
+# Zgubione hasło — droga ratunkowa z terminala (codziennie robi się to z panelu)
+uv run python -m monday_audit.cli_web --zresetuj-haslo jle@cxlabs.digital
+uv run python -m monday_audit.cli_web --zresetuj-haslo acme
 ```
 
-Hasło klienta wypisuje się **raz, na konsolę** — w bazie leży tylko hash `scrypt`,
-więc nie da się go odzyskać, tylko wygenerować nowe. Konto zespołowe wymaga
-adresu w domenie `@cxlabs.digital`.
+Hasło wypisuje się **raz, na konsolę** — w bazie leży tylko hash `scrypt`, więc nie
+da się go odzyskać, tylko wydać nowe. Konto zespołowe wymaga adresu w domenie
+`@cxlabs.digital`.
+
+**Ponowne `--dodaj-klienta` dla istniejącego klienta odmawia.** Do 2026-08-10
+zakładało drugie konto, a stare hasło nadal wpuszczało — więc „wydałem nowe hasło"
+nie odbierało starego dostępu. Do wymiany hasła służy `--zresetuj-haslo`.
+
+### Reset haseł
+
+| Kto | Jak |
+|---|---|
+| Zespół, zna hasło | panel → **Moje hasło** (podaje obecne) |
+| Zespół, **nie pamięta** | brama → **Nie pamiętam hasła** → link na skrzynkę |
+| Klient | **tylko zespół**, z panelu → *Dostęp klienta* |
+| Ratunek | `--zresetuj-haslo` z terminala |
+
+Klient **nie może zresetować hasła sam** — nie ma dla niego endpointu. Hasło jest
+jedyną bramą do jego danych osobowych, a bez maila w naszej domenie nie mamy czym
+potwierdzić, że o reset prosi on.
+
+Reset **nie wylogowuje**: otwarta sesja żyje do 12 h. Panel i CLI mówią, ile sesji
+zostaje ważnych — „odetnij dostęp teraz" to osobna funkcja, której jeszcze nie ma
+(O26).
+
+### Poczta dla „nie pamiętam hasła" (opcjonalna)
+
+Bez tych zmiennych **link resetu ląduje w logu serwera** z ostrzeżeniem — działa,
+ale to tryb awaryjny, nie docelowy. `smtplib` jest w stdlib, więc żadnej nowej
+zależności to nie wymaga.
+
+```bash
+SMTP_HOST=smtp.gmail.com          # Google Workspace
+SMTP_PORT=587
+SMTP_USER=jle@cxlabs.digital
+SMTP_HASLO=<hasło aplikacji>      # NIE hasło do konta Google
+SMTP_NADAWCA=jle@cxlabs.digital   # opcjonalnie, domyślnie SMTP_USER
+ADRES_PUBLICZNY=https://audyt.cxlabs.digital   # wchodzi do LINKU w mailu
+```
+
+Przy Google Workspace potrzebne jest **hasło aplikacji**, nie zwykłe hasło do konta
+— Google odrzuca logowanie zwykłym hasłem. Generuje się je raz w ustawieniach konta
+Google. `ADRES_PUBLICZNY` musi być adresem widocznym dla odbiorcy: `127.0.0.1`
+w mailu do kogokolwiek innego po prostu nie zadziała.
 
 **Klucza API klienta nie zapisujemy nigdzie** — nie ma na niego kolumny
 w schemacie. Klient wkleja go w formularzu, klucz jedzie w ciele POST-a jako

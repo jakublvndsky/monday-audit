@@ -384,6 +384,15 @@ nie może sam** — nie ma dla niego endpointu, a sesja klienta dostaje 404 na o
 Droga ratunkowa z terminala: `--zresetuj-haslo EMAIL_LUB_CLIENT_ID`, na wypadek
 zgubienia wszystkich haseł zespołu.
 
+**„Nie pamiętam hasła"** (brama, zakładka zespołu) — jedyna droga hasła BEZ sesji,
+i tak musi być: kto zgubił hasło, zalogować się nie może. Link na skrzynkę
+`@cxlabs.digital`, ważny 30 minut, działa raz. Odpowiedź jest identyczna dla konta
+istniejącego i nie, żeby brama nie zdradzała, które adresy są prawdziwe. Klient tej
+drogi nie ma — brama mówi mu, żeby napisał do osoby prowadzącej audyt.
+
+Poczta: `smtplib` ze stdlib, **bez nowej zależności**. Bez `SMTP_HOST` link idzie do
+logu serwera z ostrzeżeniem (tryb awaryjny, nie docelowy).
+
 Reset **nie wylogowuje**: otwarta sesja żyje do 12 h, więc panel i CLI mówią, ile
 sesji zostaje ważnych. „Odetnij dostęp teraz" nie istnieje — O26.
 

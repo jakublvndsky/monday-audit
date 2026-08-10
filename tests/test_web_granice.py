@@ -714,3 +714,78 @@ def test_zmiana_wlasnego_hasla_nie_przyjmuje_obcego_konta(klient_http: TestClien
             ).status_code
             == 200
         ), "zmienił hasło konta podanego w ciele żądania"
+
+
+# ── 7. „nie pamiętam hasła" — jedyna droga hasła BEZ sesji ───────────────
+#
+# Zgłoszone przez Kubę: „dalej nie mogę zresetować hasła z panelu logowania".
+# Poprzednia wersja miała reset TYLKO za sesją, czyli błędne koło — kto zgubił
+# hasło, nie mógł się zalogować, żeby je zmienić.
+
+
+def test_zapomniane_haslo_dziala_bez_sesji(klient_http: TestClient) -> None:
+    """Sedno poprawki. Ten endpoint MUSI działać bez ciasteczka.
+
+    Gdyby wymagał sesji (jak `/api/haslo/moje`), wróciłoby błędne koło, o którym
+    zgłoszenie: „zmień hasło, gdy je znasz" zamiast „nie pamiętam hasła".
+    """
+    odp = klient_http.post("/api/haslo/zapomniane", json={"email": EMAIL})
+
+    assert odp.status_code == 200, odp.text
+    assert "komunikat" in odp.json()
+
+
+def test_zapomniane_odpowiada_identycznie_dla_nieznanego_adresu(
+    klient_http: TestClient,
+) -> None:
+    """Inaczej brama mówi, które adresy @cxlabs.digital są prawdziwe."""
+    istniejacy = klient_http.post("/api/haslo/zapomniane", json={"email": EMAIL})
+    nieistniejacy = klient_http.post(
+        "/api/haslo/zapomniane", json={"email": "nie-ma-takiego@cxlabs.digital"}
+    )
+
+    assert istniejacy.status_code == nieistniejacy.status_code == 200
+    assert istniejacy.json() == nieistniejacy.json(), "odpowiedzi się różnią — to wyrocznia"
+
+
+def test_zapomniane_nie_zdradza_klientow(klient_http: TestClient) -> None:
+    """Konto klienta nie ma e-maila, więc tą drogą nie da się go dosięgnąć."""
+    odp = klient_http.post("/api/haslo/zapomniane", json={"email": "cxlabs"})
+
+    # Ten sam komunikat co zawsze; hasła w odpowiedzi nie ma.
+    assert odp.status_code in (200, 422)
+    assert "haslo" not in odp.text
+
+
+def test_token_z_linku_dziala_bez_sesji_i_zmienia_haslo(
+    klient_http: TestClient, baza: Path
+) -> None:
+    """Druga połowa ścieżki: token z maila → nowe hasło, też bez sesji.
+
+    Token wydajemy wprost z bazy, nie przez endpoint: bez skonfigurowanego SMTP
+    mail nie wychodzi, a test ma sprawdzać WYMIANĘ tokenu, nie wysyłkę.
+    """
+    from monday_audit.dostep import poproszono_o_reset
+
+    con = polacz(baza)
+    token = poproszono_o_reset(con, email=EMAIL, ip=None)
+    con.close()
+    assert token is not None
+
+    odp = klient_http.post("/api/haslo/z-linku", json={"token": token})
+
+    assert odp.status_code == 200, odp.text
+    nowe = odp.json()["haslo"]
+    # Stare hasło zespołu przestaje wpuszczać, nowe wpuszcza.
+    stare = klient_http.post("/api/sesja/zespol", json={"email": EMAIL, "haslo": HASLO_ZESPOLU})
+    assert stare.status_code == 401, "stare hasło zespołu nadal wpuszcza"
+    swieze = klient_http.post("/api/sesja/zespol", json={"email": EMAIL, "haslo": nowe})
+    assert swieze.status_code == 200, "nowe hasło nie wpuszcza"
+
+
+def test_zmyslony_token_odmawia(klient_http: TestClient) -> None:
+    """400 z jednym komunikatem — bez różnicy „nie ma" i „wygasł"."""
+    odp = klient_http.post("/api/haslo/z-linku", json={"token": "z" * 40})
+
+    assert odp.status_code == 400
+    assert "haslo" not in odp.json()

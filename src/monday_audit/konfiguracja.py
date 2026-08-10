@@ -47,7 +47,46 @@ class KonfiguracjaError(RuntimeError):
     """Konfiguracji nie da się zebrać. Komunikat NIGDY nie zawiera wartości."""
 
 
-class Ustawienia(BaseSettings):
+class UstawieniaPoczty(BaseSettings):
+    """Poczta dla „nie pamiętam hasła" — OSOBNO od sekretów produkcyjnych.
+
+    Klasa bazowa, nie duplikat: `Ustawienia` po niej dziedziczy, więc pola są
+    zdefiniowane w jednym miejscu.
+
+    Dlaczego osobno: aplikację webową da się zbudować bez `MONDAY_TOKEN`
+    i `SOL_PSEUDONIMIZACJI` (testy granic tego korzystają, patrz `zbuduj_aplikacje`).
+    Poczta potrzebuje wyłącznie własnych pól, więc wymaganie tam sekretów
+    collectora znaczyłoby, że testu odzyskiwania hasła nie da się uruchomić bez
+    produkcyjnych poświadczeń — a to najgorszy powód, żeby taki test pominąć.
+
+    WSZYSTKIE pola są opcjonalne i to jest decyzja: brak konfiguracji SMTP nie
+    może wywracać serwera ani zamykać drogi odzyskania hasła. Bez `smtp_host` link
+    idzie do logu z ostrzeżeniem (tryb awaryjny — `poczta.py`).
+    """
+
+    model_config = SettingsConfigDict(
+        env_file=DOMYSLNY_PLIK,
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=False,
+    )
+
+    # Przy Google Workspace `smtp_haslo` to **hasło aplikacji**, nie hasło do
+    # konta: Google odrzuca logowanie zwykłym hasłem. Generuje się je raz
+    # w ustawieniach konta Google.
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_user: str | None = None
+    smtp_haslo: SecretStr | None = None
+    # Adres w nagłówku „From". Gdy pusty, używamy `smtp_user` — przy Gmailu to
+    # zwykle ten sam adres.
+    smtp_nadawca: str | None = None
+    # Adres, pod którym aplikacja jest widoczna dla odbiorcy. Wchodzi do LINKU
+    # w mailu, więc `localhost` w mailu do kolegi po prostu nie zadziała.
+    adres_publiczny: str = "http://127.0.0.1:8000"
+
+
+class Ustawienia(UstawieniaPoczty):
     """Wszystko, co program bierze ze środowiska. Nic więcej nie czyta env.
 
     `extra="ignore"`, bo `.env` opisuje też sekrety etapów, które jeszcze nie
@@ -71,7 +110,13 @@ class Ustawienia(BaseSettings):
     anthropic_api_key: SecretStr | None = None
     monday_audit_db: Path = DOMYSLNA_BAZA
 
-    @field_validator("monday_token", "sol_pseudonimizacji", "anthropic_api_key", mode="after")
+    @field_validator(
+        "monday_token",
+        "sol_pseudonimizacji",
+        "anthropic_api_key",
+        "smtp_haslo",
+        mode="after",
+    )
     @classmethod
     def _bez_bialych_znakow(cls, wartosc: SecretStr | None) -> SecretStr | None:
         """Sekret skopiowany z panelu monday niesie ogon białych znaków.

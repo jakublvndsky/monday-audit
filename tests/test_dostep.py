@@ -25,15 +25,18 @@ import pytest
 
 from monday_audit.baza import polacz, zastosuj_migracje
 from monday_audit.dostep import (
+    MAKS_ZADAN_RESETU,
     ROLA_KLIENT,
     ROLA_ZESPOL,
     DostepError,
     konto_klienta,
     policz_wazne_sesje,
+    poproszono_o_reset,
     utworz_konto,
     wygeneruj_haslo,
     zaloguj,
     zresetuj_haslo,
+    zuzyj_token_resetu,
 )
 
 HASLO_STARE = "stare55-haslo66-testowe77-dlugie88"
@@ -188,3 +191,97 @@ def test_wygenerowane_haslo_da_sie_podac_przez_telefon() -> None:
     czlony = haslo.split("-")
     assert len(czlony) == 4
     assert all(c[:3].isalpha() and c[3:].isdigit() for c in czlony), haslo
+
+
+# ── „nie pamiętam hasła": droga BEZ sesji ────────────────────────────────
+#
+# Powód istnienia: reset z panelu (007) wymaga sesji, a kto zgubił hasło, sesji
+# nie ma. Zgłoszone przez Kubę wprost — „dalej nie mogę zresetować hasła" — bo
+# poprzednia wersja dała „zmień hasło, gdy je znasz", nie „nie pamiętam hasła".
+
+
+def test_token_wymienia_sie_na_nowe_haslo(con: sqlite3.Connection) -> None:
+    """Cała ścieżka: żądanie → token → nowe hasło → stare nie działa."""
+    utworz_konto(con, rola=ROLA_ZESPOL, haslo=HASLO_STARE, email=EMAIL)
+
+    token = poproszono_o_reset(con, email=EMAIL, ip=None)
+    assert token is not None, "nie wydał tokenu dla istniejącego konta"
+
+    wynik = zuzyj_token_resetu(con, token)
+
+    assert not _wpusci(con, HASLO_STARE, email=EMAIL), "stare hasło nadal wpuszcza"
+    assert _wpusci(con, wynik.haslo, email=EMAIL), "nowe hasło nie wpuszcza"
+
+
+def test_token_dziala_dokladnie_raz(con: sqlite3.Connection) -> None:
+    """Mail bywa przekazywany i cytowany w odpowiedzi.
+
+    Link, który działa dwa razy, daje dostęp każdemu, kto kiedykolwiek zobaczy
+    tę wiadomość — także po tym, jak właściciel już go użył.
+    """
+    utworz_konto(con, rola=ROLA_ZESPOL, haslo=HASLO_STARE, email=EMAIL)
+    token = poproszono_o_reset(con, email=EMAIL, ip=None)
+    assert token is not None
+    zuzyj_token_resetu(con, token)
+
+    with pytest.raises(DostepError, match="nieważny lub został już użyty"):
+        zuzyj_token_resetu(con, token)
+
+
+def test_wygasly_token_nie_dziala(con: sqlite3.Connection) -> None:
+    """Link leży w skrzynce latami; ważność liczy się w minutach."""
+    utworz_konto(con, rola=ROLA_ZESPOL, haslo=HASLO_STARE, email=EMAIL)
+    token = poproszono_o_reset(con, email=EMAIL, ip=None)
+    assert token is not None
+    con.execute("UPDATE reset_tokeny SET wazny_do = '2020-01-01T00:00:00+00:00'")
+    con.commit()
+
+    with pytest.raises(DostepError, match="nieważny lub został już użyty"):
+        zuzyj_token_resetu(con, token)
+
+
+def test_nowe_zadanie_uniewaznia_poprzedni_link(con: sqlite3.Connection) -> None:
+    """Pięć kliknięć „nie pamiętam" nie zostawia pięciu ważnych linków."""
+    utworz_konto(con, rola=ROLA_ZESPOL, haslo=HASLO_STARE, email=EMAIL)
+    pierwszy = poproszono_o_reset(con, email=EMAIL, ip=None)
+    drugi = poproszono_o_reset(con, email=EMAIL, ip=None)
+    assert pierwszy is not None and drugi is not None
+
+    with pytest.raises(DostepError):
+        zuzyj_token_resetu(con, pierwszy)
+    assert zuzyj_token_resetu(con, drugi).haslo, "najnowszy link musi działać"
+
+
+def test_nieistniejacy_adres_nie_dostaje_tokenu(con: sqlite3.Connection) -> None:
+    """`None`, a wołający MUSI odpowiedzieć tak samo jak przy istniejącym.
+
+    Rozróżnienie zamieniłoby bramę w wyrocznię: „ten adres @cxlabs.digital jest
+    prawdziwy, tamten nie".
+    """
+    assert poproszono_o_reset(con, email="nie-ma@cxlabs.digital", ip=None) is None
+
+
+def test_klient_nie_dostanie_tokenu_resetu(con: sqlite3.Connection) -> None:
+    """Ta droga jest WYŁĄCZNIE dla zespołu.
+
+    Klient nie ma skrzynki w naszej domenie, więc nie mamy czym potwierdzić, że
+    to on prosi — a jego hasło jest jedyną bramą do jego danych osobowych.
+    """
+    utworz_konto(con, rola=ROLA_KLIENT, haslo=HASLO_STARE, client_id="acme")
+
+    # Nawet gdyby ktoś podał `client_id` jako e-mail, konto klienta ma `email`
+    # NULL, więc zapytanie go nie znajdzie.
+    assert poproszono_o_reset(con, email="acme", ip=None) is None
+
+
+def test_limit_zadan_resetu_blokuje_zasypywanie(con: sqlite3.Connection) -> None:
+    """Endpoint bez sesji jest otwarty na świat.
+
+    Bez limitu da się zasypać czyjąś skrzynkę i sprawdzać adresy hurtowo.
+    """
+    utworz_konto(con, rola=ROLA_ZESPOL, haslo=HASLO_STARE, email=EMAIL)
+
+    wydane = [poproszono_o_reset(con, email=EMAIL, ip="10.0.0.1") for _ in range(8)]
+
+    assert all(t is not None for t in wydane[:MAKS_ZADAN_RESETU]), "limit zadziałał za wcześnie"
+    assert wydane[MAKS_ZADAN_RESETU] is None, "limit nie zadziałał"

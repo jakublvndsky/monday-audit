@@ -288,6 +288,115 @@ def zresetuj_haslo(con: sqlite3.Connection, *, konto_id: int) -> WynikResetu:
     return WynikResetu(haslo=nowe, konto_id=konto_id, wazne_sesje=policz_wazne_sesje(con, konto_id))
 
 
+# Ile żyje link „nie pamiętam hasła". Krótko, bo link leży w skrzynce na zawsze.
+MINUT_TOKENU_RESETU = 30
+# Limit żądań linku — ten sam mechanizm co przy logowaniu (`proby_logowania`).
+MAKS_ZADAN_RESETU = 5
+
+
+def poproszono_o_reset(con: sqlite3.Connection, *, email: str, ip: str | None) -> str | None:
+    """Wydaje jednorazowy token resetu dla konta ZESPOŁU. `None`, gdy nie wolno.
+
+    ## Dlaczego `None` zamiast wyjątku
+
+    Wołający **musi odpowiedzieć identycznie** niezależnie od tego, czy konto
+    istnieje. Inaczej brama staje się wyrocznią: „ten adres @cxlabs.digital jest
+    prawdziwy, tamten nie". Rozróżnienie w typie zwracanym zachęcałoby do
+    rozróżnienia w odpowiedzi HTTP, więc go tu nie ma — `None` znaczy „nie wysyłaj
+    maila", bez powodu.
+
+    ## Dlaczego tylko zespół
+
+    Hasło klienta wydaje CXLABS (D16 aneks). Klient nie ma skrzynki w naszej
+    domenie, więc nie mamy czym potwierdzić, że to on prosi — a hasło jest jedyną
+    bramą do jego danych osobowych.
+
+    Stare tokeny tego konta są usuwane: pięć kliknięć „nie pamiętam" nie ma
+    zostawiać pięciu ważnych linków.
+    """
+    if _za_duzo_zadan_resetu(con, email, ip):
+        logger.warning("zbyt wiele żądań resetu dla %s", email)
+        return None
+
+    _zapisz_probe(con, f"reset:{email}", ip, udana=False)
+
+    wiersz = con.execute(
+        "SELECT id FROM konta_dostepu WHERE email = ? AND rola = ? AND aktywne = 1",
+        (email, ROLA_ZESPOL),
+    ).fetchone()
+    if wiersz is None:
+        # Konto nie istnieje. Wołający odpowie tak samo jak przy istniejącym —
+        # patrz docstring.
+        logger.info("żądanie resetu dla nieznanego adresu (odpowiedź bez różnicy)")
+        return None
+
+    token = secrets.token_urlsafe(32)
+    teraz = datetime.now(tz=UTC)
+    with con:
+        con.execute("DELETE FROM reset_tokeny WHERE konto_id = ?", (int(wiersz["id"]),))
+        con.execute(
+            "INSERT INTO reset_tokeny (hash_tokenu, konto_id, utworzono, wazny_do, ip) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                _hash_tokenu(token),
+                int(wiersz["id"]),
+                teraz.isoformat(),
+                (teraz + timedelta(minutes=MINUT_TOKENU_RESETU)).isoformat(),
+                ip,
+            ),
+        )
+    logger.info("wydano token resetu dla konta %s", wiersz["id"])
+    return token
+
+
+def _za_duzo_zadan_resetu(con: sqlite3.Connection, email: str, ip: str | None) -> bool:
+    """Limit na żądania linku, liczony jak limit prób logowania.
+
+    Bez niego endpoint bez sesji pozwala zasypać czyjąś skrzynkę i sprawdzać
+    adresy hurtowo.
+    """
+    od = (datetime.now(tz=UTC) - timedelta(minutes=OKNO_PROB_MINUT)).isoformat()
+    wiersz = con.execute(
+        "SELECT COUNT(*) n FROM proby_logowania "
+        "WHERE kiedy >= ? AND (identyfikator = ? OR (? IS NOT NULL AND ip = ?))",
+        (od, f"reset:{email}", ip, ip),
+    ).fetchone()
+    return int(wiersz["n"]) >= MAKS_ZADAN_RESETU
+
+
+def zuzyj_token_resetu(con: sqlite3.Connection, token: str) -> WynikResetu:
+    """Wymienia ważny token na nowe hasło. Token działa DOKŁADNIE RAZ.
+
+    Trzy warunki, każdy z konkretnego ryzyka:
+
+    - **hash, nie token** — w bazie leży hash, więc wyciek bazy nie daje linków;
+    - **`uzyty_o IS NULL`** — mail bywa przekazywany i cytowany w odpowiedzi,
+      więc link użyty raz musi umrzeć, nie dożyć terminu;
+    - **`wazny_do > teraz`** — link znaleziony w skrzynce po miesiącach nie może
+      jeszcze otwierać konta.
+
+    Oznaczamy token jako zużyty **przed** wydaniem hasła: gdyby reset zawiódł,
+    lepiej unieważnić link i kazać poprosić o nowy, niż zostawić go działającego.
+    """
+    teraz = datetime.now(tz=UTC)
+    wiersz = con.execute(
+        "SELECT konto_id FROM reset_tokeny WHERE hash_tokenu = ? "
+        "AND uzyty_o IS NULL AND wazny_do > ?",
+        (_hash_tokenu(token), teraz.isoformat()),
+    ).fetchone()
+    if wiersz is None:
+        # Jeden komunikat na wszystkie przypadki: nie ma, wygasł, już użyty.
+        # Rozróżnienie mówiłoby, czy token kiedykolwiek istniał.
+        raise DostepError("link jest nieważny lub został już użyty — poproś o nowy")
+
+    with con:
+        con.execute(
+            "UPDATE reset_tokeny SET uzyty_o = ? WHERE hash_tokenu = ?",
+            (teraz.isoformat(), _hash_tokenu(token)),
+        )
+    return zresetuj_haslo(con, konto_id=int(wiersz["konto_id"]))
+
+
 def konto_klienta(con: sqlite3.Connection, client_id: str) -> int | None:
     """Id aktywnego konta klienta. `None`, gdy nie ma — wołający decyduje o kodzie."""
     wiersz = con.execute(

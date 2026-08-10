@@ -104,6 +104,21 @@ export const api = {
       body: JSON.stringify({ client_id: clientId }),
     }),
 
+  // „Nie pamiętam hasła" — jedyne dwa wywołania hasła BEZ sesji, i tak musi być:
+  // kto zgubił hasło, sesji nie ma. Serwer odpowiada IDENTYCZNIE niezależnie od
+  // tego, czy konto istnieje, więc front nie ma z czego wnioskować i nie próbuje.
+  zapomnianeHaslo: (email: string) =>
+    pobierz<{ komunikat: string }>("/api/haslo/zapomniane", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+
+  hasloZLinku: (token: string) =>
+    pobierz<WynikResetu>("/api/haslo/z-linku", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    }),
+
   zmienMojeHaslo: (obecneHaslo: string) =>
     pobierz<WynikResetu>("/api/haslo/moje", {
       method: "POST",
