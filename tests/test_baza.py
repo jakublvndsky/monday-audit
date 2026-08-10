@@ -75,9 +75,13 @@ def test_migracje_aplikuja_sie_od_zera(tmp_path: Path) -> None:
     nie da się jednego przeliczyć na drugie (3.12).
     006 dodała dostęp do aplikacji webowej: konta, sesje, zadania, limit prób.
     **Bez kolumny na klucz API klienta** — to decyzja, nie przeoczenie (D11).
+    007 zamknęła drogę, którą powstawały dwa aktywne konta jednego klienta:
+    `--dodaj-klienta` wywołane drugi raz nie zmieniało hasła, tylko zakładało
+    kolejne konto, a stare hasło nadal wpuszczało. Unikalny indeks CZĘŚCIOWY,
+    bo historia dezaktywowanych kont ma prawo mieć wiele wierszy na klienta.
     """
     con = polacz(tmp_path / "nowa.db")
-    assert zastosuj_migracje(con) == [1, 2, 3, 4, 5, 6]
+    assert zastosuj_migracje(con) == [1, 2, 3, 4, 5, 6, 7]
     con.close()
 
 

@@ -3,11 +3,17 @@
     uv run python -m monday_audit.cli_web --serwuj
     uv run python -m monday_audit.cli_web --dodaj-klienta kancelaria-ekologiczna
     uv run python -m monday_audit.cli_web --dodaj-osobe jle@cxlabs.digital
+    uv run python -m monday_audit.cli_web --zresetuj-haslo kancelaria-ekologiczna
 
 `--dodaj-klienta` **wypisuje wygenerowane hasło raz i tylko raz** — w bazie leży
 jego hash, więc nie da się go później odczytać. To celowe: hasło, które można
 odzyskać z bazy, jest hasłem, które wycieknie razem z bazą. Gubione hasło
-zastępujemy nowym.
+zastępujemy nowym — przez `--zresetuj-haslo`, które nadpisuje hasło na
+ISTNIEJĄCYM koncie. Nie przez ponowne `--dodaj-klienta`: to zakładało drugie konto
+i stare hasło nadal wpuszczało (zmierzone 2026-08-10), więc teraz odmawia.
+
+Reset z terminala jest drogą RATUNKOWĄ — codziennie robi się to z panelu. Tu jest
+po to, żeby zgubienie wszystkich haseł zespołu nie zamykało drogi do aplikacji.
 
 Serwer nasłuchuje domyślnie na `127.0.0.1`, nie na `0.0.0.0`. Wystawienie na
 świat wymaga Caddy z TLS-em i decyzji z O23 (dane osobowe klienta pod URL-em),
@@ -23,11 +29,14 @@ from pathlib import Path
 
 from monday_audit.baza import polacz
 from monday_audit.dostep import (
+    GODZIN_SESJI,
     ROLA_KLIENT,
     ROLA_ZESPOL,
     DostepError,
+    konto_klienta,
     utworz_konto,
     wygeneruj_haslo,
+    zresetuj_haslo,
 )
 from monday_audit.konfiguracja import wczytaj
 from monday_audit.web.api import przygotuj_baze, zbuduj_aplikacje
@@ -58,6 +67,11 @@ def zbuduj_parser() -> argparse.ArgumentParser:
         "--dodaj-osobe",
         metavar="EMAIL",
         help="zakłada konto zespołu; hasła są per osoba, nie wspólne",
+    )
+    parser.add_argument(
+        "--zresetuj-haslo",
+        metavar="EMAIL_LUB_CLIENT_ID",
+        help="wydaje NOWE hasło do istniejącego konta; stare przestaje działać",
     )
     parser.add_argument(
         "--wazne-dni",
@@ -106,11 +120,62 @@ def _dodaj(
     return 0
 
 
+def _reset(baza: Path, kogo: str) -> int:
+    """Droga ratunkowa: reset z terminala, gdy panel jest nieosiągalny.
+
+    Panel wystarcza do codziennej pracy, ale gdy zespół zgubi WSZYSTKIE hasła,
+    nie ma jak się zalogować, żeby zresetować hasło. Bez tej drogi trzeba by
+    grzebać w bazie ręcznie.
+
+    Rozpoznajemy konto po obecności `@`: konto zespołu ma e-mail, konto klienta
+    ma `client_id` (schemat 006 tego pilnuje CHECK-iem), więc zgadywanie nie jest
+    tu możliwe.
+    """
+    con = polacz(baza)
+    try:
+        if "@" in kogo:
+            wiersz = con.execute(
+                "SELECT id FROM konta_dostepu WHERE email = ? AND aktywne = 1", (kogo,)
+            ).fetchone()
+            konto_id = int(wiersz["id"]) if wiersz else None
+        else:
+            konto_id = konto_klienta(con, kogo)
+
+        if konto_id is None:
+            print(f"  BŁĄD: nie ma aktywnego konta dla {kogo}", file=sys.stderr)
+            return 1
+
+        wynik = zresetuj_haslo(con, konto_id=konto_id)
+    except DostepError as blad:
+        print(f"  BŁĄD: {blad}", file=sys.stderr)
+        return 1
+    finally:
+        con.close()
+
+    print(f"\n  hasło zmienione: {kogo}")
+    print(f"  nowe hasło:  {wynik.haslo}")
+    print("\n  Zapisz je TERAZ — w bazie jest tylko hash. Stare hasło już nie działa.")
+    if wynik.wazne_sesje:
+        # Reset nie wylogowuje (decyzja) — a operator musi to wiedzieć, zanim
+        # uzna, że odciął komuś dostęp.
+        ile = wynik.wazne_sesje
+        odmiana = "otwarta sesja" if ile == 1 else "otwarte sesje"
+        czasownik = "DZIAŁA" if ile == 1 else "DZIAŁAJĄ"
+        print(
+            f"\n  UWAGA: {ile} {odmiana} tego konta {czasownik} DALEJ, "
+            f"do {GODZIN_SESJI} h od zalogowania."
+        )
+        print("  Reset wydaje nowe hasło; nie odcina dostępu natychmiast.")
+    return 0
+
+
 def uruchom(argumenty: argparse.Namespace) -> int:
     ustawienia = wczytaj(argumenty.plik_env)
     baza = (argumenty.baza or ustawienia.monday_audit_db).absolute()
     przygotuj_baze(baza)
 
+    if argumenty.zresetuj_haslo:
+        return _reset(baza, argumenty.zresetuj_haslo)
     if argumenty.dodaj_klienta:
         return _dodaj(
             baza,

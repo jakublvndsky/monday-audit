@@ -420,3 +420,76 @@ body {
     margin-top: var(--space-2);
   }
 }
+
+/* ── Reset haseł ────────────────────────────────────────────────────────
+ *
+ * Odmiana przycisku dla akcji NIEODWRACALNEJ: obrys, nie wypełnienie. Lime jest
+ * zarezerwowane na „Wygeneruj audyt" — akcję, do której zachęcamy. Reset hasła
+ * odcina stary dostęp i nie da się go cofnąć, więc wygląda poważnie, ale nie
+ * krzyczy: to normalna czynność, nie awaria.
+ */
+.cx-btn--groźny {
+  width: auto;
+  margin-top: 0;
+  background: none;
+  border: 1px solid var(--waga-krytyczna);
+  color: var(--waga-krytyczna);
+}
+.cx-btn--groźny:hover:not(:disabled) {
+  background: #fff5f5;
+  filter: none;
+}
+.cx-btn--cichy {
+  width: auto;
+  margin-top: 0;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
+}
+.cx-btn--cichy:hover:not(:disabled) {
+  background: var(--bg-alt);
+  filter: none;
+}
+.reset-hasla__akcje {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+/* Nowe hasło pokazane RAZ. Monospace, bo hasło trzeba przepisać znak w znak,
+ * a w kroju proporcjonalnym „l" i „1" wyglądają podobnie. */
+.nowe-haslo {
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--cx-lime);
+  border-radius: var(--radius-lg);
+  background: var(--bg-alt);
+}
+.nowe-haslo__etykieta {
+  margin: 0;
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-muted);
+}
+.nowe-haslo__wartosc {
+  margin: var(--space-2) 0 var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-h3);
+  /* Zaznaczalne jednym kliknięciem — hasło się przepisuje albo kopiuje, więc
+   * zaznaczanie po słowie utrudniałoby jedno i drugie. */
+  user-select: all;
+  word-break: break-all;
+}
+/* Reset NIE wylogowuje — to zdanie musi być widoczne, nie schowane w drobnym
+ * druku, bo bez niego ktoś uzna, że odciął dostęp. */
+.uwaga-sesje {
+  margin: var(--space-3) 0 0;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+  font-size: var(--fs-small);
+  color: var(--waga-wysoka);
+}
+.formularz-hasla {
+  max-width: 22rem;
+}

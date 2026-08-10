@@ -378,6 +378,19 @@ najobszerniejszy — obejście chroniące przed naszymi runami diagnostycznymi, 
 przy jawnym wyborze wersji zaczęło tylko zaskakiwać (dane z 1 sierpnia przy audycie
 z 5 sierpnia). Szczegóły w aneksie do D16.
 
+**Reset haseł.** Zespół resetuje swoje hasło w panelu („Moje hasło", wymaga
+obecnego) i hasło klienta („Dostęp klienta" → „Zresetuj hasło klienta"). **Klient
+nie może sam** — nie ma dla niego endpointu, a sesja klienta dostaje 404 na oba.
+Droga ratunkowa z terminala: `--zresetuj-haslo EMAIL_LUB_CLIENT_ID`, na wypadek
+zgubienia wszystkich haseł zespołu.
+
+Reset **nie wylogowuje**: otwarta sesja żyje do 12 h, więc panel i CLI mówią, ile
+sesji zostaje ważnych. „Odetnij dostęp teraz" nie istnieje — O26.
+
+Do 2026-08-10 ponowne `--dodaj-klienta` nie zmieniało hasła, tylko zakładało
+drugie konto, a stare hasło nadal wpuszczało (czwarty guardrail bez pomiaru).
+Migracja 007 dokłada unikalny indeks częściowy, a `utworz_konto` odmawia.
+
 **Klucz API klienta nie ma kolumny w schemacie** i nie zostawia śladu. Zmierzone
 2026-08-06 znacznikiem w kształcie JWT: przeszedł POST → collector → 401 z monday
 i nie pojawił się ani w zrzucie bazy, ani w logu serwera, ani w argv procesów.

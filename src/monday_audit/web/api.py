@@ -51,9 +51,12 @@ from monday_audit.dostep import (
     GODZIN_SESJI,
     DostepError,
     Sesja,
+    WynikResetu,
+    konto_klienta,
     wczytaj_sesje,
     wyloguj,
     zaloguj,
+    zresetuj_haslo,
 )
 from monday_audit.konfiguracja import Ustawienia, wczytaj
 from monday_audit.pulpit import do_json, run_nalezy_do, zbuduj_liste_klientow, zbuduj_pulpit
@@ -79,6 +82,34 @@ class DaneKlienta(BaseModel):
 class DaneZespolu(BaseModel):
     email: str = Field(min_length=3, max_length=200)
     haslo: str = Field(min_length=1, max_length=200)
+
+
+class DaneZmianyHasla(BaseModel):
+    """Zmiana WŁASNEGO hasła. Nowego się nie podaje — system je generuje.
+
+    Nie ma tu `konto_id`: konto bierzemy z sesji. Gdyby było w ciele, osoba
+    z zespołu zmieniałaby hasło komukolwiek.
+    """
+
+    obecne_haslo: str = Field(min_length=1, max_length=200)
+
+
+class DaneResetuKlienta(BaseModel):
+    client_id: str = Field(min_length=1, max_length=100)
+
+
+def _odpowiedz_resetu(wynik: WynikResetu) -> dict[str, Any]:
+    """Hasło wraca RAZ, w ciele odpowiedzi — nie idzie do logu.
+
+    `wazne_sesje` i `godzin_sesji` jadą razem z hasłem, bo reset **nie
+    wylogowuje**: kto jest zalogowany, pracuje dalej. Interfejs musi to napisać,
+    inaczej ktoś kliknie „reset" i uzna, że odciął dostęp.
+    """
+    return {
+        "haslo": wynik.haslo,
+        "wazne_sesje": wynik.wazne_sesje,
+        "godzin_sesji": GODZIN_SESJI,
+    }
 
 
 class DaneAudytu(BaseModel):
@@ -298,6 +329,71 @@ def zbuduj_aplikacje(*, baza: Path | None = None, ustawienia: Ustawienia | None 
             }
             for p in zbuduj_liste_klientow(con)
         ]
+
+    # ── hasła ────────────────────────────────────────────────────────
+    #
+    # Dwie akcje, dwie różne granice, obie wynikające z jednego wymagania:
+    # **klient nie może zresetować sobie hasła.** Robi to zespół.
+    #
+    # Dlatego klient nie ma tu ŻADNEGO endpointu — nie „ma, ale zabroniony".
+    # Wołając zespołowy dostaje 404, bo 403 znaczyłoby „istnieje i nie wolno ci",
+    # a to podpowiedź, że taka droga jest.
+
+    @aplikacja.post("/api/haslo/moje")
+    def zmien_moje_haslo(dane: DaneZmianyHasla, sesja: ZSesji, con: Polaczenie) -> dict[str, Any]:
+        """Nowe hasło do WŁASNEGO konta. Tylko zespół, tylko swoje.
+
+        **Konto bierzemy z sesji**, nie z ciała żądania. Gdyby szło z ciała, osoba
+        z zespołu zmieniałaby hasło komukolwiek — w tym innej osobie z zespołu.
+        Nie ma powodu, żeby ta droga istniała.
+
+        **Wymagamy obecnego hasła**, choć sesja już potwierdza tożsamość. Sesja
+        bywa porzucona w cudzej przeglądarce; bez tego warunku przejęta sesja
+        pozwalałaby przejąć konto na stałe — a to różnica między szkodą na 12
+        godzin i szkodą bez końca.
+
+        Klient dostaje 404: reset klienta robi zespół, nie klient.
+        """
+        if not sesja.to_zespol:
+            raise HTTPException(status_code=404, detail="nie znaleziono")
+        if sesja.email is None:
+            raise HTTPException(status_code=404, detail="nie znaleziono")
+
+        try:
+            zaloguj(con, haslo=dane.obecne_haslo, email=sesja.email, ip=None)
+        except DostepError:
+            raise HTTPException(status_code=403, detail="obecne hasło się nie zgadza") from None
+
+        try:
+            wynik = zresetuj_haslo(con, konto_id=sesja.konto_id)
+        except DostepError as blad:
+            raise HTTPException(status_code=404, detail=str(blad)) from None
+        return _odpowiedz_resetu(wynik)
+
+    @aplikacja.post("/api/haslo/klienta")
+    def zresetuj_haslo_klienta(
+        dane: DaneResetuKlienta, sesja: ZSesji, con: Polaczenie
+    ) -> dict[str, Any]:
+        """Nowe hasło dla klienta. **Wyłącznie dla sesji zespołu.**
+
+        To jest cały sens wymagania: klient nie może sam sobie zresetować hasła,
+        bo hasło jest jedyną bramą do jego danych osobowych, a my nie mamy jak
+        potwierdzić, kto o reset prosi (nie ma maili — patrz O24).
+
+        Sesja klienta dostaje **404**, nie 403.
+        """
+        if not sesja.to_zespol:
+            raise HTTPException(status_code=404, detail="nie znaleziono")
+
+        konto_id = konto_klienta(con, dane.client_id)
+        if konto_id is None:
+            raise HTTPException(status_code=404, detail="ten klient nie ma konta dostępu")
+
+        try:
+            wynik = zresetuj_haslo(con, konto_id=konto_id)
+        except DostepError as blad:
+            raise HTTPException(status_code=404, detail=str(blad)) from None
+        return _odpowiedz_resetu(wynik)
 
     # ── audyt ────────────────────────────────────────────────────────
 

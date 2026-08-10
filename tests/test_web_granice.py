@@ -578,3 +578,139 @@ def test_zespol_z_niedopasowanym_run_dostaje_404(klient_http: TestClient) -> Non
     odp = klient_http.get("/api/pulpit?klient=cxlabs&run=r-inny")
 
     assert odp.status_code == 404, "zbudował panel z runu innego klienta"
+
+
+# ── 6. reset haseł: klient nie może sam ──────────────────────────────────
+#
+# Wymaganie Kuby: hasło klienta resetuje ZESPÓŁ, klient nigdy. Realizujemy to
+# brakiem endpointu dla klienta, nie zablokowanym endpointem — a wołanie
+# zespołowego daje 404, bo 403 znaczyłoby „istnieje i nie wolno ci".
+
+
+def test_klient_nie_zresetuje_sobie_hasla(klient_http: TestClient) -> None:
+    """Sedno wymagania. Bez tego cała reszta nie ma znaczenia.
+
+    Hasło jest jedyną bramą do danych osobowych klienta, a my nie mamy jak
+    potwierdzić, kto o reset prosi — nie ma wysyłki maili (O24). Więc reset nie
+    może być samoobsługowy.
+    """
+    _zaloguj_klienta(klient_http, "cxlabs")
+
+    odp = klient_http.post("/api/haslo/klienta", json={"client_id": "cxlabs"})
+
+    assert odp.status_code == 404, "klient zresetował sobie hasło"
+    assert "haslo" not in odp.text, "odpowiedź niesie hasło"
+
+
+def test_klient_nie_zresetuje_hasla_cudzego_klienta(klient_http: TestClient) -> None:
+    """Ta sama droga, obcy cel — też 404, i to z tego samego powodu."""
+    _zaloguj_klienta(klient_http, "cxlabs")
+
+    odp = klient_http.post("/api/haslo/klienta", json={"client_id": "inny-klient"})
+
+    assert odp.status_code == 404
+    assert "haslo" not in odp.text
+
+
+def test_klient_nie_ma_endpointu_wlasnego_hasla(klient_http: TestClient) -> None:
+    """`/api/haslo/moje` jest zespołowe. Klient nie zmienia sobie hasła sam."""
+    _zaloguj_klienta(klient_http, "cxlabs")
+
+    odp = klient_http.post("/api/haslo/moje", json={"obecne_haslo": HASLO_KLIENTA})
+
+    assert odp.status_code == 404
+    assert "haslo" not in odp.text
+
+
+def test_bez_sesji_reset_odmawia(klient_http: TestClient) -> None:
+    """Bez ciasteczka to 401 — inaczej reset byłby otwarty dla każdego."""
+    assert klient_http.post("/api/haslo/klienta", json={"client_id": "cxlabs"}).status_code == 401
+    assert klient_http.post("/api/haslo/moje", json={"obecne_haslo": "x"}).status_code == 401
+
+
+def test_zespol_resetuje_haslo_klienta(klient_http: TestClient) -> None:
+    """Druga strona granicy — bez niej „bezpieczne" znaczyłoby „zepsute".
+
+    Test sprawdzający tylko odmowy przechodziłby też wtedy, gdyby endpoint
+    odrzucał WSZYSTKO i reset nie działał dla nikogo.
+    """
+    _zaloguj_zespol(klient_http)
+
+    odp = klient_http.post("/api/haslo/klienta", json={"client_id": "cxlabs"})
+
+    assert odp.status_code == 200, odp.text
+    dane = odp.json()
+    assert dane["haslo"], "nie zwrócił nowego hasła"
+    # Reset NIE wylogowuje (decyzja) — więc odpowiedź musi to powiedzieć.
+    assert "wazne_sesje" in dane and "godzin_sesji" in dane
+
+
+def test_stare_haslo_klienta_przestaje_dzialac_po_resecie(klient_http: TestClient) -> None:
+    """Skutek, nie wywołanie. To jest test na luką, która faktycznie istniała."""
+    _zaloguj_zespol(klient_http)
+    nowe = klient_http.post("/api/haslo/klienta", json={"client_id": "cxlabs"}).json()["haslo"]
+
+    stare = klient_http.post(
+        "/api/sesja/klient", json={"haslo": HASLO_KLIENTA, "client_id": "cxlabs"}
+    )
+    assert stare.status_code == 401, "stare hasło nadal wpuszcza"
+
+    with TestClient(klient_http.app, base_url="https://test") as swieza:
+        wejscie = swieza.post("/api/sesja/klient", json={"haslo": nowe, "client_id": "cxlabs"})
+        assert wejscie.status_code == 200, "nowe hasło nie wpuszcza"
+
+
+def test_zespol_nie_zresetuje_hasla_klienta_bez_konta(klient_http: TestClient) -> None:
+    """Klient bez konta dostępu to 404, nie utworzenie konta po cichu."""
+    _zaloguj_zespol(klient_http)
+
+    odp = klient_http.post("/api/haslo/klienta", json={"client_id": "inny-klient"})
+
+    assert odp.status_code == 404, "zresetował hasło konta, którego nie ma"
+
+
+def test_zmiana_wlasnego_hasla_wymaga_obecnego(klient_http: TestClient) -> None:
+    """Sesja potwierdza tożsamość, ale bywa porzucona w cudzej przeglądarce.
+
+    Bez tego warunku przejęta sesja pozwala przejąć konto NA STAŁE — a to
+    różnica między szkodą na 12 godzin i szkodą bez końca.
+    """
+    _zaloguj_zespol(klient_http)
+
+    odp = klient_http.post("/api/haslo/moje", json={"obecne_haslo": "zupelnie-nie-to"})
+
+    assert odp.status_code == 403
+    assert "haslo" not in odp.json(), "zwrócił hasło przy złym obecnym"
+
+
+def test_zespol_zmienia_wlasne_haslo(klient_http: TestClient) -> None:
+    _zaloguj_zespol(klient_http)
+
+    odp = klient_http.post("/api/haslo/moje", json={"obecne_haslo": HASLO_ZESPOLU})
+
+    assert odp.status_code == 200, odp.text
+    assert odp.json()["haslo"]
+
+
+def test_zmiana_wlasnego_hasla_nie_przyjmuje_obcego_konta(klient_http: TestClient) -> None:
+    """`konto_id` w ciele jest IGNOROWANE — bo go tam nie ma.
+
+    Gdyby endpoint je czytał, osoba z zespołu zmieniałaby hasło innej osobie
+    z zespołu. Pydantic odrzuci nadmiarowe pole albo je pominie; w obu razach
+    zmienione zostaje konto Z SESJI, nie z ciała.
+    """
+    _zaloguj_zespol(klient_http)
+    obce = klient_http.get("/api/klienci")  # cokolwiek, żeby mieć sesję aktywną
+    assert obce.status_code == 200
+
+    odp = klient_http.post("/api/haslo/moje", json={"obecne_haslo": HASLO_ZESPOLU, "konto_id": 1})
+
+    assert odp.status_code == 200, odp.text
+    # Konto klienta (id 1 w fixture) musi mieć NIETKNIĘTE hasło.
+    with TestClient(klient_http.app, base_url="https://test") as swieza:
+        assert (
+            swieza.post(
+                "/api/sesja/klient", json={"haslo": HASLO_KLIENTA, "client_id": "cxlabs"}
+            ).status_code
+            == 200
+        ), "zmienił hasło konta podanego w ciele żądania"

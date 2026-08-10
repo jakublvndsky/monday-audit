@@ -756,3 +756,63 @@ mają jedną datę zbiórki i dwie daty badania — więc drop-down mówiący �
 obok nagłówka „dane z 2026-08-01" wyglądał na sprzeczność w danych, a był brakiem
 dwóch słów. Panel mówi teraz „analiza z" i „dane zebrane". Wyszło ze zrzutu, nie
 z testu; test dopisany, żeby nikt tego nie „uprościł" z powrotem.
+
+---
+
+## D16 — aneks (2026-08-10). Reset haseł i czwarty guardrail bez pomiaru
+
+### Usterka, od której to się zaczęło
+
+`--dodaj-klienta cxlabs` wywołane drugi raz **nie zmieniało hasła** — zakładało
+DRUGIE konto, a stare hasło nadal wpuszczało. Zmierzone na kopii bazy demo: klient
+`cxlabs` miał konta id 3 i 7, oba działające, bo `zaloguj` bierze konto klienta
+przez `fetchone()` bez `ORDER BY`.
+
+To **czwarty przypadek guardraila, w który się wierzyło bez pomiaru** — po
+`--read-only` w MCP, `can_use_tool` i kluczu API. Wzorzec był ten sam: „wydałem
+nowe hasło" wyglądało na odebranie starego dostępu i nie odbierało go, a nic tego
+nie sprawdzało. Konta zespołu luki nie miały, bo `idx_konta_email` jest UNIQUE od
+006; brakowało odpowiednika dla `client_id`.
+
+### Naprawa w dwóch warstwach, nie jednej
+
+`zresetuj_haslo` nadpisuje `hash_hasla` i `sol_hasla` na ISTNIEJĄCYM wierszu.
+Samo to naprawia objaw — ale duplikaty wróciłyby inną drogą (skrypt, ręczny SQL),
+więc migracja **007** dokłada unikalny indeks CZĘŚCIOWY:
+
+```sql
+CREATE UNIQUE INDEX idx_konta_klient_aktywny ON konta_dostepu (client_id)
+  WHERE rola = 'klient' AND aktywne = 1;
+```
+
+Częściowy, bo historia dezaktywowanych kont ma prawo mieć wiele wierszy na
+klienta — blokujemy tylko wiele kont **jednocześnie ważnych**. `utworz_konto`
+odmawia z komunikatem mówiącym, co zrobić; `IntegrityError` z indeksu by nie
+powiedział.
+
+### Kto może resetować: wymaganie i jego realizacja
+
+> **Klient nie resetuje sobie hasła. Robi to zespół.**
+
+Powód: hasło jest jedyną bramą do danych osobowych klienta, a nie mamy jak
+potwierdzić, kto o reset prosi — nie ma wysyłki maili (O24).
+
+Realizacja: klient **nie ma endpointu**, nie „ma zablokowany".
+`/api/haslo/klienta` i `/api/haslo/moje` są zespołowe, a sesja klienta dostaje
+**404** — 403 znaczyłoby „istnieje i nie wolno ci", czyli podpowiedź, że taka
+droga jest. Sprawdzone przez wyłączenie warunku: testy padły, więc pilnują
+mechanizmu.
+
+`/api/haslo/moje` bierze konto **z sesji** i wymaga **obecnego hasła**. Sesja już
+potwierdza tożsamość, ale bywa porzucona w cudzej przeglądarce — bez tego warunku
+przejęta sesja pozwala przejąć konto na stałe, czyli szkoda bez końca zamiast
+szkody na 12 godzin.
+
+### Czego reset nie robi
+
+**Nie wylogowuje** (decyzja Kuby) — patrz **O26**. Dlatego `WynikResetu` niesie
+`wazne_sesje`, a panel i CLI mówią wprost, ile sesji zostaje ważnych: bez tego
+ktoś kliknąłby „reset" i uznał, że odciął dostęp.
+
+Nowe hasło jest **zwracane, nie logowane**. Sprawdzone po realnym resecie: 0
+trafień w logu serwera i 0 w pliku bazy — w bazie leży tylko hash.

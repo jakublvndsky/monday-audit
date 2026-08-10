@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Ja, PozycjaKlienta, Pulpit } from "./api";
 import { Audyt } from "./Audyt";
+import { MojeHaslo, ResetHaslaKlienta } from "./Hasla";
 import { api } from "./klient";
 import {
   CzegoNieWidac,
@@ -222,6 +223,27 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
           )}
 
           <Audyt klient={ja.rola === "zespol" ? wybrany : undefined} poZakonczeniu={wczytaj} />
+
+          {/* Dostęp klienta — tylko dla zespołu. Klient nie ma tu nic, bo reset
+              jego hasła robimy my; granica stoi w API, nie w tym warunku. */}
+          {ja.rola === "zespol" && (pulpit?.client_id ?? wybrany) && (
+            <details className="sekcja">
+              <summary>
+                Dostęp klienta{" "}
+                <span className="opis">hasło do panelu, nie klucz API monday</span>
+              </summary>
+              <div className="sekcja__ciało">
+                <p className="meta">
+                  Klient wchodzi na ten sam adres i podaje nazwę konta oraz hasło,
+                  które od nas dostał. Hasła nie odczytamy — jeśli je zgubił, wydaj
+                  nowe.
+                </p>
+                <ResetHaslaKlienta clientId={(pulpit?.client_id ?? wybrany) as string} />
+              </div>
+            </details>
+          )}
+
+          {ja.rola === "zespol" && ja.email && <MojeHaslo email={ja.email} />}
 
           {blad && <p className="brak-danych">{blad}</p>}
 

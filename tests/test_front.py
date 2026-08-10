@@ -165,3 +165,48 @@ def test_podnawigacja_i_sekcje_uzywaja_jednej_funkcji_slug() -> None:
     assert "slugSekcji" in panel, "Panel liczy identyfikatory sekcji po swojemu"
     # `id` na `<details>` musi pochodzić z tej funkcji, nie z wpisanego napisu.
     assert "id={slugSekcji(" in sekcje
+
+
+def test_front_nie_trzyma_hasel_w_przegladarce() -> None:
+    """Ta sama granica co dla klucza API — hasło nie przeżywa zamknięcia karty.
+
+    Nowe hasło wraca w odpowiedzi i widać je RAZ. Trafienie do `localStorage`
+    znaczyłoby, że hasło klienta zostaje w przeglądarce osoby z zespołu na stałe,
+    czytelne dla każdego skryptu na stronie.
+    """
+    uzycie = re.compile(r"\b(?:local|session)Storage\s*[.\[]")
+    for plik in (KORZEN / "front" / "src").rglob("*.tsx"):
+        bez_komentarzy = re.sub(
+            r"//[^\n]*|/\*.*?\*/", "", plik.read_text(encoding="utf-8"), flags=re.DOTALL
+        )
+        assert uzycie.search(bez_komentarzy) is None, f"{plik.name} zapisuje w storage"
+
+
+def test_reset_hasla_jest_tylko_dla_zespolu() -> None:
+    """Front nie pokazuje klientowi resetu — mimo że granica stoi w API.
+
+    Gdyby te warunki zniknęły, klient zobaczyłby przyciski dające 404. Nie byłby
+    to wyciek, ale interfejs obiecujący coś, czego nie ma, jest usterką sam
+    w sobie.
+    """
+    panel = (KORZEN / "front" / "src" / "Panel.tsx").read_text(encoding="utf-8")
+
+    for fragment in ("ResetHaslaKlienta", "MojeHaslo"):
+        assert fragment in panel, f"{fragment} nie jest wpięty w panel"
+        # Każde użycie musi stać za sprawdzeniem roli zespołu.
+        przed = panel[: panel.index(f"<{fragment}")]
+        assert 'ja.rola === "zespol"' in przed[-600:], f"{fragment} bez warunku roli"
+
+
+def test_klient_nie_ma_wywolania_resetu_wlasnego_hasla() -> None:
+    """W `klient.ts` nie ma funkcji, której klient mógłby użyć na sobie.
+
+    Reset klienta robi zespół (`zresetujHasloKlienta`), a `zmienMojeHaslo` jest
+    zespołowe po stronie serwera. Nie dorabiamy trzeciej drogi.
+    """
+    klient = (KORZEN / "front" / "src" / "klient.ts").read_text(encoding="utf-8")
+
+    assert "/api/haslo/klienta" in klient
+    assert "/api/haslo/moje" in klient
+    # Żadnego endpointu resetu dla samego klienta — takiego nie ma w API.
+    assert "/api/haslo/reset" not in klient

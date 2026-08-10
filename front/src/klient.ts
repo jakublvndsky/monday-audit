@@ -94,4 +94,26 @@ export const api = {
     ),
 
   stanAudytu: (id: string) => pobierz<StanAudytu>(`/api/audyt/${encodeURIComponent(id)}`),
+
+  // Reset haseł. Nowe hasło wraca w ODPOWIEDZI i widać je raz — nigdzie go nie
+  // zapisujemy, tak samo jak klucza API. Klient nie ma tu żadnego wywołania,
+  // bo nie ma dla niego endpointu: reset klienta robi zespół (D16 aneks).
+  zresetujHasloKlienta: (clientId: string) =>
+    pobierz<WynikResetu>("/api/haslo/klienta", {
+      method: "POST",
+      body: JSON.stringify({ client_id: clientId }),
+    }),
+
+  zmienMojeHaslo: (obecneHaslo: string) =>
+    pobierz<WynikResetu>("/api/haslo/moje", {
+      method: "POST",
+      body: JSON.stringify({ obecne_haslo: obecneHaslo }),
+    }),
 };
+
+/** Odpowiedź resetu. `wazne_sesje` jest tu, bo reset NIE wylogowuje. */
+export interface WynikResetu {
+  haslo: string;
+  wazne_sesje: number;
+  godzin_sesji: number;
+}

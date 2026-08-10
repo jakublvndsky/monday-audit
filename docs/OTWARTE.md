@@ -1022,3 +1022,20 @@ Czego pomiar NIE obejmuje:
 Oba są poza tym, co da się załatwić kodem aplikacji. Właściwa odpowiedź to
 OAuth z ograniczonym zakresem (aneks do D11), nie kolejna warstwa ostrożności
 wokół klucza o pełnych uprawnieniach.
+
+## O26 — „odetnij dostęp teraz" nie istnieje (2026-08-10)
+
+Reset hasła **nie wylogowuje**: otwarta sesja klienta żyje do `GODZIN_SESJI = 12`
+od zalogowania, bo `sesje.konto_id` jest niezależne od hasła. To świadoma decyzja
+Kuby — reset ma wydać nowe hasło, nie przerywać komuś pracy w połowie audytu.
+
+Konsekwencja: **nie mamy narzędzia do natychmiastowego odcięcia dostępu.** Gdy
+zajdzie taka potrzeba (rozstanie z klientem, podejrzenie wycieku), właściwą
+odpowiedzią jest osobna akcja: `aktywne = 0` na koncie plus `DELETE` z `sesje`.
+Nie dorabianie tego do resetu — bo wtedy każdy reset pomocniczy przerywałby pracę.
+
+Do rozstrzygnięcia, gdy się pojawi: czy w panelu, czy tylko z CLI, i czy odcięcie
+ma zostawiać ślad w `proby_logowania`, żeby było widać, kiedy nastąpiło.
+
+Dziś interfejs mówi wprost, ile sesji zostaje ważnych — żeby nikt nie uznał, że
+reset odciął dostęp. To jedyny sposób, w jaki ta luka jest dziś „obsłużona".

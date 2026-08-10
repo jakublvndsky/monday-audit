@@ -182,6 +182,23 @@ def utworz_konto(
     if rola == ROLA_ZESPOL and not email:
         raise DostepError("konto zespołu musi mieć e-mail — hasła są per osoba, nie wspólne")
 
+    # Odmowa, nie ciche dublowanie. Do 2026-08-10 powtórne wywołanie dla tego
+    # samego klienta zakładało DRUGIE konto, a stare hasło nadal wpuszczało —
+    # więc „wydałem nowe hasło" wyglądało na odebranie starego dostępu i nie
+    # odbierało go. Indeks z migracji 007 i tak by tego nie wpuścił, ale
+    # `IntegrityError` nie mówi, co zrobić; ten komunikat mówi.
+    if rola == ROLA_KLIENT:
+        istnieje = con.execute(
+            "SELECT id FROM konta_dostepu WHERE client_id = ? AND rola = ? AND aktywne = 1",
+            (client_id, ROLA_KLIENT),
+        ).fetchone()
+        if istnieje is not None:
+            raise DostepError(
+                f"klient {client_id} ma już aktywne konto (id {istnieje['id']}) — "
+                f"żeby wydać nowe hasło, użyj resetu, bo dodanie drugiego konta "
+                f"NIE unieważnia starego hasła"
+            )
+
     hash_hasla, sol = zahaszuj_haslo(haslo)
     teraz = datetime.now(tz=UTC)
     with con:
@@ -201,6 +218,83 @@ def utworz_konto(
     # Logujemy fakt, nie hasło. Ani jego długość — to też informacja.
     logger.info("utworzono konto dostępu: rola=%s klient=%s email=%s", rola, client_id, email)
     return int(kursor.lastrowid or 0)
+
+
+@dataclass(frozen=True, slots=True)
+class WynikResetu:
+    """Co zwraca reset. `haslo` widać RAZ — potem zostaje tylko hash.
+
+    `wazne_sesje` jest tu, bo reset **nie wylogowuje** i interfejs musi to
+    napisać. Cicha wiedza po stronie serwera nie pomaga temu, kto klika przycisk
+    i myśli, że właśnie odciął dostęp.
+    """
+
+    haslo: str
+    konto_id: int
+    wazne_sesje: int
+
+
+def policz_wazne_sesje(con: sqlite3.Connection, konto_id: int) -> int:
+    """Ile otwartych sesji tego konta jeszcze wpuszcza."""
+    wiersz = con.execute(
+        "SELECT COUNT(*) n FROM sesje WHERE konto_id = ? AND wazna_do > ?",
+        (konto_id, datetime.now(tz=UTC).isoformat()),
+    ).fetchone()
+    return int(wiersz["n"])
+
+
+def zresetuj_haslo(con: sqlite3.Connection, *, konto_id: int) -> WynikResetu:
+    """Wydaje NOWE hasło do ISTNIEJĄCEGO konta. Nie tworzy drugiego.
+
+    To cała różnica wobec `utworz_konto`, i to ta różnica była luką: nadpisujemy
+    `hash_hasla` i `sol_hasla` na tym samym wierszu, więc **stare hasło przestaje
+    działać w tej samej chwili**.
+
+    ## Czego ta funkcja świadomie NIE robi
+
+    **Nie usuwa sesji.** Kto jest zalogowany, pracuje dalej do wygaśnięcia
+    ciasteczka (`GODZIN_SESJI`), bo `sesje.konto_id` żyje niezależnie od hasła.
+    To decyzja Kuby: reset ma wydać nowe hasło, nie przerywać komuś pracy
+    w połowie audytu.
+
+    Konsekwencja, którą trzeba znać: **reset nie jest narzędziem do odcięcia
+    dostępu w trybie pilnym.** Do tego potrzebna byłaby osobna akcja
+    (`aktywne = 0` plus usunięcie sesji) — zapisane w `OTWARTE.md` jako O26.
+    Dlatego zwracamy `wazne_sesje`: interfejs ma o tym powiedzieć wprost.
+
+    Nowe hasło jest **zwracane, nie logowane**. W logu ląduje sam fakt resetu.
+    """
+    wiersz = con.execute(
+        "SELECT id, rola, client_id, email FROM konta_dostepu WHERE id = ? AND aktywne = 1",
+        (konto_id,),
+    ).fetchone()
+    if wiersz is None:
+        raise DostepError(f"nie ma aktywnego konta o id {konto_id}")
+
+    nowe = wygeneruj_haslo()
+    hash_hasla, sol = zahaszuj_haslo(nowe)
+    with con:
+        con.execute(
+            "UPDATE konta_dostepu SET hash_hasla = ?, sol_hasla = ? WHERE id = ?",
+            (hash_hasla, sol, konto_id),
+        )
+    logger.info(
+        "zresetowano hasło: konto=%d rola=%s klient=%s email=%s",
+        konto_id,
+        wiersz["rola"],
+        wiersz["client_id"],
+        wiersz["email"],
+    )
+    return WynikResetu(haslo=nowe, konto_id=konto_id, wazne_sesje=policz_wazne_sesje(con, konto_id))
+
+
+def konto_klienta(con: sqlite3.Connection, client_id: str) -> int | None:
+    """Id aktywnego konta klienta. `None`, gdy nie ma — wołający decyduje o kodzie."""
+    wiersz = con.execute(
+        "SELECT id FROM konta_dostepu WHERE client_id = ? AND rola = ? AND aktywne = 1",
+        (client_id, ROLA_KLIENT),
+    ).fetchone()
+    return int(wiersz["id"]) if wiersz else None
 
 
 def wygeneruj_haslo(slow: int = 4) -> str:
