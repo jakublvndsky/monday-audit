@@ -19,8 +19,10 @@ Cztery reguły:
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -98,6 +100,33 @@ def _snapshot_i_run(con: sqlite3.Connection, client_id: str, snapshot_id: int, r
         "VALUES (?, ?, 'Anna Górniak', 'anna@klient.test')",
         (client_id, HASH_ANNY),
     )
+
+
+@contextmanager
+def caplog_reczny() -> Iterator[list[str]]:
+    """Zbiera komunikaty logu na czas bloku.
+
+    `caplog` z pytest nie widzi logów z wątku puli FastAPI w każdej konfiguracji,
+    a link resetu jest logowany właśnie tam. Własny handler jest pewniejszy niż
+    fixture, która czasem łapie, a czasem nie — i test, który czasem łapie, nie
+    pilnuje niczego.
+    """
+    zapisy: list[str] = []
+
+    class Zbieracz(logging.Handler):
+        def emit(self, zapis: logging.LogRecord) -> None:
+            zapisy.append(zapis.getMessage())
+
+    korzen = logging.getLogger()
+    handler = Zbieracz()
+    poziom = korzen.level
+    korzen.addHandler(handler)
+    korzen.setLevel(logging.INFO)
+    try:
+        yield zapisy
+    finally:
+        korzen.removeHandler(handler)
+        korzen.setLevel(poziom)
 
 
 @pytest.fixture
@@ -789,3 +818,48 @@ def test_zmyslony_token_odmawia(klient_http: TestClient) -> None:
 
     assert odp.status_code == 400
     assert "haslo" not in odp.json()
+
+
+def test_link_resetu_wskazuje_na_port_z_zadania(klient_http: TestClient, baza: Path) -> None:
+    """ZMIERZONA USTERKA: link prowadził na port, na którym nic nie nasłuchiwało.
+
+    `ADRES_PUBLICZNY` miało stałą domyślną `http://127.0.0.1:8000`, a
+    `--serwuj --port 8010` jej nie dotykało. Kuba kliknął link i przeglądarka nie
+    miała z czym się połączyć.
+
+    Test pyta pod adresem `https://test`, a więc INNYM niż stara stała — gdyby
+    link nadal brał adres z konfiguracji, zobaczylibyśmy tu `:8000`.
+    """
+    with caplog_reczny() as zapisy:
+        odp = klient_http.post("/api/haslo/zapomniane", json={"email": EMAIL})
+    assert odp.status_code == 200
+
+    linki = [w for w in zapisy if "?reset=" in w]
+    assert linki, "link nie trafił nawet do logu"
+    assert "127.0.0.1:8000" not in linki[0], "link nadal wskazuje starą stałą"
+    assert "https://test" in linki[0], f"link nie wziął adresu z żądania: {linki[0]}"
+
+
+def test_adres_publiczny_wygrywa_gdy_ustawiony(baza: Path) -> None:
+    """Za odwrotnym proxy adres z żądania jest WEWNĘTRZNY, więc musi dać się nadpisać.
+
+    Caddy (etap 5) przekaże żądanie na `127.0.0.1:8000`, a odbiorca zna
+    `https://audyt.cxlabs.digital`. Bez tego nadpisania link w mailu prowadziłby
+    do wnętrza serwera.
+    """
+    from monday_audit.konfiguracja import UstawieniaPoczty
+
+    ustawienia = UstawieniaPoczty(adres_publiczny="https://audyt.cxlabs.digital/")
+    with (
+        TestClient(
+            zbuduj_aplikacje(baza=baza, ustawienia=ustawienia), base_url="https://test"
+        ) as c,
+        caplog_reczny() as zapisy,
+    ):
+        assert c.post("/api/haslo/zapomniane", json={"email": EMAIL}).status_code == 200
+
+    linki = [w for w in zapisy if "?reset=" in w]
+    assert linki, "link nie trafił do logu"
+    assert "https://audyt.cxlabs.digital/?reset=" in linki[0], (
+        f"nie użył ADRES_PUBLICZNY: {linki[0]}"
+    )

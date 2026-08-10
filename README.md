@@ -126,8 +126,14 @@ SMTP_PORT=587
 SMTP_USER=jle@cxlabs.digital
 SMTP_HASLO=<hasło aplikacji>      # NIE hasło do konta Google
 SMTP_NADAWCA=jle@cxlabs.digital   # opcjonalnie, domyślnie SMTP_USER
-ADRES_PUBLICZNY=https://audyt.cxlabs.digital   # wchodzi do LINKU w mailu
+ADRES_PUBLICZNY=https://audyt.cxlabs.digital   # TYLKO za odwrotnym proxy
 ```
+
+`ADRES_PUBLICZNY` zostaw **puste**, dopóki serwer stoi lokalnie: link resetu bierze
+wtedy host i port z żądania, więc `--serwuj --port 8010` daje link na `:8010`.
+Wcześniej to pole miało stałą `:8000` i link prowadził na port, na którym nic nie
+nasłuchiwało. Ustaw je dopiero za Caddy (etap 5), gdzie żądanie widzi adres
+wewnętrzny, a odbiorca publiczny.
 
 Przy Google Workspace potrzebne jest **hasło aplikacji**, nie zwykłe hasło do konta
 — Google odrzuca logowanie zwykłym hasłem. Generuje się je raz w ustawieniach konta

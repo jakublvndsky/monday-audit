@@ -81,9 +81,18 @@ class UstawieniaPoczty(BaseSettings):
     # Adres w nagłówku „From". Gdy pusty, używamy `smtp_user` — przy Gmailu to
     # zwykle ten sam adres.
     smtp_nadawca: str | None = None
-    # Adres, pod którym aplikacja jest widoczna dla odbiorcy. Wchodzi do LINKU
-    # w mailu, więc `localhost` w mailu do kolegi po prostu nie zadziała.
-    adres_publiczny: str = "http://127.0.0.1:8000"
+    # Adres, pod którym aplikacja jest widoczna dla odbiorcy — wchodzi do LINKU
+    # w mailu resetu.
+    #
+    # PUSTY DOMYŚLNIE, i to jest poprawka usterki. Wcześniej stała `:8000`
+    # rozjeżdżała się z `--serwuj --port 8010`: link prowadził na port, na którym
+    # nic nie nasłuchiwało. Gdy pole jest puste, `web/api.py` bierze adres
+    # Z ŻĄDANIA, czyli z tego, w co odbiorca kliknął — wtedy nie ma jak się
+    # rozjechać.
+    #
+    # Ustawić trzeba TYLKO za odwrotnym proxy (Caddy, etap 5): żądanie widzi wtedy
+    # `127.0.0.1:8000`, a odbiorca `https://audyt.cxlabs.digital`.
+    adres_publiczny: str = ""
 
 
 class Ustawienia(UstawieniaPoczty):

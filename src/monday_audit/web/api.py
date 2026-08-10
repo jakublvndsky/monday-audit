@@ -112,6 +112,50 @@ class DaneResetuKlienta(BaseModel):
     client_id: str = Field(min_length=1, max_length=100)
 
 
+def _pelne(ustawienia: UstawieniaPoczty) -> Ustawienia:
+    """Bez `baza` fabryka potrzebuje `monday_audit_db`, czyli PEŁNYCH ustawień.
+
+    Wywołanie `zbuduj_aplikacje(ustawienia=...)` bez `baza` istnieje tylko
+    w ścieżce produkcyjnej (`cli_web`), gdzie zawsze przychodzą `Ustawienia`.
+    Ten rzut zamienia niemożliwy przypadek w jasny błąd, zamiast w `AttributeError`
+    trzy linijki dalej.
+    """
+    if not isinstance(ustawienia, Ustawienia):
+        raise TypeError("bez `baza` potrzebne są pełne `Ustawienia` (z `monday_audit_db`)")
+    return ustawienia
+
+
+def _baza_adresu(zadanie: Request, ustawienia: UstawieniaPoczty | None = None) -> str:
+    """Adres, pod który ma prowadzić link resetu.
+
+    ## ZMIERZONA USTERKA, którą to naprawia
+
+    `ADRES_PUBLICZNY` miało stałą domyślną `http://127.0.0.1:8000`, a
+    `--serwuj --port 8010` jej nie dotykało. Kuba dostał link na `:8000`, kliknął
+    i przeglądarka nie miała z czym się połączyć — serwer stał na `:8010`.
+
+    Dwa źródła prawdy o jednym adresie: port serwera i port w linku. Klasyczna
+    usterka „każdy element działa osobno", której nie widzi żaden test endpointu,
+    bo `TestClient` nie ma pojęcia o porcie prawdziwego procesu.
+
+    ## Poprawka: adres z ŻĄDANIA, nie z konfiguracji
+
+    Domyślnie bierzemy host i port z żądania, czyli z tego, w co odbiorca właśnie
+    kliknął. Wtedy nie mogą się rozjechać — jest jedno źródło.
+
+    `ADRES_PUBLICZNY` **nadal wygrywa**, gdy jest ustawiony, i jest wtedy
+    potrzebny: za odwrotnym proxy (Caddy, etap 5) żądanie widzi `127.0.0.1:8000`,
+    a odbiorca `https://audyt.cxlabs.digital`. Ale to musi być decyzja, nie
+    wartość domyślna, która cicho psuje link.
+    """
+    jawny = (ustawienia.adres_publiczny if ustawienia else "").strip()
+    if jawny:
+        return jawny.rstrip("/")
+    # `base_url` niesie schemat, host i port tego żądania — łącznie z portem
+    # niestandardowym, o który się potknęliśmy.
+    return str(zadanie.base_url).rstrip("/")
+
+
 def _odpowiedz_resetu(wynik: WynikResetu) -> dict[str, Any]:
     """Hasło wraca RAZ, w ciele odpowiedzi — nie idzie do logu.
 
@@ -193,7 +237,9 @@ Polaczenie = Annotated[sqlite3.Connection, Depends(polaczenie)]
 ZSesji = Annotated[Sesja, Depends(sesja_z_ciasteczka)]
 
 
-def zbuduj_aplikacje(*, baza: Path | None = None, ustawienia: Ustawienia | None = None) -> FastAPI:
+def zbuduj_aplikacje(
+    *, baza: Path | None = None, ustawienia: UstawieniaPoczty | None = None
+) -> FastAPI:
     """Fabryka aplikacji. Baza wstrzykiwana, żeby testy nie tykały produkcyjnej.
 
     Gdy `baza` jest podana, **konfiguracji nie czytamy wcale**. Powód jest
@@ -213,7 +259,7 @@ def zbuduj_aplikacje(*, baza: Path | None = None, ustawienia: Ustawienia | None 
         # produkcyjnych poświadczeń, i to jest cały powód tej gałęzi.
         konf_poczty: Ustawienia | UstawieniaPoczty = ustawienia or UstawieniaPoczty()
     else:
-        konf = ustawienia or wczytaj()
+        konf: Ustawienia = wczytaj() if ustawienia is None else _pelne(ustawienia)
         sciezka_bazy = konf.monday_audit_db.absolute()
         konf_poczty = konf
     ustawienia_aplikacji = konf_poczty
@@ -390,7 +436,7 @@ def zbuduj_aplikacje(*, baza: Path | None = None, ustawienia: Ustawienia | None 
 
         token = poproszono_o_reset(con, email=email, ip=ip)
         if token is not None:
-            link = f"{ustawienia_aplikacji.adres_publiczny.rstrip('/')}/?reset={token}"
+            link = f"{_baza_adresu(zadanie, ustawienia_aplikacji)}/?reset={token}"
             try:
                 wyslij_link_resetu(
                     ustawienia_aplikacji,

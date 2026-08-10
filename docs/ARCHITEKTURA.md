@@ -880,3 +880,23 @@ brak konfiguracji poczty nie może znaczyć „nikt nigdy nie odzyska hasła".
 
 Konfiguracja siedzi w `UstawieniaPoczty`, osobno od sekretów collectora, żeby
 testy odzyskiwania hasła dały się uruchomić bez `MONDAY_TOKEN`.
+
+### Poprawka (2026-08-10): link resetu prowadził w nicość
+
+`ADRES_PUBLICZNY` miało stałą domyślną `http://127.0.0.1:8000`, a `--serwuj
+--port 8010` jej nie dotykało. Kuba kliknął link z resetu i przeglądarka nie miała
+z czym się połączyć.
+
+**Dwa źródła prawdy o jednym adresie** — port procesu i port w linku — bez niczego,
+co pilnowałoby ich zgodności. Testy endpointów tego nie widzą, bo `TestClient` nie
+ma pojęcia o porcie prawdziwego serwera: to ta sama rodzina usterek co wcześniejsze
+„każdy element działa osobno".
+
+Poprawka: link bierze host i port **z żądania** (`Request.base_url`), czyli z tego,
+w co odbiorca właśnie kliknął — jedno źródło, więc nie ma jak się rozjechać.
+`ADRES_PUBLICZNY` nadal wygrywa, gdy jest ustawione, bo za odwrotnym proxy (Caddy,
+etap 5) adres z żądania jest wewnętrzny. Domyślnie jest jednak **puste**: wartość
+domyślna, która cicho psuje link, jest gorsza od jej braku.
+
+Dwa testy: link nie może wskazywać starej stałej i musi nieść adres z żądania;
+`ADRES_PUBLICZNY` musi wygrywać, gdy jest podany.
