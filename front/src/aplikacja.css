@@ -360,6 +360,12 @@ body {
     padding: 0;
     border: 0;
   }
+  /* „Moje konto" ma `margin-top: auto` i obramowanie u góry — sensowne w kolumnie,
+   * a w pasku poziomym rozpychało go o 84 px za krawędź (ZMIERZONE przy 390 px).
+   * Na telefonie tę rolę pełni menu w pasku, więc pozycja jest zbędna. */
+  .sidebar__admin {
+    display: none;
+  }
   .sidebar__stopka p {
     display: none;
   }
@@ -597,4 +603,96 @@ body {
 }
 .dodaj-klienta .nowe-haslo {
   margin-bottom: var(--space-3);
+}
+
+/* ── Nawigacja mobilna ─────────────────────────────────────────────────
+ *
+ * Na desktopie UKRYTA, bo sidebar już to robi — dublowanie kontrolek było
+ * dokładnie tym, co Kuba zakwestionował przy drop-downie klientów.
+ *
+ * Poniżej 900 px sidebar chowa `nav` (`display: none`), więc na telefonie NIE BYŁO
+ * ŻADNEGO sposobu przełączenia klienta ani wejścia w „Moje konto". Ten select jest
+ * tam jedyną nawigacją. */
+.nawigacja-mobilna {
+  display: none;
+}
+.nawigacja-mobilna > span {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  /* Sidebar ma ciemne tło, więc podpis musi być jasny — `--fg-subtle` (szary
+   * na białym) byłby tu prawie niewidoczny. */
+  color: var(--fg-on-dark-subtle);
+  white-space: nowrap;
+}
+.nawigacja-mobilna select {
+  width: auto;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--fs-small);
+  max-width: 11rem;
+}
+
+.krotka-etykieta {
+  display: none;
+}
+
+/* ── Tabela klientów w panelu głównym ────────────────────────────────────
+ *
+ * `nowrap` TYLKO na desktopie. ZMIERZONE przy 390 px: tabela miała 405 px i cała
+ * strona przewijała się w poziomie, mimo ukrycia dwóch kolumn — bo `nowrap`
+ * trzyma minimalną szerokość niezależnie od tego, ile kolumn zostało. */
+@media (min-width: 901px) {
+  .tabela-klientow td,
+  .tabela-klientow th {
+    white-space: nowrap;
+  }
+}
+.tabela-klientow a {
+  color: var(--fg);
+  text-decoration: none;
+  border-bottom: 1px solid var(--cx-lime);
+}
+.tabela-klientow a:hover {
+  color: var(--cx-ink-10);
+}
+
+@media (max-width: 900px) {
+  .nawigacja-mobilna {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    /* Sidebar pod progiem jest paskiem z `justify-content: space-between`, więc
+     * menu ląduje między znakiem marki a wylogowaniem. */
+    margin: 0 var(--space-3);
+  }
+  /* Kolumny mniej istotne na telefonie: data i suma. Nazwa, znaleziska i dostęp
+   * zostają, bo to one odpowiadają na „co z tym klientem". */
+  .tabela-klientow th:nth-child(4),
+  .tabela-klientow td:nth-child(4),
+  .tabela-klientow th:nth-child(5),
+  .tabela-klientow td:nth-child(5) {
+    display: none;
+  }
+  /* Przycisk resetu: na 390 px pełna etykieta łamała się na PIĘĆ linii
+   * („Zreset uj hasło klient a") — nieczytelnie. ZMIERZONE na zrzucie, nie
+   * przewidziane: `overflow-wrap: anywhere` na komórkach dotyczy też przycisku. */
+  .pelna-etykieta {
+    display: none;
+  }
+  .krotka-etykieta {
+    display: inline;
+  }
+  /* Zostają cztery kolumny, więc muszą się zwężać, a nie rozpychać stronę.
+   * `table-layout: fixed` plus zawijanie treści — inaczej sam przycisk resetu
+   * ustala minimalną szerokość. */
+  .tabela-klientow {
+    table-layout: fixed;
+    width: 100%;
+  }
+  .tabela-klientow td,
+  .tabela-klientow th {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    padding: var(--space-2);
+  }
 }

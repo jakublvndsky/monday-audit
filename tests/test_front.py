@@ -162,9 +162,12 @@ def test_podnawigacja_i_sekcje_uzywaja_jednej_funkcji_slug() -> None:
     panel = (KORZEN / "front" / "src" / "Panel.tsx").read_text(encoding="utf-8")
 
     assert "export function slugSekcji" in sekcje, "brak wspólnej funkcji slugu"
-    assert "slugSekcji" in panel, "Panel liczy identyfikatory sekcji po swojemu"
     # `id` na `<details>` musi pochodzić z tej funkcji, nie z wpisanego napisu.
     assert "id={slugSekcji(" in sekcje
+    # Od 2026-08-11 `Panel.tsx` nie woła `slugSekcji` wprost — dostaje gotowe `id`
+    # z `kolejnoscSekcji`, która jest jednym źródłem I kolejności, I identyfikatorów.
+    # Panel nie może liczyć ich po swojemu, więc sprawdzamy, że tego nie robi.
+    assert "slugSekcji(" not in panel, "Panel liczy identyfikatory sekcji po swojemu"
 
 
 def test_front_nie_trzyma_hasel_w_przegladarce() -> None:
@@ -196,7 +199,9 @@ def test_reset_hasla_jest_tylko_dla_zespolu() -> None:
     # wśród danych audytu klienta — przeniesione, bo własne konto nie należy do
     # widoku cudzego audytu.
     assert "MojeKonto" in panel, "strona administracyjna nie jest wpięta"
-    assert "naKoncie ? (" in panel, "brak przełączania na stronę administracyjną"
+    assert "<Klienci" in panel, "panel glowny nie jest wpiety"
+    # Trzy widoki, jeden stan — nie trzy flagi, ktore moga byc prawdziwe naraz.
+    assert 'widok === "klienci"' in panel and 'widok === "konto"' in panel
 
     # Wejście na stronę administracyjną tylko dla zespołu — pozycja w sidebarze
     # musi stać za sprawdzeniem roli.
@@ -205,9 +210,8 @@ def test_reset_hasla_jest_tylko_dla_zespolu() -> None:
 
     hasla = (KORZEN / "front" / "src" / "Hasla.tsx").read_text(encoding="utf-8")
     assert "ResetHaslaKlienta" in hasla and "MojeHaslo" in hasla
-    # Reset klienta jest w tabeli dostępów, więc widzi go tylko ten, kto wszedł na
-    # stronę administracyjną. Granica i tak stoi w API (klient dostaje 404).
-    assert "<ResetHaslaKlienta" in hasla, "reset klienta nie jest wpięty w stronę konta"
+    # Reset klienta zywe w panelu glownym (`Klienci.tsx`), nie w „Moje konto" —
+    # pilnuje tego `test_panel_glowny_i_moje_konto_to_osobne_widoki`.
 
 
 def test_klient_nie_ma_wywolania_resetu_wlasnego_hasla() -> None:
@@ -222,3 +226,73 @@ def test_klient_nie_ma_wywolania_resetu_wlasnego_hasla() -> None:
     assert "/api/haslo/moje" in klient
     # Żadnego endpointu resetu dla samego klienta — takiego nie ma w API.
     assert "/api/haslo/reset" not in klient
+
+
+def test_kolejnosc_sekcji_z_jednej_funkcji() -> None:
+    """Sidebar i treść MUSZĄ brać kolejność z tego samego miejsca.
+
+    ZMIERZONA USTERKA (2026-08-11): sidebar stawiał Znaleziska pierwsze, a treść
+    renderowała je ostatnie — dwa porządki, żaden nie pilnował drugiego. Kuba
+    zauważył to klikając panel: nawigacja obiecywała jeden układ, strona pokazywała
+    inny.
+
+    Test szuka DRUGIEGO źródła kolejności, nie samej obecności funkcji: kopia
+    reguły rozjechałaby się cicho, bez błędu w konsoli.
+    """
+    panel = (KORZEN / "front" / "src" / "Panel.tsx").read_text(encoding="utf-8")
+    sekcje = (KORZEN / "front" / "src" / "komponenty" / "Sekcje.tsx").read_text(encoding="utf-8")
+
+    assert "export function kolejnoscSekcji" in sekcje, "brak wspólnej funkcji kolejności"
+    # Dwa wywołania w `Panel.tsx`: podnawigacja w sidebarze i render treści.
+    assert panel.count("kolejnoscSekcji(") == 2, (
+        f"kolejnoscSekcji użyta {panel.count('kolejnoscSekcji(')} raz(y) — "
+        "sidebar i treść muszą wołać ją OBA"
+    )
+    # Treść nie może mapować `pulpit.sekcje` bezpośrednio — to byłby drugi porządek.
+    assert "pulpit.sekcje.map" not in panel, "treść omija wspólną kolejność"
+
+
+def test_kolejnosc_jest_alfabetyczna_po_polsku() -> None:
+    """`localeCompare("pl")`, nie `<` na napisach.
+
+    „Aktywność" i „Automatyzacje" różnią się dopiero na trzeciej literze, a `ń`,
+    `ś`, `ż` w porównaniu bajtowym lądują PO `z` — więc „Aktywność" wypadłoby
+    za „Znaleziska".
+    """
+    sekcje = (KORZEN / "front" / "src" / "komponenty" / "Sekcje.tsx").read_text(encoding="utf-8")
+
+    assert 'localeCompare(b.etykieta, "pl")' in sekcje, "sortowanie bez polskiej lokalizacji"
+
+
+def test_panel_glowny_i_moje_konto_to_osobne_widoki() -> None:
+    """Dostępy klientów wyszły z „Moje konto" do panelu „Klienci".
+
+    Kuba szukał ich pod „Klienci" i miał rację: własne konto to nie zarządzanie
+    klientami. Ta sama pomyłka zdarzyła się raz wcześniej — reset klienta wisiał
+    wśród danych audytu.
+    """
+    hasla = (KORZEN / "front" / "src" / "Hasla.tsx").read_text(encoding="utf-8")
+    klienci = (KORZEN / "front" / "src" / "Klienci.tsx").read_text(encoding="utf-8")
+
+    # „Moje konto" ma TYLKO własne hasło — bez tabeli klientów.
+    assert "tabela-klientow" not in hasla, "tabela klientów wróciła do Moje konto"
+    assert "PozycjaKlienta" not in hasla, "Moje konto zna listę klientów"
+    # Panel główny ma wszystkie trzy akcje administracyjne.
+    for komponent in ("DodajKlienta", "ResetHaslaKlienta", "NadajDostep"):
+        assert f"<{komponent}" in klienci, f"{komponent} nie jest w panelu głównym"
+
+
+def test_nawigacja_mobilna_istnieje() -> None:
+    """Pod 900 px sidebar chowa `nav`, więc musi być inna droga.
+
+    Bez tego na telefonie NIE DA SIĘ przełączyć klienta ani wejść w „Moje konto" —
+    zgłoszone przez Kubę. Sprawdzamy oba końce: element i regułę, która go pokazuje.
+    """
+    panel = (KORZEN / "front" / "src" / "Panel.tsx").read_text(encoding="utf-8")
+    css = (KORZEN / "front" / "src" / "aplikacja.css").read_text(encoding="utf-8")
+
+    assert "nawigacja-mobilna" in panel, "brak nawigacji mobilnej w panelu"
+    # Ukryta na desktopie (żeby nie dublować sidebara), widoczna pod progiem.
+    assert ".nawigacja-mobilna {\n  display: none;\n}" in css, "nie jest ukryta na desktopie"
+    po_progu = css[css.index("@media (max-width: 900px)") :]
+    assert ".nawigacja-mobilna {" in po_progu, "nie pokazuje się pod 900 px"

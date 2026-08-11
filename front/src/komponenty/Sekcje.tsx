@@ -66,6 +66,61 @@ export function slugSekcji(tytul: string): string {
     .replace(/^-|-$/g, "")}`;
 }
 
+/** Jedna pozycja nawigacji: sekcja metryk albo Znaleziska. */
+export interface PozycjaSekcji {
+  id: string;
+  etykieta: string;
+  licznik: number;
+  /** `null` dla Znalezisk — one mają własny komponent, nie `SekcjaMetryk`. */
+  sekcja: Sekcja | null;
+}
+
+/** JEDNO źródło kolejności sekcji — dla sidebara I dla treści.
+ *
+ * ## Dlaczego to istnieje
+ *
+ * Do 2026-08-11 kolejność była liczona w dwóch miejscach: sidebar stawiał
+ * Znaleziska pierwsze, a treść renderowała je OSTATNIE (po sekcjach metryk).
+ * Kuba to zauważył klikając panel — nawigacja obiecywała jeden porządek,
+ * strona pokazywała inny.
+ *
+ * Ta funkcja jest wołana raz i użyta w obu miejscach, więc rozjazd jest
+ * niemożliwy, a zmiana kolejności to zmiana JEDNEJ funkcji.
+ *
+ * ## Sortowanie alfabetyczne po polsku
+ *
+ * `localeCompare("pl")`, nie `<` na napisach. Dwa powody, oba realne:
+ * „Aktywność" i „Automatyzacje" różnią się dopiero na trzeciej literze,
+ * a `ń`/`ś`/`ż` w porównaniu bajtowym lądują PO `z` — więc „Aktywność"
+ * wypadłoby za „Znaleziska".
+ *
+ * ## Konsekwencja, którą Kuba zaakceptował
+ *
+ * Alfabetycznie znaczy, że **Znaleziska są na końcu** (litera Z). Wynik audytu
+ * jest więc pod czterema sekcjami metryk — dlatego kafle na górze strony zostają
+ * i pokazują liczbę znalezisk od razu.
+ */
+export function kolejnoscSekcji(
+  sekcje: readonly Sekcja[],
+  findingow: number,
+): PozycjaSekcji[] {
+  const pozycje: PozycjaSekcji[] = [
+    {
+      id: slugSekcji("Znaleziska"),
+      etykieta: "Znaleziska",
+      licznik: findingow,
+      sekcja: null,
+    },
+    ...sekcje.map((s) => ({
+      id: slugSekcji(s.tytul),
+      etykieta: s.tytul,
+      licznik: s.metryki.length,
+      sekcja: s,
+    })),
+  ];
+  return pozycje.sort((a, b) => a.etykieta.localeCompare(b.etykieta, "pl"));
+}
+
 /** Przewija do sekcji, rozwijając ją, jeśli ktoś ją wcześniej zwinął. */
 export function przewinDoSekcji(id: string): void {
   const cel = document.getElementById(id);

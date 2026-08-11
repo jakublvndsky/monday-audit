@@ -384,6 +384,18 @@ nie może sam** — nie ma dla niego endpointu, a sesja klienta dostaje 404 na o
 Droga ratunkowa z terminala: `--zresetuj-haslo EMAIL_LUB_CLIENT_ID`, na wypadek
 zgubienia wszystkich haseł zespołu.
 
+**Panel główny „Klienci"** — widok startowy zespołu: tabela wszystkich klientów
+(audyty, znaleziska, oszczędność, data, dostęp), dodawanie klienta i resety haseł
+w jednym miejscu. „Moje konto" ma odtąd TYLKO własne hasło.
+
+**Kolejność sekcji z jednej funkcji** (`kolejnoscSekcji`) — sidebar i treść brały ją
+z dwóch miejsc i rozjeżdżały się: nawigacja stawiała Znaleziska pierwsze, strona
+ostatnie. Sortowanie `localeCompare("pl")`, bo „Aktywność"/„Automatyzacje" różnią się
+na trzeciej literze, a polskie znaki w porównaniu bajtowym lądują po `z`.
+
+**Nawigacja mobilna** w sidebarze (menu „widok") — pod 900 px `sidebar nav` jest
+ukryty, więc bez niej na telefonie nie dało się przełączyć klienta.
+
 **Dodawanie klienta z panelu** — „Moje konto" → „Dostępy klientów": identyfikator
 i wygenerowane hasło pokazane raz. Identyfikator waliduje serwer wzorcem
 `^[a-z0-9][a-z0-9-]{1,49}$`, bo trafia do adresów i nazw plików raportu. CLI

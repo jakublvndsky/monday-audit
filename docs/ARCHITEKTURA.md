@@ -997,3 +997,33 @@ bo jeden łańcuch obsługuje obie role. Komunikat mówi, **co dalej**, a nie ty
 Sekcja „Dostęp klienta" wypadła z widoku audytu: reset żyje w „Moje konto", a ten
 sam przycisk w dwóch miejscach był dublowaniem — tym samym, które Kuba
 zakwestionował przy „Moje hasło".
+
+### Poprawki po pierwszym prawdziwym runie z panelu (2026-08-11)
+
+Kuba odpalił audyt drugiego workspace'u jako klient `acme`: 86 hipotez, 27 znalezisk,
+7,09 USD, 62 minuty. **Pierwszy run, który przeszedł całą ścieżkę panelową** — i to
+on potwierdził, że poprawka `started_at`/`finished_at` z 2026-08-10 działa (daty
+w bazie są datami).
+
+**Licznik nie odświeżał się po audycie.** `poZakonczeniu` odświeżało tylko pulpit,
+a licznik znalezisk i stan dostępu pochodzą z `/api/klienci`. Panel pokazywał
+„acme 0" po audycie z 27 znaleziskami; prawdę widać było dopiero po przeładowaniu.
+Zmierzone po poprawce: wywołanie `poZakonczeniu` wysyła oba żądania.
+
+**Kolejność sekcji liczona w dwóch miejscach.** Sidebar stawiał Znaleziska pierwsze,
+treść renderowała je ostatnie. Teraz `kolejnoscSekcji` w `komponenty/Sekcje.tsx` jest
+jednym źródłem dla obu, a test porównuje liczbę wywołań i sprawdza, że treść nie
+mapuje `pulpit.sekcje` bezpośrednio. Kolejność alfabetyczna (decyzja Kuby) stawia
+Znaleziska na końcu — kafle na górze strony zostają, żeby wynik był widoczny od razu.
+
+**„Jestem na acme, a widzę CXLABS" — panel mówił prawdę.** Snapshot niesie
+`nazwa: "CXLABS"`, bo audyt szedł kluczem na koncie monday CXLABS, tylko innego
+workspace'u (5610281). To DWA różne identyfikatory: `client_id` nasz, `nazwa_konta`
+z monday. Zespół widzi identyfikator jako tytuł i „konto monday: …" pod nim; klient
+widzi swoją nazwę, bo nie zna się jako „acme".
+
+**Trzy usterki wyszły dopiero ze zrzutów przy 390 px**, każda po poprzedniej
+poprawce: nawigacja mobilna w `.pasek` nie istniała w panelu głównym (pasek jest
+tylko w widoku audytu — przeniesiona do sidebara); tabela klientów miała 405 px przy
+oknie 390 przez `white-space: nowrap`; `.sidebar__admin` wystawał 84 px za krawędź.
+Piąty raz w tym projekcie warstwę wizualną zweryfikowało obejrzenie obrazu, nie test.

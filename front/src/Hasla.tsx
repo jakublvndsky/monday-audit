@@ -18,11 +18,10 @@
 // wprost, zamiast pokazać hasło i liczyć, że ktoś je zapisze.
 
 import { useState } from "react";
-import type { PozycjaKlienta } from "./api";
 import { api, BladApi, type WynikResetu } from "./klient";
 
 /** Polska odmiana po liczbie: 1 audyt, 2 audyty, 5 audytów. */
-function odmiana(ile: number, poj: string, mnoga: string, dopelniacz: string): string {
+export function odmiana(ile: number, poj: string, mnoga: string, dopelniacz: string): string {
   if (ile === 1) return poj;
   if (ile % 10 >= 2 && ile % 10 <= 4 && (ile % 100 < 12 || ile % 100 > 14)) return mnoga;
   return dopelniacz;
@@ -30,7 +29,7 @@ function odmiana(ile: number, poj: string, mnoga: string, dopelniacz: string): s
 
 /** Pokazane raz nowe hasło. Świadomie nie ma tu „skopiuj i zamknij" — dopóki
  *  widok jest otwarty, hasło jest widoczne i można je przepisać. */
-function NoweHaslo({ wynik, kogo }: { wynik: WynikResetu; kogo: string }) {
+export function NoweHaslo({ wynik, kogo }: { wynik: WynikResetu; kogo: string }) {
   return (
     <div className="nowe-haslo">
       <p className="nowe-haslo__etykieta">nowe hasło dla {kogo}</p>
@@ -116,7 +115,8 @@ export function ResetHaslaKlienta({ clientId }: { clientId: string }) {
           className="cx-btn cx-btn--groźny"
           onClick={() => ustawPytamy(true)}
         >
-          Zresetuj hasło klienta
+          <span className="pelna-etykieta">Zresetuj hasło klienta</span>
+          <span className="krotka-etykieta">Reset</span>
         </button>
       )}
     </div>
@@ -130,7 +130,7 @@ export function ResetHaslaKlienta({ clientId }: { clientId: string }) {
  * połowa roboty. W bazie produkcyjnej `cxlabs` miał 17 audytów i żadnego konta:
  * audyt istniał, a odbiorca nie mógł go zobaczyć.
  */
-function NadajDostep({ clientId, poNadaniu }: { clientId: string; poNadaniu: () => void }) {
+export function NadajDostep({ clientId, poNadaniu }: { clientId: string; poNadaniu: () => void }) {
   const [wynik, ustawWynik] = useState<WynikResetu | null>(null);
   const [blad, ustawBlad] = useState<string | null>(null);
   const [czeka, ustawCzeka] = useState(false);
@@ -174,7 +174,7 @@ function NadajDostep({ clientId, poNadaniu }: { clientId: string; poNadaniu: () 
  * adresów i nazw plików raportu, więc reguła musi stać tam, gdzie jej nie da się
  * pominąć.
  */
-function DodajKlienta({ poDodaniu }: { poDodaniu: () => void }) {
+export function DodajKlienta({ poDodaniu }: { poDodaniu: () => void }) {
   const [clientId, ustawClientId] = useState("");
   const [wynik, ustawWynik] = useState<{ haslo: string; kto: string } | null>(null);
   const [blad, ustawBlad] = useState<string | null>(null);
@@ -244,88 +244,20 @@ function DodajKlienta({ poDodaniu }: { poDodaniu: () => void }) {
   );
 }
 
-/** Strona administracyjna: własne konto plus dostępy wszystkich klientów.
+/** Strona „Moje konto": WYŁĄCZNIE własne hasło.
  *
- * Osobna strona, nie sekcja wśród danych audytu. Poprzednia wersja miała „Moje
- * hasło" pomiędzy kaflami klienta, co Kuba słusznie zakwestionował: własne konto
- * nie należy do widoku audytu cudzego konta.
+ * Dostępy klientów są w panelu „Klienci" (`Klienci.tsx`) — Kuba szukał ich tam
+ * i miał rację: własne konto to nie to samo co zarządzanie klientami. Ta strona
+ * przeszła już raz tę drogę (reset klienta wisiał wśród danych audytu), więc
+ * trzymamy zasadę: jeden widok, jedna odpowiedzialność.
  */
-export function MojeKonto({
-  email,
-  klienci,
-  odswiez,
-}: {
-  email: string;
-  klienci: PozycjaKlienta[];
-  odswiez: () => void;
-}) {
+export function MojeKonto({ email }: { email: string }) {
   return (
     <div className="strona">
       <p className="eyebrow">Panel administracyjny</p>
       <h1>Moje konto</h1>
       <p className="strona__adres">{email}</p>
-
       <MojeHaslo email={email} />
-
-      <details className="sekcja" open>
-        <summary>
-          Dostępy klientów <span className="opis">kto może wejść na swój panel</span>
-        </summary>
-        <div className="sekcja__ciało">
-          <p className="meta">
-            Hasła nie odczytamy — w bazie jest tylko hash. Zgubione zastępujemy nowym.
-          </p>
-          <DodajKlienta poDodaniu={odswiez} />
-          <div className="przewijane">
-            <table className="tabela-lista">
-              <thead>
-                <tr>
-                  <th>Klient</th>
-                  <th>Audyty</th>
-                  <th>Dostęp</th>
-                  <th>Hasło</th>
-                </tr>
-              </thead>
-              <tbody>
-                {klienci.map((k) => (
-                  <tr key={k.client_id}>
-                    <td>
-                      <b>{k.client_id}</b>
-                    </td>
-                    <td>
-                      {k.audytow > 0 ? (
-                        // „5 audytów · 1 znalezisko" — liczba znalezisk dotyczy
-                        // NAJNOWSZEGO runu, nie sumy, więc odmiana musi się zgadzać
-                        // z jedynką. Wcześniej wychodziło „1 znalezisk".
-                        `${k.audytow} ${odmiana(k.audytow, "audyt", "audyty", "audytów")} · ` +
-                        `${k.findingow} ${odmiana(k.findingow, "znalezisko", "znaleziska", "znalezisk")}`
-                      ) : (
-                        <span className="pusto">brak audytu</span>
-                      )}
-                    </td>
-                    <td>
-                      {k.ma_konto ? (
-                        "ma hasło"
-                      ) : (
-                        /* Ten stan był dotąd NIEWIDOCZNY: klient z audytem, ale bez
-                           konta, nie mógł się zalogować i nikt tego nie wiedział. */
-                        <span className="stan-brak">nie może się zalogować</span>
-                      )}
-                    </td>
-                    <td>
-                      {k.ma_konto ? (
-                        <ResetHaslaKlienta clientId={k.client_id} />
-                      ) : (
-                        <NadajDostep clientId={k.client_id} poNadaniu={odswiez} />
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </details>
     </div>
   );
 }

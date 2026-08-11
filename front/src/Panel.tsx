@@ -12,13 +12,14 @@ import { useCallback, useEffect, useState } from "react";
 import type { Ja, PozycjaKlienta, Pulpit } from "./api";
 import { Audyt } from "./Audyt";
 import { MojeKonto } from "./Hasla";
+import { Klienci } from "./Klienci";
 import { api } from "./klient";
 import {
   CzegoNieWidac,
   KafelDuzy,
+  kolejnoscSekcji,
   przewinDoSekcji,
   SekcjaMetryk,
-  slugSekcji,
   Znaleziska,
 } from "./komponenty/Sekcje";
 
@@ -46,14 +47,9 @@ function odmianaZnalezisk(ile: number): string {
  */
 function PodnawigacjaSekcji({ pulpit }: { pulpit: Pulpit | null }) {
   if (!pulpit) return null;
-  const pozycje = [
-    { id: slugSekcji("Znaleziska"), etykieta: "Znaleziska", licznik: pulpit.findingow },
-    ...pulpit.sekcje.map((s) => ({
-      id: slugSekcji(s.tytul),
-      etykieta: s.tytul,
-      licznik: s.metryki.length,
-    })),
-  ];
+  // Kolejność z JEDNEJ funkcji, tej samej co w treści — inaczej sidebar obiecuje
+  // jeden porządek, a strona pokazuje inny (usterka zgłoszona 2026-08-11).
+  const pozycje = kolejnoscSekcji(pulpit.sekcje, pulpit.findingow);
   return (
     <div className="sidebar__podnawigacja">
       {pozycje.map((p) => (
@@ -80,11 +76,18 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
   // Wybrana WERSJA audytu. `undefined` znaczy „domyślna", czyli najnowsza —
   // serwer to rozstrzyga (`_ostatni_run`), front nie zgaduje.
   const [wersja, ustawWersje] = useState<string | undefined>(undefined);
-  // Który widok: audyt klienta czy własne konto. „Moje konto" było wcześniej
-  // sekcją WŚRÓD danych audytu klienta, co Kuba słusznie zakwestionował —
-  // własne konto nie należy do widoku cudzego audytu.
-  const [naKoncie, ustawNaKoncie] = useState(false);
+  // Trzy widoki: panel główny „Klienci", audyt jednego klienta, „Moje konto".
+  // Zespół startuje na PANELU GŁÓWNYM — wcześniej wchodził od razu w pierwszego
+  // klienta, co przy kilku klientach jest zgadywaniem.
+  const [widok, ustawWidok] = useState<"klienci" | "audyt" | "konto">(
+    ja.rola === "zespol" ? "klienci" : "audyt",
+  );
   const [blad, ustawBlad] = useState<string | null>(null);
+
+  const odswiezKlientow = useCallback(() => {
+    if (ja.rola !== "zespol") return;
+    api.klienci().then(ustawKlienci).catch(() => undefined);
+  }, [ja.rola]);
 
   const wczytaj = useCallback(async () => {
     try {
@@ -99,8 +102,17 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
   useEffect(() => {
     // Lista klientów tylko dla zespołu. Sesja klienta dostałaby 404, więc nawet
     // nie pytamy — nie chcemy hałasu w logach z żądań, które muszą się nie udać.
-    if (ja.rola === "zespol") api.klienci().then(ustawKlienci).catch(() => ustawKlienci([]));
-  }, [ja.rola]);
+    odswiezKlientow();
+  }, [odswiezKlientow]);
+
+  // Po zakończonym audycie odświeżamy OBA źródła. ZMIERZONA USTERKA: `poZakonczeniu`
+  // odświeżało tylko pulpit, więc licznik znalezisk przy kliencie zostawał stary
+  // i panel wyglądał, jakby run nic nie zrobił. Kuba zobaczył „acme 0" po audycie
+  // z 27 znaleziskami — dopiero przeładowanie strony pokazywało prawdę.
+  const poAudycie = useCallback(async () => {
+    await wczytaj();
+    odswiezKlientow();
+  }, [wczytaj, odswiezKlientow]);
 
   useEffect(() => {
     void wczytaj();
@@ -117,14 +129,59 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
           <img src="/cxlabs-white.png" alt="CXLABS" />
           <small>Audyt monday.com</small>
         </div>
+        {/* Nawigacja MOBILNA — w SIDEBARZE, nie w pasku.
+            ZMIERZONE: pierwsza wersja siedziała w `.pasek`, który renderuje się
+            tylko w widoku audytu. Na telefonie startujesz w panelu głównym, więc
+            menu nie istniało w DOM-ie — dokładnie ten sam brak, który miał naprawić.
+
+            Sidebar jest widoczny w KAŻDYM widoku (pod 900 px jako pasek u góry),
+            więc to jedyne miejsce, gdzie menu jest zawsze. CSS ukrywa je na
+            desktopie, żeby nie dublowało listy klientów. */}
+        {ja.rola === "zespol" && (
+          <label className="nawigacja-mobilna">
+            <span>widok</span>
+            <select
+              aria-label="Nawigacja"
+              value={widok === "audyt" ? (wybrany ?? pulpit?.client_id ?? "") : widok}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === "klienci" || v === "konto") {
+                  ustawWidok(v);
+                  return;
+                }
+                ustawWersje(undefined);
+                ustawWybranego(v);
+                ustawWidok("audyt");
+              }}
+            >
+              <option value="klienci">Wszyscy klienci</option>
+              {klienci.map((k) => (
+                <option key={k.client_id} value={k.client_id}>
+                  {k.client_id} — {k.findingow}
+                </option>
+              ))}
+              <option value="konto">Moje konto</option>
+            </select>
+          </label>
+        )}
         <nav>
           {ja.rola === "zespol" ? (
             <>
-              <span className="poz">
+              {/* „Klienci" jest teraz WEJŚCIEM do panelu głównego, nie napisem.
+                  Kuba próbował w to kliknąć i miał rację, że powinno działać. */}
+              <a
+                href="#"
+                className={`poz ${widok === "klienci" ? "aktywny" : ""}`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  ustawWidok("klienci");
+                }}
+              >
                 Klienci<span className="sidebar__licznik">{klienci.length}</span>
-              </span>
+              </a>
               {klienci.map((k) => {
-                const aktywny = k.client_id === (wybrany ?? pulpit?.client_id);
+                const aktywny =
+                  widok === "audyt" && k.client_id === (wybrany ?? pulpit?.client_id);
                 return (
                   <div key={k.client_id}>
                     <a
@@ -138,7 +195,7 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
                         // audyt ma.
                         ustawWersje(undefined);
                         ustawWybranego(k.client_id);
-                        ustawNaKoncie(false);
+                        ustawWidok("audyt");
                       }}
                     >
                       {k.client_id}
@@ -160,10 +217,10 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
           <div className="sidebar__admin">
             <a
               href="#"
-              className={naKoncie ? "aktywny" : ""}
+              className={widok === "konto" ? "aktywny" : ""}
               onClick={(e) => {
                 e.preventDefault();
-                ustawNaKoncie(true);
+                ustawWidok("konto");
               }}
             >
               Moje konto
@@ -186,16 +243,18 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
       </aside>
 
       <main className="tresc">
-        {naKoncie ? (
-          <MojeKonto
-            email={ja.email ?? ""}
+        {widok === "klienci" ? (
+          <Klienci
             klienci={klienci}
-            odswiez={() => {
-              // Po nadaniu dostępu lista musi się przerysować, inaczej wiersz
-              // dalej mówi „nie może się zalogować".
-              api.klienci().then(ustawKlienci).catch(() => undefined);
+            odswiez={odswiezKlientow}
+            poWybraniu={(clientId) => {
+              ustawWersje(undefined);
+              ustawWybranego(clientId);
+              ustawWidok("audyt");
             }}
           />
+        ) : widok === "konto" ? (
+          <MojeKonto email={ja.email ?? ""} />
         ) : (
         <>
         <div className="pasek">
@@ -217,12 +276,7 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
               <label className="wybor-wersji">
                 {/* „analiza z", nie „wersja audytu" — bo `PozycjaRunu.run_at` to
                     `runy.started_at`, czyli kiedy agent BADAŁ dane, a nagłówek
-                    strony pokazuje `Pulpit.run_at`, czyli kiedy dane ZEBRANO.
-                    Oba są prawdziwe i potrafią się różnić: dwie analizy tego
-                    samego snapshotu mają jedną datę zbiórki i dwie daty badania.
-                    Zobaczyłem to na zrzucie — drop-down mówił „5 sierpnia", a pod
-                    tytułem stało „dane z 2026-08-01" i wyglądało na sprzeczność.
-                    Nazwanie obu rozwiązuje to bez zmiany danych. */}
+                    strony pokazuje `Pulpit.run_at`, czyli kiedy dane ZEBRANO. */}
                 <span>analiza z</span>
                 <select
                   aria-label="Wersja audytu — data analizy"
@@ -249,15 +303,38 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
 
         <div className="strona">
           <p className="eyebrow">Audyt konta monday.com</p>
-          <h1>{pulpit?.nazwa_konta ?? wybrany ?? ja.client_id ?? "Audyty"}</h1>
+          {/* DWA różne identyfikatory, oba prawdziwe — i to jest sedno pomyłki,
+              którą zgłosił Kuba („jestem na acme, a widzę CXLABS").
+
+              `client_id` to NASZ identyfikator klienta w bazie, a `nazwa_konta`
+              to nazwa konta W MONDAY ze snapshotu. Audyt klienta `acme` poszedł
+              kluczem na koncie monday „CXLABS" (inny workspace), więc panel mówił
+              prawdę — tylko pokazywał jedną nazwę bez podpisu.
+
+              Zespół widzi identyfikator jako tytuł (spójnie z sidebarem), a nazwę
+              monday w linii pod nim. Klient widzi swoją nazwę: on jej nie zna jako
+              „acme", zna ją jako firmę. */}
+          <h1>
+            {ja.rola === "zespol"
+              ? (pulpit?.client_id ?? wybrany ?? "Audyty")
+              : (pulpit?.nazwa_konta ?? ja.client_id ?? "Twój audyt")}
+          </h1>
           {pulpit && (
             <p className="strona__adres">
+              {ja.rola === "zespol" && (
+                <>
+                  konto monday: <b>{pulpit.nazwa_konta}</b> ·{" "}
+                </>
+              )}
               {pulpit.zakres} · plan {pulpit.plan_tier} · dane zebrane{" "}
               {pulpit.run_at.slice(0, 10)}
             </p>
           )}
 
-          <Audyt klient={ja.rola === "zespol" ? wybrany : undefined} poZakonczeniu={wczytaj} />
+          <Audyt
+            klient={ja.rola === "zespol" ? wybrany : undefined}
+            poZakonczeniu={poAudycie}
+          />
 
           {/* Sekcji „Dostęp klienta" TU NIE MA i to jest celowe.
               Reset hasła klienta żyje w „Moje konto" → „Dostępy klientów", razem
@@ -337,10 +414,16 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
                 </p>
               )}
 
-              {pulpit.sekcje.map((s) => (
-                <SekcjaMetryk key={s.tytul} s={s} />
-              ))}
-              <Znaleziska findingi={pulpit.findingi} />
+              {/* TA SAMA funkcja co w sidebarze — jedno źródło kolejności.
+                  Wcześniej sidebar stawiał Znaleziska pierwsze, a tu renderowały
+                  się ostatnie: dwa porządki, żaden nie pilnował drugiego. */}
+              {kolejnoscSekcji(pulpit.sekcje, pulpit.findingow).map((poz) =>
+                poz.sekcja ? (
+                  <SekcjaMetryk key={poz.id} s={poz.sekcja} />
+                ) : (
+                  <Znaleziska key={poz.id} findingi={pulpit.findingi} />
+                ),
+              )}
               <CzegoNieWidac zastrzezenia={pulpit.zastrzezenia} />
 
               {pulpit.pinowanie && Object.keys(pulpit.pinowanie).length > 0 && (
