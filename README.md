@@ -115,7 +115,8 @@ subskrypcyjny ma być decyzją, nie stanem, w który wpada się przez zapomnieni
 
 ### Dodawanie klienta
 
-Z panelu: **Moje konto → Dostępy klientów → Dodaj klienta**. Identyfikator musi
+Z panelu: **Klienci → Dodaj klienta** (panel „Klienci" jest widokiem startowym
+zespołu). Identyfikator musi
 pasować do `^[a-z0-9][a-z0-9-]{1,49}$`, bo trafia do adresu panelu i do nazw plików
 raportu. Hasło pokazuje się raz.
 
@@ -127,7 +128,7 @@ Z terminala, jako droga ratunkowa: `--dodaj-klienta acme`.
 |---|---|
 | Zespół, zna hasło | panel → **Moje hasło** (podaje obecne) |
 | Zespół, **nie pamięta** | brama → **Nie pamiętam hasła** → link na skrzynkę |
-| Klient | **tylko zespół**, z panelu → *Dostęp klienta* |
+| Klient | **tylko zespół**, z panelu → **Klienci** → kolumna *Dostęp* |
 | Ratunek | `--zresetuj-haslo` z terminala |
 
 Klient **nie może zresetować hasła sam** — nie ma dla niego endpointu. Hasło jest

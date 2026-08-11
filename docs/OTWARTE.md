@@ -1039,3 +1039,72 @@ ma zostawiać ślad w `proby_logowania`, żeby było widać, kiedy nastąpiło.
 
 Dziś interfejs mówi wprost, ile sesji zostaje ważnych — żeby nikt nie uznał, że
 reset odciął dostęp. To jedyny sposób, w jaki ta luka jest dziś „obsłużona".
+
+## O27 — czas audytu rośnie liniowo z liczbą hipotez (2026-08-11)
+
+**Zmierzone, nie oszacowane.** Dwa pełne przebiegi agenta:
+
+| workspace | hipotez | znalezisk | koszt | czas | na hipotezę |
+|---|---|---|---|---|---|
+| 6576039 | 19 | 11 | 1,71 USD | ~17 min | ~54 s |
+| 5610281 | 86 | 27 | 7,09 USD | 62 min | ~43 s |
+
+Koszt i czas skalują się z liczbą anomalii, bo **każda hipoteza to osobna sesja
+modelu**, badana po kolei. Przy koncie z 300 anomaliami to ~3,5 godziny i ~25 USD.
+
+Czego nie wiemy:
+
+- **czy równoległość jest bezpieczna** — hipotezy są niezależne, ale narzędzia
+  agenta dzielą jedno połączenie z monday i jeden rejestr wywołań; limit API
+  klienta jest wspólny;
+- **ile da zwężenie kontekstu** — dziś każda sesja dostaje pełny inwentarz
+  w prompcie systemowym (D2, prompt caching), więc koszt wejścia jest stały
+  niezależnie od tego, jak wąska jest hipoteza;
+- **czy tańszy model wystarczy dla prostszych klas** — rubryka ma klasy oczywiste
+  (martwe konto) i wymagające rozumowania (obejście procesu); dziś wszystkie idą
+  tym samym modelem.
+
+Do rozstrzygnięcia w **etapie 4 (ewaluacja)**, na korpusie 6 snapshotów. Nie
+zgadujemy teraz, bo optymalizacja bez pomiaru jakości może po cichu obniżyć
+trafność znalezisk — a to jedyna rzecz, której klient nie sprawdzi.
+
+## O28 — żaden audyt nie ma stawki licencji (2026-08-11)
+
+Drugi workspace dał **27 znalezisk i zero kwot**. To poprawne zachowanie —
+walidacja odrzuca kwotę bez stawki, zamiast wymyślać liczbę — ale znaczy, że
+**raport nie pokazuje oszczędności**, czyli tego, co sprzedaje audyt.
+
+W bazie jest **jeden** wiersz w `stawki_klienta`: `cxlabs / koszt_licencji_mies =
+100.0`, z adnotacją w polu źródła „liczba wymyślona na potrzeby testu". Znaczy to,
+że **1200 PLN oszczędności widoczne dziś w panelu przy `cxlabs` też jest wartością
+testową** — poprawnie policzoną z nieprawdziwej stawki. Klient `acme` stawki nie ma
+wcale, więc jego 27 znalezisk jest bez kwot.
+
+Naprawa to wpisanie wartości, nie zmiana kodu; pytanie otwarte jest inne: **skąd
+bierzemy stawkę dla konkretnego klienta.** Cennik publiczny monday
+pobiera scraper, ale klient na Enterprise ma cenę wynegocjowaną, której nie znamy
+i której nie wolno zgadywać. Trzy drogi, nierozstrzygnięte:
+
+1. pytamy klienta o kwotę z faktury (najdokładniejsze, wymaga rozmowy);
+2. używamy ceny publicznej z zastrzeżeniem w raporcie („liczone po cenniku
+   publicznym, twoja cena może być niższa");
+3. pokazujemy oszczędność w licencjach, nie w złotówkach („zwolnisz 12 płatnych
+   miejsc"), i kwotę zostawiamy klientowi.
+
+Trzecia droga jest odporna na brak danych i nie da się jej podważyć — ale słabiej
+sprzedaje. Decyzja handlowa, nie techniczna.
+
+## O29 — poczta „nie pamiętam hasła" nieskonfigurowana (2026-08-11)
+
+Mechanizm działa i jest przetestowany, ale bez `SMTP_HOST` link ląduje **w logu
+serwera**, nie na skrzynce. Tryb awaryjny jest świadomy i głośny (log mówi wprost,
+że to nie stan docelowy), bo brak konfiguracji nie może znaczyć „nikt nigdy nie
+odzyska hasła".
+
+Do zamknięcia przed wystawieniem panelu: `SMTP_HOST`, `SMTP_USER`, `SMTP_HASLO`
+(przy Google Workspace **hasło aplikacji**, nie hasło do konta) oraz
+`ADRES_PUBLICZNY`, gdy aplikacja stanie za odwrotnym proxy.
+
+Ryzyko, dopóki to nie jest zrobione: **link resetu widzi każdy, kto ma dostęp do
+logów serwera.** Lokalnie to nikt poza właścicielem maszyny; po wdrożeniu na
+Mikrusa (etap 5) — każdy z dostępem do systemd journal.

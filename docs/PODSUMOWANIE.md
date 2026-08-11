@@ -1,8 +1,10 @@
 # monday.com Account Audit — podsumowanie stanu
 
 > **Dla kogo:** osoba nadzorująca projekt. Pięć minut czytania, bez kodu.
-> **Stan na:** 2026-08-05. Etap 3 (Build) zbudowany, czeka na odhaczenie 3.12.
-> Doszła makieta frontu (D15) — poza numeracją etapu 3.
+> **Stan na:** 2026-08-11. Etap 3 (Build) zbudowany, czeka na odhaczenie 3.12.
+> Doszła **działająca aplikacja web** — panel dla zespołu i dla klienta, z dostępami
+> i resetem haseł. Poza numeracją etapu 3, na wyraźne polecenie Kuby.
+> **Pierwszy audyt uruchomiony w całości z panelu przez klienta: 2026-08-11.**
 > **Szczegóły techniczne:** [`ZBUDOWANE.md`](ZBUDOWANE.md) · **decyzje:**
 > [`ARCHITEKTURA.md`](ARCHITEKTURA.md) · **niepewności:** [`OTWARTE.md`](OTWARTE.md)
 
@@ -93,15 +95,35 @@ nie nadpłata*.
 
 ### Ile to kosztuje
 
-**Jeden audyt to ~1,71 USD za analizę** plus ~227 wywołań z dziennego limitu
-klienta (Enterprise ma 25 000, więc niecały procent).
+**Pełny audyt to ~7 USD i ~godzina.** Zmierzone 2026-08-11 na drugim workspace'ie
+konta CXLABS: 86 hipotez, 27 znalezisk, **7,09 USD, 62 minuty**.
 
-Dla porównania: jedno uruchomienie agenta monday to 10–250 kredytów, czyli
-rząd wielkości od dziesięciu groszy do kilku złotych. **Nasz audyt kosztuje
-tyle, ile 2–17 uruchomień ich agenta.**
+Ta liczba zastępuje wcześniejsze „1,71 USD". Poprzednia była prawdziwa, ale
+pochodziła z przebiegu na **19 hipotezach** — pierwszy audyt większego workspace'u
+pokazał, że koszt i czas rosną liniowo z liczbą anomalii do zbadania, bo każda
+hipoteza to osobna sesja modelu.
 
-Koszt czytamy z tego, co raportuje Agent SDK, nie z mnożenia tokenów przez
-cennik zaszyty u nas — ten rozjechałby się przy pierwszej zmianie cen.
+| przebieg | hipotez | znalezisk | koszt | czas |
+|---|---|---|---|---|
+| workspace 6576039 (pierwszy) | 19 | 11 | 1,71 USD | ~17 min |
+| workspace 5610281 (2026-08-11) | 86 | 27 | **7,09 USD** | **62 min** |
+
+Do wywołań monday to nadal ~227 z dziennego limitu klienta (Enterprise ma 25 000,
+czyli niecały procent) — collector nie rośnie z liczbą hipotez.
+
+**Czas jest do zoptymalizowania, koszt niekoniecznie.** 62 minuty to ~43 s na
+hipotezę i wynika z sekwencyjnego badania; koszt wynika z liczby tokenów i spadnie
+tylko przez zwężenie kontekstu albo tańszy model. Jedno i drugie należy do ewaluacji
+(etap 4), nie do zgadywania teraz.
+
+Dla porównania: jedno uruchomienie agenta monday to 10–250 kredytów, czyli rząd
+wielkości od dziesięciu groszy do kilku złotych.
+
+Koszt czytamy z tego, co raportuje Agent SDK, nie z mnożenia tokenów przez cennik
+zaszyty u nas — ten rozjechałby się przy pierwszej zmianie cen. **Od 2026-08-10
+zapisujemy też, CZYM run był rozliczony** (`runy.rozliczenie`): przy
+`AGENT_ROZLICZENIE=subskrypcja` ta sama liczba jest wyceną teoretyczną, nie fakturą,
+i panel to oznacza. Bez tego sumowanie kosztów mieszałoby wydatki z wycenami.
 
 ---
 
@@ -109,9 +131,33 @@ cennik zaszyty u nas — ten rozjechałby się przy pierwszej zmianie cen.
 
 Dwa dokumenty HTML z jednego przebiegu — otwierają się z dysku, bez internetu,
 drukują do PDF. Do tego **działającą aplikację web** (od 2026-08-06): panel
-wewnętrzny CXLABS z drop-downem po klientach i panel dla klienta, widzący tylko
-siebie. Klient wchodzi hasłem, wkleja **swój** klucz API monday, klika „Wygeneruj
-audyt" i widzi pasek postępu — audyt trwa około kwadransa.
+wewnętrzny CXLABS i panel dla klienta, widzący tylko siebie. Klient wchodzi hasłem,
+wkleja **swój** klucz API monday, klika „Wygeneruj audyt" i widzi pasek postępu.
+
+Aplikacja przeszła pełną ścieżkę na żywo 2026-08-11: klient odpalił audyt
+z panelu, run zebrał dane, agent zbadał 86 hipotez, panel pokazał 27 znalezisk.
+
+**Co ma zespół** (stan na 2026-08-11):
+
+| widok | zawiera |
+|---|---|
+| **Klienci** (startowy) | tabela wszystkich klientów: audyty, znaleziska, oszczędność, data, dostęp; dodawanie klienta; resety haseł |
+| **Audyt klienta** | kafle, sekcje metryk, znaleziska z dowodami, wybór wersji audytu, formularz uruchomienia |
+| **Moje konto** | wyłącznie zmiana własnego hasła |
+
+**Dostęp** — hasła generowane, w bazie tylko hash `scrypt`, więc nie da się ich
+odczytać, tylko wydać nowe:
+
+- klient dostaje hasło od CXLABS i **nie może zresetować go sam** (nie ma dla niego
+  endpointu — nie „ma zablokowany"), bo hasło jest jedyną bramą do jego danych
+  osobowych, a bez SSO nie mamy czym potwierdzić, kto o reset prosi;
+- zespół zmienia własne hasło w panelu, a gdy je zgubi — **„nie pamiętam hasła"**
+  wysyła jednorazowy link na skrzynkę `@cxlabs.digital` (ważny 30 minut);
+- reset **nie wylogowuje**: otwarta sesja żyje do 12 h i interfejs to mówi wprost,
+  żeby nikt nie uznał, że odciął dostęp. Prawdziwe „odetnij teraz" jest zapisane
+  jako otwarta pozycja, nie dorobione po cichu do resetu.
+
+Panel jest responsywny — sprawdzony zrzutami przy 390, 900 i 1440 px.
 
 Panel docelowo **zastępuje raport** jako to, co dostaje klient — decyzja Kuby.
 Dokument zostaje eksportem datowanej wersji, bo panel czyta bazę na żywo i nie
@@ -216,8 +262,33 @@ i wniosek jest prosty: **ścieżka odczytu nie pisze.** Test regresyjny strzela
 w kolumnie 464 px zamiast na całym ekranie. Dwie pierwsze poprawki były
 nietrafione, bo zgadywałem, który element jest wąski — winowajcą był `#korzen`,
 div bez ani jednej reguły CSS. Ani `tsc`, ani `npm run build`, ani żaden test
-HTTP tego nie widzi. To trzeci raz w tym projekcie, gdy usterkę wizualną łapie
-dopiero obejrzenie zrzutu.
+HTTP tego nie widzi.
+
+To wróciło jeszcze pięć razy: logo w ciemnym kolorze na ciemnym sidebarze, opis
+zlepiony z procentem, formularz klucza zajmujący trzecią część szerokości, pasek
+wypychający treść za krawędź telefonu i przycisk resetu łamiący się na pięć linii
+(„Zreset uj hasło klient a"). **Za każdym razem kod przechodził wszystkie testy.**
+Wniosek jest praktyczny, nie filozoficzny: zmiana w warstwie wizualnej kończy się
+obejrzeniem zrzutu, a nie zielonym testem.
+
+**Siódma, i to czwarty raz ten sam wzorzec: „wydałem nowe hasło" nie odbierało
+starego dostępu.** Ponowne dodanie klienta nie zmieniało hasła — zakładało DRUGIE
+konto, a stare hasło nadal wpuszczało, bo logowanie brało pierwszy pasujący wiersz
+bez określonej kolejności. Zmierzone: klient `cxlabs` miał dwa aktywne konta i oba
+hasła działały.
+
+To dokładnie ta sama klasa co trzy pierwsze przypadki: mechanizm wyglądał na
+działający i nie działał. Naprawa poszła w **dwie warstwy** — funkcja resetu
+nadpisuje hasło na istniejącym koncie, a unikalny indeks w schemacie zamyka drogę,
+którą duplikaty powstawały. Bez indeksu wróciłyby inną drogą.
+
+**Ósma: dwie daty, które nie były datami.** W ścieżce, którą klient odpala audyt
+z panelu, `started_at` i `finished_at` dostawały identyfikator runu zamiast
+znacznika czasu. Kolumny są typu `TEXT`, więc baza przyjmowała to bez protestu.
+Obie usterki przeżyły, bo **żaden run z panelu nie doszedł jeszcze do zapisu** —
+ścieżka z terminala miała własny, poprawny kod. Wyszło przy przeglądaniu tego
+kodu, nie z testu; potwierdził to pierwszy prawdziwy run z panelu (2026-08-11),
+w którym daty są już datami.
 
 ---
 
@@ -262,9 +333,10 @@ rubrykę i nowy prompt.
 ## Stan i co dalej
 
 **Zbudowane i przepuszczone przez prawdziwe konto: 3.1–3.12, plus aplikacja web
-poza numeracją etapów.** 553 testy, kontrola typów i lintera przechodzą.
+poza numeracją etapów.** 618 testów, kontrola typów i lintera przechodzą.
 
-Korpus 5 zamrożonych snapshotów gotowy na etap 4 (wymagane 3–5).
+Korpus 6 zamrożonych snapshotów gotowy na etap 4 (wymagane 3–5) — szósty doszedł
+z drugiego workspace'u, na którym aplikacja przeszła pełną ścieżkę.
 
 ### Zostało w etapie 3
 
@@ -281,9 +353,19 @@ Korpus 5 zamrożonych snapshotów gotowy na etap 4 (wymagane 3–5).
    poprawne, dla testów niewygodne.
 3. **Clash Display nie jest zainstalowany na maszynie deweloperskiej**, więc
    nagłówki w dzisiejszych plikach lecą Avenirem — drugim krojem marki.
-4. **Pełny przebieg ze stawką licencji** dałby 11 znalezisk **z kwotami**
-   w jednym raporcie, zamiast dzisiejszego „11 bez kwot" albo „2 z kwotami".
-   ~1,7 USD.
+4. **Żadna kwota w panelu nie jest jeszcze prawdziwa.** Drugi workspace dał
+   27 znalezisk i **ani jednej kwoty**, bo klient nie ma wpisanej stawki licencji —
+   rubryka nie wycenia bez stawki, zamiast wymyślać liczbę. Jedyna stawka w bazie
+   (100 PLN dla `cxlabs`) jest oznaczona jako testowa, więc **1200 PLN widoczne
+   dziś w panelu to poprawne wyliczenie z nieprawdziwej liczby.** To jedna wartość
+   do wpisania, nie zmiana w kodzie — ale trzeba wiedzieć, skąd ją brać (O28).
+5. **Czas audytu: 62 minuty przy 86 hipotezach** (~43 s na hipotezę), bo hipotezy
+   badane są po kolei. Do rozstrzygnięcia w ewaluacji (etap 4): zwężenie kontekstu,
+   równoległość, tańszy model dla prostszych klas.
+6. **Wysyłka maili nie jest skonfigurowana.** „Nie pamiętam hasła" działa, ale bez
+   `SMTP_HOST` link ląduje w logu serwera, nie na skrzynce. Tryb awaryjny jest
+   świadomy i głośny (log to mówi), lecz przed wystawieniem panelu trzeba wpisać
+   dane SMTP — to konfiguracja, nie kod.
 
 ### Ryzyko do rozstrzygnięcia przed wystawieniem panelu
 
@@ -293,6 +375,12 @@ Część z czterech pytań z **O23** aplikacja już zamknęła: hasła są hasho
 blokuje też **poprawne** hasło po pięciu nieudanych próbach. Otwarte zostaje to,
 co nie jest kwestią kodu: kanał przekazania hasła klientowi, odbieranie dostępu
 po zakończeniu relacji, i TLS — bo dziś aplikacja chodzi lokalnie, a nie pod URL-em.
+
+**Reset haseł jest już zamknięty mechanizmem**, nie procedurą: klient nie ma drogi
+do resetu, zespół odzyskuje hasło linkiem na firmową skrzynkę, a reset nie odbiera
+dostępu natychmiast (sesja żyje do 12 h) — i interfejs mówi to wprost. „Odetnij
+dostęp teraz" świadomie **nie istnieje**: zapisane jako otwarta pozycja, żeby nie
+dorabiać tego do resetu i nie przerywać pracy przy każdym pomocniczym wydaniu hasła.
 
 **Osobne ryzyko doszło z samym przepływem:** klient wkleja swój klucz API monday,
 a klucz admina monday **nie jest read-only** — kto go ma, może usunąć każdą

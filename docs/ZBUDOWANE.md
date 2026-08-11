@@ -563,7 +563,7 @@ w Finderze i nieodtwarzalne.
 
 ## Testy
 
-**518 testów, 19 odznaczonych** (integracyjne, uderzają w prawdziwe monday —
+**618 testów, 19 odznaczonych** (integracyjne, uderzają w prawdziwe monday —
 `-m integracyjny` je włącza). `make sprawdz` to ruff + mypy + pytest.
 
 Warstwy: jednostkowe na danych syntetycznych, integracyjne na koncie CXLABS,
