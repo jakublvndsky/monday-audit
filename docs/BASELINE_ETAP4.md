@@ -1,0 +1,94 @@
+# Baseline etapu 4 — z czego składa się koszt audytu
+
+> **Stan na 2026-08-11.** Ten dokument jest punktem odniesienia dla **każdego**
+> eksperymentu optymalizacyjnego. Do niego wracamy, zamiast pamiętać liczby.
+
+## Punkt wyjścia: pierwszy pełny audyt z panelu
+
+| | wartość |
+|---|---|
+| run | `acme-20260811T093330Z-agent` |
+| snapshot | 6 (klient `acme`, workspace 5610281) |
+| hipotez zbadanych | **86** |
+| obalonych przez agenta | 30 (35%) |
+| findingów zgłoszonych | 36 |
+| **przyjętych po walidacji** | **27** |
+| odrzuconych na walidacji | 9 (**0,25** — próg etapu 4 to ≤0,15) |
+| **koszt** | **7,09 USD** (0,26 USD za znalezisko) |
+| **czas** | **62 minuty** (~43 s na hipotezę) |
+| rozliczenie | klucz API (koszt to faktyczny wydatek) |
+
+## Co już wiadomo bez dodatkowego runu
+
+**Z 62 minut tylko 40 sekund (1,1%) to wywołania do monday.** Policzone
+z `wywolania.latency_ms`: 45 wywołań, średnio 894 ms. Pozostałe ~99% to czas
+modelu — więc **czas i koszt to jedna robota**, oba w sesjach agenta.
+Optymalizacja collectora nie da nic.
+
+**Odsetek odrzuceń na walidacji przekracza próg etapu 4.** 0,25 wobec ≤0,15 —
+znaczy to, że co czwarty finding zgłoszony przez agenta nie trzyma kontraktu D8.
+To osobny problem od kosztu i **taniej go naprawić niż optymalizować**: każdy
+odrzucony finding to zapłacona i wyrzucona praca modelu.
+
+**Klasy trywialne to 8% hipotez.** Rubryka rozróżnia trudność przez `rola_agenta`:
+`ZOMBIE_ACCOUNT` ma `brak` i budżet 0 wywołań (detektor już orzekł), a
+`PROCESS_BYPASS` — „tu jesteś najbardziej potrzebny" i budżet 12. Na snapshocie 6:
+
+| klasa | hipotez | rola agenta | budżet |
+|---|---|---|---|
+| BOARD_GHOST | 32 | jest | 4 |
+| DUPLICATE_STRUCTURE | 21 | jest | 10 |
+| BOARD_OVERCOMPLEX | 16 | jest | 8 |
+| AUTOMATION_DEAD | 8 | jest | 5 |
+| **ZOMBIE_ACCOUNT** | **7** | **brak** | **0** |
+| GUEST_SPRAWL, PLAN_MISMATCH | 2 | jest | 3–5 |
+
+Router modelu po `rola_agenta` da więc **najwyżej 8%**. Prawdziwe pieniądze siedzą
+w `BOARD_GHOST` (32 hipotezy) i `DUPLICATE_STRUCTURE` (21).
+
+## Czego JESZCZE nie wiadomo
+
+Ten run jest **sprzed migracji 010**, więc nie ma rozbicia:
+
+- `tokens_in`, `tokens_out`, `tokens_cache_read`, `tokens_cache_write` — **NULL**;
+- brak wierszy w `zuzycie_hipotez`, czyli **brak kosztu per klasa**.
+
+**Sumy 7,09 USD nie dzielimy po równo na 86 hipotez.** Liczba wyglądająca na pomiar
+i nie będąca nim jest gorsza od jej braku — raport ewaluacji mówi „brak rozbicia"
+i to jest poprawne zachowanie.
+
+### Trzy pytania, na które odpowie następny run
+
+1. **Czy prompt caching działa?** Przy 86 hipotezach na tym samym inwentarzu
+   `cache_read` powinien być wielokrotnie większy od `tokens_in`. Jeśli nie jest,
+   płacimy 86× za to samo wejście — i to jest wtedy najtańsze możliwe cięcie.
+2. **Które klasy są drogie?** Czy `BOARD_GHOST` × 32 to 60% rachunku, czy 20%.
+   Od tego zależy, czy eksperyment z tańszym modelem tam się zwróci.
+3. **Ile płacimy za odrzucenia?** 30 hipotez obalonych plus 9 findingów odrzuconych
+   na walidacji — to praca, za którą zapłaciliśmy i której nie widać w produkcie.
+
+## Jak odtworzyć pomiar
+
+```bash
+# Powtórzenie runu na ZAMROŻONYM snapshocie — po to istnieje D7.
+uv run python -m monday_audit.cli_agent --klient acme --snapshot 6
+
+# Raport HTML z rozbiciem
+uv run python -m monday_audit.cli_ewaluacja --run <nowy-run-id>
+
+# Porównanie z baseline
+uv run python -m monday_audit.cli_ewaluacja --run <nowy> --wobec acme-20260811T093330Z-agent
+```
+
+Koszt jednego powtórzenia: **~7 USD**. Dlatego każdy run kontrolny musi mieć
+z góry ustalone, na jakie pytanie odpowiada.
+
+## Czego ten dokument NIE zawiera
+
+**Celu liczbowego.** Kuba świadomie go nie postawił, dopóki nie wiadomo, co da się
+uciąć — a to wie się dopiero z rozbicia per klasa.
+
+**Miary jakości.** Trafność i fałszywe trafienia wymagają złotego zestawu
+(`evals/zloty_zestaw/`), czyli ręcznego przejścia konta przez człowieka. Bez niego
+każda optymalizacja jest niemierzalna: tańszy agent, który gubi trafność, wygląda
+jak sukces w kolumnie kosztów.

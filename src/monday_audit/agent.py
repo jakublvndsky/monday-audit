@@ -49,6 +49,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -646,6 +647,10 @@ async def zbadaj_hipotezy(
     findings: list[dict[str, Any]] = []
     odrzucone: list[dict[str, Any]] = []
     bledy: list[dict[str, str]] = []
+    # Zużycie PER HIPOTEZA, nie tylko suma. Do 2026-08-11 pętla sumowała
+    # `wynik.zuzycie` i wyrzucała szczegóły — więc nie dało się powiedzieć, KTÓRE
+    # KLASY są drogie, a od tego zależy każda decyzja o optymalizacji (etap 4).
+    per_hipoteza: list[dict[str, Any]] = []
     zuzycie: dict[str, float] = {
         "wywolania": 0,
         "tokens_in": 0,
@@ -664,6 +669,9 @@ async def zbadaj_hipotezy(
             hipoteza.obiekt_id,
             hipoteza.budzet_wywolan,
         )
+        # `monotonic`, nie `datetime.now`: zegar systemowy potrafi skoczyć w trakcie
+        # godzinnego runu i dać czas ujemny.
+        zaczeto = time.monotonic()
         wynik = await zbadaj_hipoteze(
             hipoteza,
             zestaw=zestaw,
@@ -676,11 +684,30 @@ async def zbadaj_hipotezy(
             stawki=stawki,
             model=model,
         )
+        sekund = round(time.monotonic() - zaczeto, 3)
         for klucz in ("tokens_in", "tokens_out", "tokens_cache_read", "tokens_cache_write"):
             zuzycie[klucz] += wynik.zuzycie.get(klucz, 0)
         zuzycie["koszt_usd"] += wynik.zuzycie.get("koszt_usd", 0.0)
-        zuzycie["wywolania"] += sum(
+        wywolan_hipotezy = sum(
             1 for w in wynik.wywolania_narzedzi if w.startswith(("probka_kolumn", "log_tablicy"))
+        )
+        zuzycie["wywolania"] += wywolan_hipotezy
+        per_hipoteza.append(
+            {
+                "klasa_id": hipoteza.klasa_id,
+                "obiekt_id": hipoteza.obiekt_id,
+                "tokens_in": int(wynik.zuzycie.get("tokens_in", 0)),
+                "tokens_out": int(wynik.zuzycie.get("tokens_out", 0)),
+                "tokens_cache_read": int(wynik.zuzycie.get("tokens_cache_read", 0)),
+                "tokens_cache_write": int(wynik.zuzycie.get("tokens_cache_write", 0)),
+                "koszt_usd": float(wynik.zuzycie.get("koszt_usd", 0.0)),
+                "sekund": sekund,
+                "wywolan_narzedzi": wywolan_hipotezy,
+                # Hipoteza ODRZUCONA też kosztuje — i to jest istotna liczba:
+                # jeśli większość kończy się odrzuceniem, płacimy głównie za
+                # dowiadywanie się, że czegoś NIE MA.
+                "byl_finding": bool(wynik.finding),
+            }
         )
         if wynik.blad:
             bledy.append(
@@ -712,6 +739,10 @@ async def zbadaj_hipotezy(
         # bez widocznej stawki jest nieweryfikowalna.
         "parametry_wyceny": {n: s.do_snapshotu() for n, s in (stawki or {}).items()},
         "zuzycie": {**zuzycie, "koszt_usd": round(float(zuzycie["koszt_usd"]), 6)},
+        # Rozbicie per hipoteza — do `zuzycie_hipotez` (migracja 010). Osobny klucz,
+        # nie wewnątrz `zuzycie`, bo to lista wierszy, a nie sumy; wywołujący zapisuje
+        # ją przez `przebieg.zapisz_zuzycie`.
+        "per_hipoteza": per_hipoteza,
     }
 
 

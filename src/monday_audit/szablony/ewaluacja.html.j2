@@ -1,0 +1,258 @@
+{# Raport ewaluacji — rozbicie kosztu i jakość jednego runu.
+
+   Dokument WEWNĘTRZNY: nie idzie do klienta, ale niesie nazwy klas i identyfikatory
+   obiektów, więc obowiązuje go ta sama granica PII co raport (D14, test
+   antyprzeciekowy).
+
+   Dane liczy `ewaluacja.py`. Tutaj nie ma ani jednego wyliczenia — szablon, który
+   dzieli i mnoży, rozjeżdża się z tym, co pokazują testy.
+#}
+<title>Ewaluacja runu {{ z.run_id }} — {{ z.client_id }}</title>
+<style>
+{% include "_marka.css.j2" %}
+{% include "_pulpit.css.j2" %}
+.ewal-progi td { font-variant-numeric: tabular-nums; }
+.ponizej-progu { color: var(--waga-krytyczna); font-weight: 500; }
+.lepiej { color: var(--cx-ink-10); }
+.gorzej { color: var(--waga-krytyczna); }
+.brak-miary {
+  padding: var(--space-4) var(--space-5);
+  background: var(--bg-alt);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  color: var(--fg-muted);
+  font-size: var(--fs-small);
+}
+</style>
+
+<main class="tresc" style="background: var(--cx-mist)">
+<div class="strona">
+  <p class="eyebrow">Ewaluacja etapu 4</p>
+  <h1>{{ z.client_id }} — {{ z.run_id }}</h1>
+  <p class="strona__adres">
+    {{ z.hipotez }} hipotez · {{ z.findingow }} znalezisk
+    {%- if z.model %} · model {{ z.model }}{% endif %}
+    {%- if z.rozliczenie %} · rozliczenie: {{ z.rozliczenie }}
+      {%- if z.rozliczenie != "klucz" %} (koszt to wycena, nie faktura){% endif %}
+    {%- endif %}
+  </p>
+
+  {# ── 1. Struktura kosztu ─────────────────────────────────────────── #}
+  <div class="kafle-gorne">
+    <div class="kafel-duzy kafel-duzy--akcent">
+      <small>Koszt runu</small>
+      <b>{{ "%.2f"|format(z.koszt_usd) }}</b>
+      <div class="pod">USD{% if z.usd_na_finding %} · {{ z.usd_na_finding }} USD za znalezisko{% endif %}</div>
+    </div>
+    <div class="kafel-duzy">
+      <small>Czas pętli agenta</small>
+      <b>{{ (z.sekund / 60)|round|int }}</b>
+      <div class="pod">minut{% if z.hipotez %} · {{ (z.sekund / z.hipotez)|round(1) }} s na hipotezę{% endif %}</div>
+    </div>
+    <div class="kafel-duzy">
+      <small>Wejście z cache</small>
+      <b>{% if z.udzial_cache is not none %}{{ z.udzial_cache }}%{% else %}—{% endif %}</b>
+      {# Ta liczba odpowiada na pytanie, którego nikt dotąd nie zadał: czy prompt
+         caching (D2) faktycznie działa. Niska przy 86 hipotezach na tym samym
+         inwentarzu znaczy, że płacimy 86× za to samo wejście. #}
+      <div class="pod">
+        {% if z.udzial_cache is none %}brak danych o tokenach
+        {%- elif z.udzial_cache < 50 %}nisko — sprawdź, czy caching działa
+        {%- else %}caching odciąża wejście{% endif %}
+      </div>
+    </div>
+    <div class="kafel-duzy">
+      <small>Hipotez obalonych przez agenta</small>
+      <b>{% if z.odsetek_obalonych is not none %}{{ (z.odsetek_obalonych * 100)|round|int }}%{% else %}—{% endif %}</b>
+      {# NIE jest to wada: detektory wzbudzają szeroko, agent ma weryfikować.
+         Liczba jest tu, bo obalona hipoteza też kosztuje. #}
+      <div class="pod">{{ z.hipotez_odrzuconych }} z {{ z.hipotez }} — tyle płacimy za „to nie problem"</div>
+    </div>
+  </div>
+
+  <details class="sekcja" open>
+    <summary>Na co idzie koszt <span class="opis">tokeny wejścia, wyjścia i cache</span></summary>
+    <div class="sekcja__ciało">
+      <div class="przewijane">
+        <table class="tabela-lista ewal-progi">
+          <tbody>
+            <tr><th>wejście świeże</th><td>{{ "{:,}".format(z.tokens_in).replace(",", " ") }}</td></tr>
+            <tr><th>wejście z cache (odczyt)</th><td>{{ "{:,}".format(z.tokens_cache_read).replace(",", " ") }}</td></tr>
+            <tr><th>zapis do cache</th><td>{{ "{:,}".format(z.tokens_cache_write).replace(",", " ") }}</td></tr>
+            <tr><th>wyjście</th><td>{{ "{:,}".format(z.tokens_out).replace(",", " ") }}</td></tr>
+            <tr><th>wejście razem</th><td><b>{{ "{:,}".format(z.wejscie_razem).replace(",", " ") }}</b></td></tr>
+          </tbody>
+        </table>
+      </div>
+      {% if not z.tokens_in and not z.tokens_cache_read %}
+        <p class="brak-miary">
+          <strong>Brak danych o tokenach.</strong> Ten run powstał przed migracją 010
+          albo przed wspólnym zapisem zużycia. Sumy NIE zgadujemy z kosztu — liczba
+          wyglądająca na pomiar i nie będąca nim jest gorsza od jej braku.
+        </p>
+      {% endif %}
+    </div>
+  </details>
+
+  {# ── 2. Koszt per klasa — najważniejsza tabela w tym dokumencie ──── #}
+  <details class="sekcja" open>
+    <summary>
+      Które klasy są drogie
+      <span class="opis">od tego zależy, gdzie warto eksperymentować</span>
+    </summary>
+    <div class="sekcja__ciało">
+      {% if z.ma_rozbicie %}
+        <div class="przewijane">
+          <table class="tabela-lista ewal-progi">
+            <thead>
+              <tr>
+                <th>Klasa</th><th>Hipotez</th><th>Znalezisk</th>
+                <th>Koszt</th><th>% rachunku</th>
+                <th>USD/hip.</th><th>s/hip.</th><th>Rola agenta</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for k in z.klasy %}
+                <tr>
+                  <th>{{ k.klasa_id }}</th>
+                  <td>{{ k.hipotez }}</td>
+                  <td>{{ k.findingow }}<span class="opis"> / {{ k.odrzuconych }} odrzuc.</span></td>
+                  <td>{{ "%.3f"|format(k.koszt_usd) }}</td>
+                  <td><b>{{ udzialy.get(k.klasa_id, 0) }}%</b></td>
+                  <td>{{ k.na_hipoteze_usd }}</td>
+                  <td>{{ k.na_hipoteze_sekund }}</td>
+                  <td>
+                    {%- if k.rola_agenta_brak %}
+                      {# `rola_agenta: brak` = detektor już orzekł, agent nie ustala
+                         nic. Pierwszy kandydat na tańszy model albo pominięcie. #}
+                      <b>brak</b> — kandydat na tańszy model
+                    {%- else %}wymaga rozstrzygnięcia{% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <p class="meta">
+          Kolumna „% rachunku" odsiewa pozorne oszczędności: klasa z kilkoma procentami
+          udziału nie zwróci kosztu runu kontrolnego (~7 USD).
+        </p>
+      {% else %}
+        <p class="brak-miary">
+          <strong>Brak rozbicia per hipoteza.</strong> Ten run nie ma wierszy
+          w <code>zuzycie_hipotez</code> — powstał przed migracją 010. Sumy
+          {{ "%.2f"|format(z.koszt_usd) }} USD <strong>nie dzielimy po równo</strong> na
+          {{ z.hipotez }} hipotez, bo to nie byłby pomiar.
+        </p>
+      {% endif %}
+    </div>
+  </details>
+
+  {# ── 3. Jakość — tylko ze złotego zestawu ───────────────────────────
+       Progi z `docs/etapy/04-test.md`. Dopóki złotego zestawu nie ma, ta sekcja
+       mówi „brak miary" — zero w tabeli wyglądałoby jak wynik pomiaru. #}
+  <details class="sekcja" open>
+    <summary>Jakość <span class="opis">wobec złotego zestawu (etap 4)</span></summary>
+    <div class="sekcja__ciało">
+      <p class="brak-miary">
+        <strong>Brak miary jakości — złoty zestaw nie jest jeszcze wypełniony.</strong>
+        Trafność i fałszywe trafienia liczą się WYŁĄCZNIE wobec ręcznego przejścia
+        konta przez człowieka (<code>evals/zloty_zestaw/</code>), nie wobec tego, co
+        agent wyprodukował. Ocena własnego wyniku to racjonalizacja, nie ewaluacja.
+      </p>
+      <div class="przewijane">
+        <table class="tabela-lista ewal-progi">
+          <thead><tr><th>Metryka</th><th>Próg v1</th><th>Wynik</th></tr></thead>
+          <tbody>
+            <tr><th>trafność</th><td>≥ {{ progi.trafnosc }}</td><td class="pusto">brak miary</td></tr>
+            <tr><th>fałszywe trafienia</th><td>≤ {{ progi.falszywki }}</td><td class="pusto">brak miary</td></tr>
+            <tr><th>powtarzalność (2 runy)</th><td>≥ {{ progi.powtarzalnosc }}</td><td class="pusto">brak miary</td></tr>
+            <tr>
+              <th>
+                odsetek odrzuconych na walidacji
+                <span class="opis">{{ z.odrzuconych_walidacja }} z {{ z.findingow + z.odrzuconych_walidacja }} zgłoszonych</span>
+              </th>
+              <td>≤ {{ progi.odrzucenia }}</td>
+              {# TA metryka nie potrzebuje złotego zestawu — walidacja jest
+                 deterministyczna, więc liczbę mamy z bazy.
+
+                 UWAGA na pomyłkę, którą popełniłem w pierwszej wersji: to NIE jest
+                 „ile hipotez agent obalił". To findingi, które agent ZGŁOSIŁ, a
+                 kontrakt D8 odrzucił — czyli miara tego, czy prompt trzyma kontrakt.
+                 Mianownikiem są zgłoszone findingi, nie hipotezy. #}
+              <td>
+                {%- if z.odsetek_walidacji is none %}<span class="pusto">brak danych</span>
+                {%- else %}
+                  <span {% if z.odsetek_walidacji > progi.odrzucenia %}class="ponizej-progu"{% endif %}>
+                    {{ z.odsetek_walidacji }}
+                  </span>
+                {%- endif %}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </details>
+
+  {# ── 4. Porównanie dwóch przebiegów ─────────────────────────────────
+       Sedno przy optymalizacji: koszt zawsze da się obniżyć, pytanie tylko, czy
+       nie za cenę jakości. Bez pary kolumn każdy eksperyment wygląda na sukces. #}
+  {% if poprzedni %}
+    <details class="sekcja" open>
+      <summary>
+        Porównanie z {{ poprzedni.run_id }}
+        <span class="opis">taniej to sukces TYLKO przy niepogorszonej jakości</span>
+      </summary>
+      <div class="sekcja__ciało">
+        <div class="przewijane">
+          <table class="tabela-lista ewal-progi">
+            <thead>
+              <tr><th></th><th>{{ poprzedni.run_id }}</th><th>{{ z.run_id }}</th><th>różnica</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th>koszt</th>
+                <td>{{ "%.2f"|format(poprzedni.koszt_usd) }} USD</td>
+                <td>{{ "%.2f"|format(z.koszt_usd) }} USD</td>
+                <td class="{{ 'lepiej' if z.koszt_usd < poprzedni.koszt_usd else 'gorzej' }}">
+                  {{ "%+.2f"|format(z.koszt_usd - poprzedni.koszt_usd) }} USD
+                </td>
+              </tr>
+              <tr>
+                <th>czas</th>
+                <td>{{ (poprzedni.sekund / 60)|round|int }} min</td>
+                <td>{{ (z.sekund / 60)|round|int }} min</td>
+                <td class="{{ 'lepiej' if z.sekund < poprzedni.sekund else 'gorzej' }}">
+                  {{ "%+d"|format(((z.sekund - poprzedni.sekund) / 60)|round|int) }} min
+                </td>
+              </tr>
+              <tr>
+                <th>znalezisk</th>
+                <td>{{ poprzedni.findingow }}</td>
+                <td>{{ z.findingow }}</td>
+                {# Mniej znalezisk przy niższym koszcie to NAJGROŹNIEJSZY wynik:
+                   wygląda na oszczędność, a jest utratą produktu. #}
+                <td class="{{ 'gorzej' if z.findingow < poprzedni.findingow else '' }}">
+                  {{ "%+d"|format(z.findingow - poprzedni.findingow) }}
+                  {%- if z.findingow < poprzedni.findingow %} — sprawdź, czy nie zgubiliśmy trafności{% endif %}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="meta">
+          Porównanie kosztu bez porównania jakości nie rozstrzyga niczego. Trafność
+          i fałszywki wymagają złotego zestawu — dopóki go nie ma, ta tabela mówi
+          tylko, czy było taniej, nie czy było dobrze.
+        </p>
+      </div>
+    </details>
+  {% endif %}
+
+  <footer>
+    Ewaluacja etapu 4. Wszystkie liczby z bazy — <code>runy</code>
+    i <code>zuzycie_hipotez</code>. Dokument wewnętrzny CXLABS.
+  </footer>
+</div>
+</main>

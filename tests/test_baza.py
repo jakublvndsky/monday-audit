@@ -85,9 +85,12 @@ def test_migracje_aplikuja_sie_od_zera(tmp_path: Path) -> None:
     009 dodała `runy.rozliczenie` — po przełączniku AGENT_ROZLICZENIE ta sama
     liczba w `koszt_usd` znaczy wydatek ALBO wycenę teoretyczną, więc bez tej
     kolumny sumowanie mieszałoby jedno z drugim.
+    010 dodała rozbicie zużycia: tokeny z CACHE (przy prompt cachingu tam siedzi
+    większość wejścia), czas pętli agenta i tabelę `zuzycie_hipotez`. Bez tego
+    wiadomo było tylko, że run kosztował 7,09 USD — nie z czego.
     """
     con = polacz(tmp_path / "nowa.db")
-    assert zastosuj_migracje(con) == [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    assert zastosuj_migracje(con) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     con.close()
 
 

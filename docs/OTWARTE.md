@@ -1068,6 +1068,31 @@ Do rozstrzygnięcia w **etapie 4 (ewaluacja)**, na korpusie 6 snapshotów. Nie
 zgadujemy teraz, bo optymalizacja bez pomiaru jakości może po cichu obniżyć
 trafność znalezisk — a to jedyna rzecz, której klient nie sprawdzi.
 
+### Wynik pomiaru (2026-08-11)
+
+**Z 62 minut tylko 40 sekund (1,1%) to wywołania do monday** — 45 wywołań, średnio
+894 ms, z `wywolania.latency_ms`. Reszta to czas modelu, więc czas i koszt siedzą
+w tym samym miejscu i optymalizacja collectora nie da nic.
+
+**Architektura jest już rozbita na sesje**: `zbadaj_hipoteze` to jedna hipoteza,
+jedna sesja, własny budżet — 86 hipotez to 86 sesji, nie jeden agent. Rozbijanie na
+„paru agentów" nie ma więc czego rozbić.
+
+**Router modelu po `rola_agenta` da ≤8%**: tylko 7 z 86 hipotez to klasy, w których
+agent nic nie ustala (`ZOMBIE_ACCOUNT`). Prawdziwe pieniądze są w `BOARD_GHOST` (32)
+i `DUPLICATE_STRUCTURE` (21), a te wymagają rozstrzygania.
+
+**Rozbicia per klasa nadal nie ma** — migracja 010 dodała na nie miejsce, ale run
+z 11 sierpnia jest sprzed niej. Szczegóły i trzy pytania do następnego runu:
+[`BASELINE_ETAP4.md`](BASELINE_ETAP4.md).
+
+### Nowa obserwacja: odrzucenia na walidacji przekraczają próg
+
+**0,25 wobec progu ≤0,15** (9 z 36 zgłoszonych findingów). To osobna sprawa od
+kosztu, ale **tańsza do naprawienia niż optymalizacja**: każdy odrzucony finding to
+praca modelu, za którą zapłaciliśmy i której nie ma w produkcie. Prompt nie trzyma
+kontraktu D8 w co czwartym przypadku.
+
 ## O28 — żaden audyt nie ma stawki licencji (2026-08-11)
 
 Drugi workspace dał **27 znalezisk i zero kwot**. To poprawne zachowanie —

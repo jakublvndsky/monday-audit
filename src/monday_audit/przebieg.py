@@ -456,3 +456,81 @@ async def _zbierz_i_zapisz(
             "zredagowanych_pii_w_tresci": len(zredagowane),
         },
     )
+
+
+# ── zużycie modelu: JEDNO miejsce zapisu dla obu ścieżek ─────────────────
+#
+# ZMIERZONA USTERKA (2026-08-11). Zapis zużycia był w dwóch miejscach i zapisywał
+# różne rzeczy: `cli_agent.py` dwie liczby z czterech, a `web/run.py` — ścieżka,
+# którą klient odpala audyt z panelu — **żadnej**. Skutek: pierwszy pełny audyt
+# z panelu (86 hipotez, 7,09 USD) ma `tokens_in = NULL`, więc nie dało się
+# powiedzieć, z czego ten koszt się składa.
+#
+# To ta sama rodzina co „dwa źródła prawdy o jednym adresie" przy linku resetu:
+# dwa miejsca robiące to samo rozjeżdżają się, i to cicho. Dlatego jedna funkcja,
+# wołana z obu ścieżek, i test pilnujący, że żadna nie zapisuje mniej.
+
+
+def zapisz_zuzycie(
+    con: sqlite3.Connection,
+    run_id: str,
+    zuzycie: dict[str, Any],
+    per_hipoteza: list[dict[str, Any]] | None = None,
+) -> None:
+    """Zapisuje zużycie modelu: sumy do `runy`, rozbicie do `zuzycie_hipotez`.
+
+    `per_hipoteza` jest opcjonalne, bo starsze wywołania go nie mają — ale gdy jest,
+    trafia do bazy w całości. Bez rozbicia nie da się powiedzieć, KTÓRE KLASY są
+    drogie, a od tego zależy każda decyzja o optymalizacji (etap 4).
+
+    Sumę `sekund_agenta` liczymy z wierszy per hipoteza, nie osobnym pomiarem —
+    dwa niezależne zegary dałyby dwie różne liczby i pytanie, której wierzyć.
+    """
+    sekund = sum(float(h.get("sekund") or 0.0) for h in (per_hipoteza or [])) or None
+    with con:
+        con.execute(
+            "UPDATE runy SET tokens_in = ?, tokens_out = ?, tokens_cache_read = ?, "
+            "tokens_cache_write = ?, koszt_usd = ?, sekund_agenta = ? WHERE run_id = ?",
+            (
+                int(zuzycie.get("tokens_in", 0)),
+                int(zuzycie.get("tokens_out", 0)),
+                int(zuzycie.get("tokens_cache_read", 0)),
+                int(zuzycie.get("tokens_cache_write", 0)),
+                # `or None`: zero znaczy „nie policzono", nie „darmowe". Panel
+                # odróżnia brak kwoty od kwoty zerowej.
+                float(zuzycie.get("koszt_usd") or 0.0) or None,
+                round(sekund, 3) if sekund else None,
+                run_id,
+            ),
+        )
+        teraz = datetime.now(tz=UTC).isoformat()
+        con.executemany(
+            "INSERT INTO zuzycie_hipotez (run_id, klasa_id, obiekt_id, tokens_in, "
+            "tokens_out, tokens_cache_read, tokens_cache_write, koszt_usd, sekund, "
+            "wywolan_narzedzi, byl_finding, zapisano) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    run_id,
+                    str(h["klasa_id"]),
+                    str(h["obiekt_id"]) if h.get("obiekt_id") else None,
+                    int(h.get("tokens_in", 0)),
+                    int(h.get("tokens_out", 0)),
+                    int(h.get("tokens_cache_read", 0)),
+                    int(h.get("tokens_cache_write", 0)),
+                    float(h.get("koszt_usd") or 0.0),
+                    float(h.get("sekund") or 0.0),
+                    int(h.get("wywolan_narzedzi", 0)),
+                    int(bool(h.get("byl_finding"))),
+                    teraz,
+                )
+                for h in (per_hipoteza or [])
+            ],
+        )
+    logger.info(
+        "zużycie runu %s: %d hipotez, %.4f USD, %s s",
+        run_id,
+        len(per_hipoteza or []),
+        float(zuzycie.get("koszt_usd") or 0.0),
+        f"{sekund:.0f}" if sekund else "?",
+    )

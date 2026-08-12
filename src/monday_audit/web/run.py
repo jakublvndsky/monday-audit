@@ -48,7 +48,7 @@ from monday_audit.kontrakt import (
     zapisz_odrzucone,
 )
 from monday_audit.narzedzia import Narzedzia
-from monday_audit.przebieg import wykonaj_run
+from monday_audit.przebieg import wykonaj_run, zapisz_zuzycie
 from monday_audit.rubryka import wczytaj_rubryke
 from monday_audit.zadania import (
     STAN_ANALIZUJE,
@@ -212,7 +212,7 @@ async def _audyt(
         con.execute(
             "UPDATE runy SET status = 'zakonczony', finished_at = ?, findingow = ?, "
             "odrzuconych_walidacja = ?, hipotez_zbadanych = ?, hipotez_odrzuconych = ?, "
-            "koszt_usd = ?, rozliczenie = ? WHERE run_id = ?",
+            "rozliczenie = ? WHERE run_id = ?",
             (
                 # ZMIERZONA USTERKA (2026-08-10): tu stało `raport_runu.run_id`,
                 # czyli IDENTYFIKATOR runu collectora wpisywany do `finished_at`.
@@ -225,11 +225,14 @@ async def _audyt(
                 len(wynik.odrzucone),
                 len(hipotezy),
                 len(wynik.hipotezy_odrzucone),
-                float(odpowiedz["zuzycie"].get("koszt_usd") or 0.0) or None,
                 ustawienia.agent_rozliczenie,
                 run_agenta,
             ),
         )
+        # TA SAMA funkcja co w `cli_agent`. Do 2026-08-11 ta ścieżka nie zapisywała
+        # zużycia WCALE — tylko `koszt_usd` — więc pierwszy pełny audyt z panelu
+        # ma `tokens_in = NULL` i nie wiadomo, z czego składa się jego 7,09 USD.
+        zapisz_zuzycie(con, run_agenta, odpowiedz["zuzycie"], odpowiedz.get("per_hipoteza"))
         con.commit()
 
         zapisz_stan(

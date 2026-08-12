@@ -39,7 +39,7 @@ from monday_audit.kontrakt import (
     zapisz_odrzucone,
 )
 from monday_audit.narzedzia import Narzedzia
-from monday_audit.przebieg import przerwij_run
+from monday_audit.przebieg import przerwij_run, zapisz_zuzycie
 from monday_audit.rubryka import Rubryka, wczytaj_rubryke
 
 logger = logging.getLogger(__name__)
@@ -258,18 +258,13 @@ async def _zbadaj_i_zapisz(
     con.execute(
         "UPDATE runy SET status = 'zakonczony', finished_at = ?, findingow = ?, "
         "odrzuconych_walidacja = ?, hipotez_zbadanych = ?, hipotez_odrzuconych = ?, "
-        "tokens_in = ?, tokens_out = ?, koszt_usd = ?, rozliczenie = ? WHERE run_id = ?",
+        "rozliczenie = ? WHERE run_id = ?",
         (
             datetime.now(tz=UTC).isoformat(),
             len(wynik.przyjete),
             len(wynik.odrzucone),
             len(hipotezy),
             len(wynik.hipotezy_odrzucone),
-            int(odpowiedz["zuzycie"].get("tokens_in", 0)),
-            int(odpowiedz["zuzycie"].get("tokens_out", 0)),
-            # Z `total_cost_usd` Agent SDK, nie z mnożenia tokenów przez własny
-            # cennik — ten rozjechałby się przy pierwszej zmianie cen.
-            float(odpowiedz["zuzycie"].get("koszt_usd") or 0.0) or None,
             # CZYM run był rozliczony. Bez tego `koszt_usd` znaczy dwie różne
             # rzeczy w tej samej kolumnie: wydatek albo wycenę teoretyczną
             # (migracja 009).
@@ -277,6 +272,10 @@ async def _zbadaj_i_zapisz(
             run_id,
         ),
     )
+    # Zużycie modelu WSPÓLNĄ funkcją — koszt i tokeny z `total_cost_usd` Agent SDK,
+    # nie z mnożenia przez własny cennik. Wcześniej ten `UPDATE` zapisywał dwie
+    # liczby z czterech, a ścieżka panelowa żadnej.
+    zapisz_zuzycie(con, run_id, odpowiedz["zuzycie"], odpowiedz.get("per_hipoteza"))
     con.commit()
 
     cel = zapisz_do_pliku(odpowiedz, wynik)

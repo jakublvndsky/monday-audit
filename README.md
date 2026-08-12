@@ -97,6 +97,24 @@ da się go odzyskać, tylko wydać nowe. Konto zespołowe wymaga adresu w domeni
 zakładało drugie konto, a stare hasło nadal wpuszczało — więc „wydałem nowe hasło"
 nie odbierało starego dostępu. Do wymiany hasła służy `--zresetuj-haslo`.
 
+### Ewaluacja (etap 4)
+
+```bash
+# Rozbicie kosztu jednego runu jako HTML
+uv run python -m monday_audit.cli_ewaluacja --run acme-20260811T093330Z-agent
+
+# Porównanie eksperymentu z baseline — obok siebie, z różnicą
+uv run python -m monday_audit.cli_ewaluacja --run <nowy> --wobec <baseline>
+```
+
+Raport pokazuje strukturę kosztu (wejście, wyjście, cache), koszt per klasa
+znalezisk z udziałem w rachunku, i jakość wobec progów z `docs/etapy/04-test.md`.
+Punkt odniesienia: [`docs/BASELINE_ETAP4.md`](docs/BASELINE_ETAP4.md).
+
+Sekcja jakości mówi **„brak miary"**, dopóki złoty zestaw
+(`evals/zloty_zestaw/`) nie jest wypełniony ręcznie — trafność liczona wobec
+wyniku agenta byłaby racjonalizacją, nie ewaluacją.
+
 ### Rozliczanie agenta
 
 ```bash

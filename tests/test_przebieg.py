@@ -27,6 +27,7 @@ from monday_audit.przebieg import (
     przerwij_run,
     wykonaj_run,
     zapisz_snapshot,
+    zapisz_zuzycie,
 )
 
 TOKEN = "tajny-token-klienta"
@@ -373,3 +374,152 @@ async def test_domkniety_run_nie_da_sie_przerwac(con: sqlite3.Connection) -> Non
 
     wiersz = con.execute("SELECT status FROM runy WHERE run_id = ?", (raport.run_id,)).fetchone()
     assert wiersz["status"] == "zakonczony"
+
+
+# ── zużycie modelu: jedno miejsce zapisu ─────────────────────────────────
+#
+# ZMIERZONA USTERKA (2026-08-11). Zapis zużycia stał w dwóch miejscach i zapisywał
+# różne rzeczy: `cli_agent` dwie liczby z czterech, `web/run` — ścieżka panelowa —
+# ŻADNEJ. Pierwszy pełny audyt z panelu (86 hipotez, 7,09 USD) ma więc
+# `tokens_in = NULL` i nie da się powiedzieć, z czego ten koszt się składa.
+
+
+def _zuzycie() -> dict[str, object]:
+    return {
+        "tokens_in": 1000,
+        "tokens_out": 200,
+        "tokens_cache_read": 50_000,
+        "tokens_cache_write": 3_000,
+        "koszt_usd": 1.234567,
+    }
+
+
+def _per_hipoteza() -> list[dict[str, object]]:
+    return [
+        {
+            "klasa_id": "ZOMBIE_ACCOUNT",
+            "obiekt_id": "abc123",
+            "tokens_in": 600,
+            "tokens_out": 120,
+            "tokens_cache_read": 30_000,
+            "tokens_cache_write": 3_000,
+            "koszt_usd": 0.8,
+            "sekund": 41.5,
+            "wywolan_narzedzi": 0,
+            "byl_finding": True,
+        },
+        {
+            "klasa_id": "BOARD_GHOST",
+            "obiekt_id": "5097387646",
+            "tokens_in": 400,
+            "tokens_out": 80,
+            "tokens_cache_read": 20_000,
+            "tokens_cache_write": 0,
+            "koszt_usd": 0.434567,
+            "sekund": 22.25,
+            "wywolan_narzedzi": 3,
+            "byl_finding": False,
+        },
+    ]
+
+
+def _run_do_testu(con: sqlite3.Connection, run_id: str = "r-zuzycie") -> str:
+    con.execute(
+        "INSERT INTO snapshots (id, client_id, run_at, collector_ver, payload) "
+        "VALUES (99, 'cxlabs', '2026-08-11T00:00:00+00:00', '0.1.0', '{}')"
+    )
+    con.execute(
+        "INSERT INTO runy (run_id, client_id, snapshot_id, status, started_at) "
+        "VALUES (?, 'cxlabs', 99, 'w_toku', '2026-08-11T00:00:00+00:00')",
+        (run_id,),
+    )
+    con.commit()
+    return run_id
+
+
+def test_zuzycie_zapisuje_wszystkie_cztery_liczby(tmp_path: Path) -> None:
+    """Cztery liczby, nie dwie. Bez tokenów CACHE nie wiadomo, czy caching działa.
+
+    Przy prompt cachingu (D2) większość wejścia idzie przez cache, więc sam
+    `tokens_in` pokazywałby wartość bliską zeru i sugerował, że run był tani.
+    """
+    con = polacz(tmp_path / "z.db")
+    zastosuj_migracje(con)
+    run_id = _run_do_testu(con)
+
+    zapisz_zuzycie(con, run_id, _zuzycie(), _per_hipoteza())
+
+    w = con.execute(
+        "SELECT tokens_in, tokens_out, tokens_cache_read, tokens_cache_write, "
+        "koszt_usd, sekund_agenta FROM runy WHERE run_id = ?",
+        (run_id,),
+    ).fetchone()
+    assert w["tokens_in"] == 1000
+    assert w["tokens_out"] == 200
+    assert w["tokens_cache_read"] == 50_000, "brak tokenów cache_read"
+    assert w["tokens_cache_write"] == 3_000, "brak tokenów cache_write"
+    assert w["koszt_usd"] == pytest.approx(1.234567)
+    # Czas liczony Z WIERSZY per hipoteza, nie osobnym zegarem — dwa niezależne
+    # pomiary dałyby dwie liczby i pytanie, której wierzyć.
+    assert w["sekund_agenta"] == pytest.approx(63.75)
+    con.close()
+
+
+def test_rozbicie_per_hipoteza_zgadza_sie_z_suma(tmp_path: Path) -> None:
+    """Bez tej zgodności rozbicie jest fikcją, a router modelu stanie na złej liczbie."""
+    con = polacz(tmp_path / "z.db")
+    zastosuj_migracje(con)
+    run_id = _run_do_testu(con)
+
+    zapisz_zuzycie(con, run_id, _zuzycie(), _per_hipoteza())
+
+    w = con.execute(
+        "SELECT COUNT(*) n, SUM(koszt_usd) koszt, SUM(sekund) sek FROM zuzycie_hipotez "
+        "WHERE run_id = ?",
+        (run_id,),
+    ).fetchone()
+    assert w["n"] == 2
+    assert w["koszt"] == pytest.approx(1.234567), "suma per hipoteza ≠ koszt runu"
+    assert w["sek"] == pytest.approx(63.75)
+    con.close()
+
+
+def test_hipoteza_bez_findingu_tez_jest_zapisana(tmp_path: Path) -> None:
+    """Odrzucona hipoteza KOSZTUJE i to jest istotna liczba.
+
+    Jeśli większość hipotez kończy się odrzuceniem, płacimy głównie za
+    dowiadywanie się, że czegoś NIE MA — a to zmienia, co warto optymalizować.
+    """
+    con = polacz(tmp_path / "z.db")
+    zastosuj_migracje(con)
+    run_id = _run_do_testu(con)
+
+    zapisz_zuzycie(con, run_id, _zuzycie(), _per_hipoteza())
+
+    wiersze = {
+        w["klasa_id"]: w["byl_finding"]
+        for w in con.execute(
+            "SELECT klasa_id, byl_finding FROM zuzycie_hipotez WHERE run_id = ?", (run_id,)
+        )
+    }
+    assert wiersze == {"ZOMBIE_ACCOUNT": 1, "BOARD_GHOST": 0}
+    con.close()
+
+
+def test_obie_sciezki_zapisuja_tyle_samo() -> None:
+    """`cli_agent` i `web/run` MUSZĄ wołać tę samą funkcję.
+
+    To jest ta usterka: dwa miejsca robiące to samo rozjechały się i ścieżka
+    panelowa przestała zapisywać zużycie. Test czyta kod, bo różnicy nie widać
+    w żadnym pojedynczym wywołaniu — widać ją tylko w porównaniu obu ścieżek.
+    """
+    korzen = Path(__file__).resolve().parent.parent / "src" / "monday_audit"
+    cli = (korzen / "cli_agent.py").read_text(encoding="utf-8")
+    web = (korzen / "web" / "run.py").read_text(encoding="utf-8")
+
+    for nazwa, tresc in (("cli_agent", cli), ("web/run", web)):
+        assert "zapisz_zuzycie(" in tresc, f"{nazwa} nie zapisuje zużycia wspólną funkcją"
+        # Żadna ścieżka nie może zapisywać tokenów własnym UPDATE-em — wtedy znowu
+        # rozjechałyby się przy pierwszej zmianie.
+        assert "tokens_in = ?" not in tresc, f"{nazwa} ma własny zapis tokenów"
+        assert "koszt_usd = ?" not in tresc, f"{nazwa} ma własny zapis kosztu"
