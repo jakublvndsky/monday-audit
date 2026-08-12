@@ -103,6 +103,50 @@ def _liczba(wartosc: Any) -> float | None:
     return float(wartosc)
 
 
+# Pola opisujące ROZKŁAD aktywności w czasie. Puste są wtedy i tylko wtedy, gdy
+# aktywności nie było wcale — a wtedy nie ma czego rozkładać.
+#
+# Lista jest ZAMKNIĘTA celowo. „Dowolne puste pole, gdy jest `wpisow: 0`" byłoby
+# furtką: agent mógłby pominąć `items_count` albo `nazwa` i schować się za ciszą.
+POLA_ROZKLADU = frozenset({"kubelki_dni", "po_klasie", "najnowszy_at"})
+
+
+def _cisza_jest_dowodem(pole: str, dowod: dict[str, Any]) -> bool:
+    """Czy puste pole rozkładu jest usprawiedliwione zerową aktywnością.
+
+    ## ZMIERZONA USTERKA, którą to naprawia
+
+    Pierwszy pełny audyt odrzucił na walidacji 9 z 36 findingów — 0,25 wobec progu
+    ≤0,15 z etapu 4. **Wszystkie dziewięć to `BOARD_GHOST` z pustymi
+    `kubelki_dni`, `po_klasie`, `najnowszy_at`.**
+
+    Przyczyna nie była w prompcie: 84 z 100 tablic snapshotu ma `wpisow: 0`.
+    Collector je zbadał (`urwane: False`), tylko w oknie 90 dni **nie było na nich
+    żadnej aktywności**. Rubryka wymagała rozkładu, którego fizycznie nie ma —
+    a agent słusznie go nie wymyślił. Płaciliśmy więc za 9 sesji, których wynik
+    trafiał do kosza (~0,7 USD na run).
+
+    ## Dlaczego to nie osłabia granicy „finding bez dowodu nie istnieje"
+
+    **`wpisow: 0` jest dowodem MOCNIEJSZYM niż rozkład.** „Zero wpisów w 90 dni"
+    mówi o martwej tablicy więcej niż jakikolwiek histogram — to absolutna cisza,
+    nie wygasanie.
+
+    Dwa warunki trzymają wyjątek wąsko:
+
+    1. pole musi być na zamkniętej liście `POLA_ROZKLADU`;
+    2. `wpisow` musi **być w dowodzie i wynosić 0**. Brak pola NIE jest zerem —
+       agent, który je pominie, dostaje odrzucenie jak dotąd. Inaczej „nie wiem"
+       udawałoby „nie ma".
+    """
+    if pole not in POLA_ROZKLADU:
+        return False
+    wpisow = dowod.get("wpisow")
+    # `is not None` przed porównaniem: `dowod.get` zwraca `None` dla braku pola,
+    # a `None == 0` jest fałszem — ale wolę, żeby warunek był czytelny wprost.
+    return wpisow is not None and _liczba(wpisow) == 0
+
+
 def _sprawdz_finding(
     surowy: Any, rubryka: Rubryka, stawki: dict[str, Any] | None = None
 ) -> tuple[str, str] | None:
@@ -143,8 +187,11 @@ def _sprawdz_finding(
             REGULA_DOWOD_NIEPELNY,
             f"klasa {klasa_id} wymaga w dowodzie: {', '.join(niepokryte)}",
         )
-    # Klucz obecny, ale puste znaczy tyle samo co brak.
-    puste = sorted(k for k in dowod if dowod[k] in (None, "", [], {}))
+    # Klucz obecny, ale puste znaczy tyle samo co brak — Z JEDNYM wyjątkiem
+    # opisanym w `_cisza_jest_dowodem`.
+    puste = sorted(
+        k for k in dowod if dowod[k] in (None, "", [], {}) and not _cisza_jest_dowodem(k, dowod)
+    )
     if puste:
         return REGULA_DOWOD_NIEPELNY, f"pola dowodu są puste: {', '.join(puste)}"
 

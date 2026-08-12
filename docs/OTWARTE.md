@@ -1133,3 +1133,19 @@ Do zamknięcia przed wystawieniem panelu: `SMTP_HOST`, `SMTP_USER`, `SMTP_HASLO`
 Ryzyko, dopóki to nie jest zrobione: **link resetu widzi każdy, kto ma dostęp do
 logów serwera.** Lokalnie to nikt poza właścicielem maszyny; po wdrożeniu na
 Mikrusa (etap 5) — każdy z dostępem do systemd journal.
+
+## O30 — konto platformy Anthropic bez środków (2026-08-12)
+
+Próbka ewaluacyjna (8 hipotez) padła na `Credit balance is too low`. **Etap 4 jest
+zablokowany do doładowania konta** — bez wywołań modelu nie ma czego mierzyć.
+
+Do rozstrzygnięcia niezależnie od doładowania: **czy `AGENT_ROZLICZENIE=subskrypcja`
+jest właściwym trybem dla pomiarów ewaluacyjnych.** Runy kontrolne w etapie 4 nie są
+pracą dla klienta, więc obciążanie karty za nie jest wątpliwe — ale wtedy `koszt_usd`
+przestaje być fakturą i porównania kosztów tracą sens (D17). Napięcie realne, nie
+rozstrzygnięte.
+
+Wnioskiem praktycznym z tej próby jest coś innego: **brak środków objawiał się jako
+run „zakończony" z zerem znalezisk.** Naprawione (status `przerwany`), ale warto
+pamiętać, że każda awaria po stronie modelu wygląda w danych jak zdrowe konto,
+dopóki ktoś tego nie odróżni.

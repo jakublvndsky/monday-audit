@@ -67,6 +67,27 @@ i to jest poprawne zachowanie.
 3. **Ile płacimy za odrzucenia?** 30 hipotez obalonych plus 9 findingów odrzuconych
    na walidacji — to praca, za którą zapłaciliśmy i której nie widać w produkcie.
 
+## Próba pomiaru 2026-08-12 — zatrzymana na braku środków
+
+Uruchomiłem próbkę 8 hipotez `BOARD_GHOST` na snapshocie 6 (`proba-ghost-8`).
+**Wszystkie 8 padło na `Credit balance is too low`** — konto platformy Anthropic ma
+wyczerpane środki. Nic nie zostało policzone i nic nie zapłacone.
+
+**Trzy pytania z tego dokumentu pozostają bez odpowiedzi.** Do ich zamknięcia
+potrzebne jest doładowanie konta; sama próbka to ~1,2 USD.
+
+### Co ten nieudany run jednak pokazał
+
+**Instrumentacja z migracji 010 działa.** `zuzycie_hipotez` dostało 8 wierszy
+z czasem per hipoteza (4,4 s, 2,4 s, 1,7 s…), zapisanych wspólną funkcją
+`przebieg.zapisz_zuzycie`. Bez niej nie dałoby się nawet stwierdzić, że run doszedł
+do modelu.
+
+**Znalazł usterkę, której nie szukałem: run bez ani jednej zbadanej hipotezy
+zapisywał się jako `zakonczony` z zerem findingów** — czyli **wyglądał jak audyt
+konta bez problemów**. To najgroźniejsza możliwa pomyłka w tym narzędziu: cisza
+udająca czyste konto. Naprawione — taki run dostaje status `przerwany`.
+
 ## Jak odtworzyć pomiar
 
 ```bash

@@ -255,11 +255,29 @@ async def _zbadaj_i_zapisz(
     # walidację i inna metryka. Renderer pokazuje je w wersji wewnętrznej.
     zapisz_hipotezy_odrzucone(con, wynik.hipotezy_odrzucone, run_id=run_id)
 
+    # Run, w którym KAŻDA hipoteza padła na błąd API, nie jest „zakończony" —
+    # nie zbadał niczego. ZMIERZONE 2026-08-12: przy wyczerpanym koncie platformy
+    # („Credit balance is too low") wszystkie 8 hipotez padło, a run zapisał się
+    # jako `zakonczony` z zerem findingów. Wyglądał wtedy jak audyt konta bez
+    # problemów — a to najgorsza możliwa pomyłka w tym narzędziu.
+    # Klucz nazywa się `hipotezy_nierozstrzygniete`, nie `bledy` — sprawdziłem
+    # w wyniku prawdziwego runu, bo pierwsza wersja tej poprawki użyła złej nazwy
+    # i cicho nie robiłaby nic.
+    bledow = len(odpowiedz.get("hipotezy_nierozstrzygniete") or ())
+    # `przerwany`, nie `blad`: schemat dopuszcza tylko `w_toku|zakonczony|przerwany`
+    # (CHECK w migracji 001) i `przerwany` znaczy dokładnie to, co się stało —
+    # run się nie dokończył. Nowy status wymagałby migracji dla nazwy, która nie
+    # wnosi nic nad istniejącą.
+    status = "przerwany" if bledow and bledow == len(hipotezy) else "zakonczony"
     con.execute(
-        "UPDATE runy SET status = 'zakonczony', finished_at = ?, findingow = ?, "
+        # Status PARAMETREM, nie w f-stringu: wartość jest z zamkniętej listy, ale
+        # sklejanie SQL-a napisem to wzorzec, który przy następnej zmianie przyjmie
+        # dane z zewnątrz. Ruff słusznie to blokuje (S608).
+        "UPDATE runy SET status = ?, finished_at = ?, findingow = ?, "
         "odrzuconych_walidacja = ?, hipotez_zbadanych = ?, hipotez_odrzuconych = ?, "
         "rozliczenie = ? WHERE run_id = ?",
         (
+            status,
             datetime.now(tz=UTC).isoformat(),
             len(wynik.przyjete),
             len(wynik.odrzucone),

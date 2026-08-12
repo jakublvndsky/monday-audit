@@ -504,3 +504,104 @@ def test_agent_bez_powodu_odrzucenia_nie_wywala_zapisu(con: sqlite3.Connection) 
 
     wiersz = con.execute("SELECT powod FROM hipotezy_odrzucone").fetchone()
     assert "nie podał" in wiersz["powod"]
+
+
+# ── cisza jako dowód ─────────────────────────────────────────────────────
+#
+# ZMIERZONA USTERKA (2026-08-11). Pierwszy pełny audyt odrzucił na walidacji 9 z 36
+# findingów — 0,25 wobec progu ≤0,15 z etapu 4. Wszystkie dziewięć to `BOARD_GHOST`
+# z pustymi `kubelki_dni`, `po_klasie`, `najnowszy_at`.
+#
+# Przyczyna nie była w prompcie: 84 z 100 tablic snapshotu ma `wpisow: 0` — collector
+# je zbadał, tylko w oknie 90 dni nie było na nich żadnej aktywności. Rubryka wymagała
+# rozkładu, którego fizycznie nie ma, a agent słusznie go nie wymyślił.
+
+
+def _ghost(**nadpisz: Any) -> dict[str, Any]:
+    """`BOARD_GHOST` z pustymi polami rozkładu — kształt z prawdziwego runu."""
+    f = finding("BOARD_GHOST")
+    f["dowod"] = {
+        **f["dowod"],
+        "kubelki_dni": {},
+        "po_klasie": {},
+        "najnowszy_at": None,
+        **nadpisz,
+    }
+    return f
+
+
+def test_cisza_z_jawnym_zerem_przechodzi() -> None:
+    """`wpisow: 0` jest dowodem MOCNIEJSZYM niż rozkład — znaczy absolutną ciszę.
+
+    To jest ta poprawka: bez niej informacja o 84 martwych tablicach przepada,
+    a my płacimy za sesje, których wynik idzie do kosza.
+    """
+    wynik = waliduj(odpowiedz([_ghost(wpisow=0)]), RUBRYKA)
+
+    assert wynik.odrzucone == [], f"odrzucone: {[o.powod for o in wynik.odrzucone]}"
+    assert len(wynik.przyjete) == 1
+
+
+def test_brak_pola_wpisow_nie_jest_zerem() -> None:
+    """„Nie wiem" nie może udawać „nie ma".
+
+    Bez tego warunku wyjątek byłby furtką: agent pomijający `wpisow` przepuszczałby
+    finding bez dowodu. Zmierzone na prawdziwych danych: 8 z 9 odrzuconych findingów
+    NIE MIAŁO tego pola, więc dalej odpadają — i to jest poprawne.
+    """
+    wynik = waliduj(odpowiedz([_ghost()]), RUBRYKA)
+
+    assert wynik.przyjete == []
+    assert wynik.odrzucone[0].regula == REGULA_DOWOD_NIEPELNY
+
+
+def test_wpisow_wieksze_od_zera_nie_usprawiedliwia_pustek() -> None:
+    """Tablica Z aktywnością MUSI mieć rozkład — inaczej agent go nie sprawdził."""
+    wynik = waliduj(odpowiedz([_ghost(wpisow=42)]), RUBRYKA)
+
+    assert wynik.przyjete == []
+    assert wynik.odrzucone[0].regula == REGULA_DOWOD_NIEPELNY
+
+
+def test_cisza_nie_usprawiedliwia_innych_pustych_pol() -> None:
+    """Lista pól rozkładu jest ZAMKNIĘTA.
+
+    „Dowolne puste pole, gdy `wpisow: 0`" pozwoliłoby pominąć `nazwa` albo
+    `items_count` i schować się za ciszą. Wyjątek dotyczy wyłącznie pól, które
+    OPISUJĄ ROZKŁAD w czasie.
+    """
+    f = _ghost(wpisow=0)
+    f["dowod"]["items_count"] = None  # nie jest polem rozkładu
+
+    wynik = waliduj(odpowiedz([f]), RUBRYKA)
+
+    assert wynik.przyjete == []
+    assert "items_count" in wynik.odrzucone[0].powod
+
+
+def test_run_z_wszystkimi_hipotezami_nierozstrzygnietymi_to_blad() -> None:
+    """Status musi mówić prawdę: run bez ani jednej zbadanej hipotezy to BŁĄD.
+
+    ZMIERZONE 2026-08-12. Przy wyczerpanym koncie platformy („Credit balance is too
+    low") wszystkie 8 hipotez padło na błąd API, a run zapisał się jako
+    `zakonczony` z zerem findingów — czyli **wyglądał jak audyt konta bez
+    problemów**. To najgorsza możliwa pomyłka w tym narzędziu: cisza udająca
+    czyste konto.
+
+    Status `przerwany`, nie nowy `blad`: schemat dopuszcza trzy wartości
+    (`w_toku|zakonczony|przerwany`), a `przerwany` znaczy dokładnie to, co się
+    stało. Nowa nazwa wymagałaby migracji i nie wnosiłaby nic.
+
+    Test sprawdza samą regułę, bo status wylicza `cli_agent` przed zapisem.
+    """
+    # Reguła: `blad`, gdy liczba nierozstrzygniętych równa się liczbie hipotez.
+    for nierozstrzygnietych, hipotez, oczekiwany in (
+        (8, 8, "przerwany"),  # nic nie zbadane — brak środków, zły klucz, awaria
+        (3, 8, "zakonczony"),  # część padła, reszta dała wynik
+        (0, 8, "zakonczony"),  # wszystko zbadane
+        (0, 0, "zakonczony"),  # brak hipotez to nie błąd agenta
+    ):
+        status = (
+            "przerwany" if nierozstrzygnietych and nierozstrzygnietych == hipotez else "zakonczony"
+        )
+        assert status == oczekiwany, f"{nierozstrzygnietych}/{hipotez} → {status}"

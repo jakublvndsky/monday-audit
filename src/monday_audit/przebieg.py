@@ -242,6 +242,42 @@ def _uwagi_o_zakresie(zakres: Zakres) -> tuple[str, ...]:
     )
 
 
+def _uwaga_o_probce_logow(
+    tablice: Any,
+    logi: Any,
+    top_logow: int | None,
+    z_ogona: int | None,
+) -> tuple[str, ...]:
+    """Mówi wprost, ile tablic objęła próbka logów — gdy nie objęła wszystkich.
+
+    ## Po co
+
+    Activity logs są próbkowane (`top_logow` + `z_ogona`), bo pobranie logu każdej
+    tablicy to jedno wywołanie na tablicę. Przy koncie z 500 tablicami domyślna
+    próbka pokrywa 100 z nich, a **odbiorca nie ma jak się o tym dowiedzieć** —
+    raport mówi o „tablicach martwych", nie o „tablicach martwych spośród
+    zbadanych".
+
+    Cicha próbka jest gorsza od wąskiego audytu, bo wygląda na pełny. To ta sama
+    zasada co przy sekcji „czego ten audyt nie widzi": brak informacji o granicy
+    zakresu podważa wszystko inne w dokumencie.
+
+    Milczymy, gdy próbka objęła wszystko — zastrzeżenie o niczym rozmywa listę
+    zastrzeżeń, które faktycznie coś znaczą.
+    """
+    if top_logow is None and z_ogona is None:
+        return ()  # `--wszystkie-logi`: nie ma czego zastrzegać
+    razem = int(tablice.podsumowanie().get("razem") or 0)
+    zbadanych = int(logi.podsumowanie().get("tablic_zbadanych") or 0)
+    if not razem or zbadanych >= razem:
+        return ()
+    return (
+        f"activity logs pobrano dla {zbadanych} z {razem} tablic (próbka: "
+        f"{top_logow or 0} największych + {z_ogona or 0} z ogona) — o pozostałych "
+        f"{razem - zbadanych} nie orzekamy; pełne pokrycie daje `--wszystkie-logi`",
+    )
+
+
 async def wykonaj_run(
     *,
     token: str,
@@ -370,7 +406,7 @@ async def _zbierz_i_zapisz(
         wywolan = klient.liczba_wywolan
         complexity = klient.complexity_suma
 
-    uwagi = _uwagi_o_zakresie(zakres)
+    uwagi = _uwagi_o_zakresie(zakres) + _uwaga_o_probce_logow(tablice, logi, top_logow, z_ogona)
     payload: dict[str, Any] = {
         "meta": {
             "client_id": client_id,

@@ -53,6 +53,17 @@ tym, co masz — z `pewnosc: niska` jeśli brakuje danych. Nie zgaduj.
    z inwentarza. Finding bez dowodu jest odrzucany przez walidację
    i twoja praca idzie na marne.
 
+   **Gdy pole dowodu jest puste, bo danych NIE MA — powiedz to liczbą.**
+   Tablica bez żadnej aktywności w oknie ma pusty rozkład (`kubelki_dni`,
+   `po_klasie`, `najnowszy_at`), bo nie ma czego rozkładać. W takim wypadku
+   podaj w dowodzie `"wpisow": 0` — to jest dowód MOCNIEJSZY niż rozkład,
+   bo znaczy absolutną ciszę, nie wygasanie. Bez tego pola walidacja odrzuci
+   finding jako niepełny i informacja o martwej tablicy przepadnie.
+
+   Zmierzone: w audycie z 2026-08-11 dziewięć findingów `BOARD_GHOST` zostało
+   odrzuconych właśnie z tego powodu — dane były poprawne, brakowało jednej
+   liczby mówiącej „zero".
+
 2. NIE LICZ. Liczby pochodzą z inwentarza. Jeśli potrzebujesz obliczenia,
    którego tam nie ma — nie rób go, odnotuj brak.
 
