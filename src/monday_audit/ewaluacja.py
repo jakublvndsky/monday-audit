@@ -164,6 +164,22 @@ class Zuzycie:
         return round(self.hipotez_odrzuconych / self.hipotez, 3)
 
     @property
+    def out_na_hipoteze(self) -> int | None:
+        """Tokeny WYJŚCIA na hipotezę — miara odporna na zmianę cennika.
+
+        Kluczowa przy porównywaniu eksperymentów: koszt w USD zmienia się razem
+        z cenami dostawcy, więc różnica w dolarach między dwoma runami mierzy
+        czasem zmianę cennika, a nie skutek optymalizacji. Tokeny nie kłamią.
+
+        Zmierzone 2026-08-12: wyjście koreluje z kosztem lepiej niż cokolwiek
+        innego (budżet narzędzi ma korelację ODWROTNĄ), więc to jest liczba,
+        którą trzeba obniżyć.
+        """
+        if not self.hipotez:
+            return None
+        return self.tokens_out // self.hipotez
+
+    @property
     def usd_na_finding(self) -> float | None:
         """Ile kosztuje jedno znalezisko. Miara, którą rozumie osoba nietechniczna."""
         if not self.findingow:

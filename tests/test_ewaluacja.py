@@ -175,9 +175,13 @@ def test_raport_mowi_brak_miary_bez_zlotego_zestawu(con: sqlite3.Connection) -> 
 
 
 def test_porownanie_oznacza_utrate_znalezisk(con: sqlite3.Connection) -> None:
-    """Taniej przy MNIEJSZEJ liczbie znalezisk to najgroźniejszy wynik.
+    """Taniej przy MNIEJSZYM udziale znalezisk to najgroźniejszy wynik.
 
     Wygląda na oszczędność, a jest utratą produktu — raport musi to nazwać.
+
+    Od 2026-08-12 porównujemy UDZIAŁ (findingi/hipotezy), nie liczbę bezwzględną.
+    Zobaczone na zrzucie: porównanie 8 hipotez z 86 pokazywało „−20 znalezisk" jako
+    regresję, choć to po prostu inny zakres. Suma nie skaluje się z liczbą hipotez.
     """
     _zapisz(con)
     z = zbierz_zuzycie(con, RUN, RUBRYKA)
@@ -193,9 +197,38 @@ def test_porownanie_oznacza_utrate_znalezisk(con: sqlite3.Connection) -> None:
 
     html = wyrenderuj(z, poprzedni=baseline)
 
-    # Nowy run jest tańszy (3,0 vs 7,0), ale ma 5 znalezisk zamiast 9.
-    assert "sprawdź, czy nie zgubiliśmy trafności" in html
+    # Oba runy mają 10 hipotez, więc zakres jest ten sam: 5/10 wobec 9/10 to
+    # realna regresja udziału, nie różnica zakresu.
+    assert "sprawdź trafność" in html
     assert "nie rozstrzyga niczego" in html
+    # Przy TYM SAMYM zakresie nie ostrzegamy o nieporównywalności sum.
+    assert "Runy mają różną liczbę hipotez" not in html
+
+
+def test_porownanie_ostrzega_przy_roznym_zakresie(con: sqlite3.Connection) -> None:
+    """Sumy dwóch runów o różnej liczbie hipotez NIE SĄ porównywalne.
+
+    ZOBACZONE NA ZRZUCIE, nie w liczbach: raport pokazywał „−6,27 USD" i „−20
+    znalezisk" przy porównaniu 8 hipotez z 86, jakby to był wynik eksperymentu.
+    To był inny zakres — a taka tabela sugeruje sukces tam, gdzie go nie ma.
+    """
+    _zapisz(con)
+    z = zbierz_zuzycie(con, RUN, RUBRYKA)  # 10 hipotez w fixture
+
+    con.execute(
+        "INSERT INTO runy (run_id, client_id, snapshot_id, status, started_at, "
+        "hipotez_zbadanych, hipotez_odrzuconych, findingow, odrzuconych_walidacja, "
+        "koszt_usd, sekund_agenta) VALUES ('r-duzy', 'cxlabs', 1, 'zakonczony', "
+        "'2026-08-10T00:00:00+00:00', 86, 30, 27, 9, 7.09, 3720)"
+    )
+    con.commit()
+
+    html = wyrenderuj(z, poprzedni=zbierz_zuzycie(con, "r-duzy", RUBRYKA))
+
+    assert "Runy mają różną liczbę hipotez" in html
+    assert "nieporównywalna przy różnym zakresie" in html
+    # Miara, która się skaluje, MUSI być w tabeli.
+    assert "koszt / hipotezę" in html
 
 
 def test_raport_nie_wypuszcza_pii(con: sqlite3.Connection) -> None:

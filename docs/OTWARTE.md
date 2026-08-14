@@ -1082,9 +1082,19 @@ jedna sesja, własny budżet — 86 hipotez to 86 sesji, nie jeden agent. Rozbij
 agent nic nie ustala (`ZOMBIE_ACCOUNT`). Prawdziwe pieniądze są w `BOARD_GHOST` (32)
 i `DUPLICATE_STRUCTURE` (21), a te wymagają rozstrzygania.
 
-**Rozbicia per klasa nadal nie ma** — migracja 010 dodała na nie miejsce, ale run
-z 11 sierpnia jest sprzed niej. Szczegóły i trzy pytania do następnego runu:
-[`BASELINE_ETAP4.md`](BASELINE_ETAP4.md).
+**Rozbicie per klasa zmierzone 2026-08-12** (run `ewal-4klasy`, 8 hipotez, 0,82 USD)
+i wynik jest odwrotny do oczekiwanego:
+
+- **caching działa**: 79,2% wejścia z cache (wyliczenie z rachunku dawało ~90% —
+  kierunek dobry, precyzja nie);
+- **budżet wywołań NIE przewiduje kosztu**: najdroższa klasa ma budżet 4, najtańsza 0;
+- **koszt idzie za długością wyjścia**: `BOARD_GHOST` produkuje 2,7× więcej tokenów
+  wyjścia niż `ZOMBIE_ACCOUNT` i kosztuje 4,6× więcej. Uszeregowanie klas po koszcie,
+  wyjściu i czasie jest identyczne.
+
+Wniosek dla optymalizacji: **skrócenie wyjścia obniża koszt I czas jednocześnie**, bo
+oba wynikają z tej samej przyczyny. Router modelu po `rola_agenta` zwróci ≤10%.
+Szczegóły: [`BASELINE_ETAP4.md`](BASELINE_ETAP4.md).
 
 ### Nowa obserwacja: odrzucenia na walidacji przekraczają próg
 

@@ -205,6 +205,17 @@
         <span class="opis">taniej to sukces TYLKO przy niepogorszonej jakości</span>
       </summary>
       <div class="sekcja__ciało">
+        {% if z.hipotez != poprzedni.hipotez %}
+          {# ZOBACZONE NA ZRZUCIE, nie w liczbach: porównanie 8 hipotez z 86 pokazywało
+             „−6,27 USD" i „−20 znalezisk" jako różnicę, choć to po prostu INNY ZAKRES.
+             Liczby bezwzględne są tu bez sensu; miarą jest wartość NA HIPOTEZĘ. #}
+          <p class="uwaga-sesje">
+            <strong>Runy mają różną liczbę hipotez</strong> ({{ poprzedni.hipotez }}
+            wobec {{ z.hipotez }}), więc <strong>sumy nie są porównywalne</strong> —
+            różnica w koszcie i liczbie znalezisk odzwierciedla zakres, nie jakość.
+            Patrz na wiersze „na hipotezę".
+          </p>
+        {% endif %}
         <div class="przewijane">
           <table class="tabela-lista ewal-progi">
             <thead>
@@ -212,35 +223,73 @@
             </thead>
             <tbody>
               <tr>
-                <th>koszt</th>
+                <th>koszt <span class="opis">suma — nieporównywalna przy różnym zakresie</span></th>
                 <td>{{ "%.2f"|format(poprzedni.koszt_usd) }} USD</td>
                 <td>{{ "%.2f"|format(z.koszt_usd) }} USD</td>
-                <td class="{{ 'lepiej' if z.koszt_usd < poprzedni.koszt_usd else 'gorzej' }}">
-                  {{ "%+.2f"|format(z.koszt_usd - poprzedni.koszt_usd) }} USD
+                <td class="pusto">{{ "%+.2f"|format(z.koszt_usd - poprzedni.koszt_usd) }} USD</td>
+              </tr>
+              <tr>
+                {# TO jest miara, która się skaluje. Suma zależy od liczby hipotez. #}
+                <th>koszt / hipotezę</th>
+                <td>{{ "%.4f"|format(poprzedni.koszt_usd / poprzedni.hipotez) if poprzedni.hipotez else "—" }}</td>
+                <td>{{ "%.4f"|format(z.koszt_usd / z.hipotez) if z.hipotez else "—" }}</td>
+                <td class="{{ 'lepiej' if z.hipotez and poprzedni.hipotez and z.koszt_usd/z.hipotez < poprzedni.koszt_usd/poprzedni.hipotez else 'gorzej' }}">
+                  {% if z.hipotez and poprzedni.hipotez %}
+                    {{ "%+.4f"|format(z.koszt_usd / z.hipotez - poprzedni.koszt_usd / poprzedni.hipotez) }} USD
+                  {%- else %}—{% endif %}
                 </td>
               </tr>
               <tr>
                 <th>czas</th>
-                <td>{{ (poprzedni.sekund / 60)|round|int }} min</td>
+                <td>
+                  {%- if poprzedni.sekund %}{{ (poprzedni.sekund / 60)|round|int }} min
+                  {%- else %}<span class="pusto">brak pomiaru</span>{% endif %}
+                </td>
                 <td>{{ (z.sekund / 60)|round|int }} min</td>
                 <td class="{{ 'lepiej' if z.sekund < poprzedni.sekund else 'gorzej' }}">
                   {{ "%+d"|format(((z.sekund - poprzedni.sekund) / 60)|round|int) }} min
                 </td>
               </tr>
               <tr>
-                <th>znalezisk</th>
-                <td>{{ poprzedni.findingow }}</td>
-                <td>{{ z.findingow }}</td>
-                {# Mniej znalezisk przy niższym koszcie to NAJGROŹNIEJSZY wynik:
-                   wygląda na oszczędność, a jest utratą produktu. #}
-                <td class="{{ 'gorzej' if z.findingow < poprzedni.findingow else '' }}">
-                  {{ "%+d"|format(z.findingow - poprzedni.findingow) }}
-                  {%- if z.findingow < poprzedni.findingow %} — sprawdź, czy nie zgubiliśmy trafności{% endif %}
+                {# Tokeny wyjścia na hipotezę: miara ODPORNA na zmianę cennika.
+                   Koszt w USD porównuje ceny dostawcy, nie skutek optymalizacji. #}
+                <th>wyjście / hipotezę <span class="opis">nie zależy od cennika</span></th>
+                <td>{{ poprzedni.out_na_hipoteze or "—" }}</td>
+                <td>{{ z.out_na_hipoteze or "—" }}</td>
+                <td class="{{ 'lepiej' if (z.out_na_hipoteze or 0) < (poprzedni.out_na_hipoteze or 0) else 'gorzej' }}">
+                  {% if z.out_na_hipoteze and poprzedni.out_na_hipoteze %}
+                    {{ "%+d"|format(z.out_na_hipoteze - poprzedni.out_na_hipoteze) }}
+                  {%- else %}—{% endif %}
+                </td>
+              </tr>
+              <tr>
+                {# Mniej znalezisk przy niższym koszcie to NAJGROŹNIEJSZY wynik —
+                   ale tylko przy TYM SAMYM zakresie. Przy różnym trzeba porównać
+                   udział hipotez, które dały finding. #}
+                <th>hipotez ze znaleziskiem</th>
+                <td>
+                  {{ poprzedni.findingow }} z {{ poprzedni.hipotez }}
+                  {%- if poprzedni.hipotez %} ({{ (100 * poprzedni.findingow / poprzedni.hipotez)|round|int }}%){% endif %}
+                </td>
+                <td>
+                  {{ z.findingow }} z {{ z.hipotez }}
+                  {%- if z.hipotez %} ({{ (100 * z.findingow / z.hipotez)|round|int }}%){% endif %}
+                </td>
+                <td class="{{ 'gorzej' if z.hipotez and poprzedni.hipotez and z.findingow/z.hipotez < poprzedni.findingow/poprzedni.hipotez else '' }}">
+                  {% if z.hipotez and poprzedni.hipotez %}
+                    {{ "%+d"|format((100 * z.findingow / z.hipotez) - (100 * poprzedni.findingow / poprzedni.hipotez)) }} pkt proc.
+                    {%- if z.findingow/z.hipotez < poprzedni.findingow/poprzedni.hipotez %} — sprawdź trafność{% endif %}
+                  {%- else %}—{% endif %}
                 </td>
               </tr>
             </tbody>
           </table>
         </div>
+        <p class="uwaga-sesje">
+          <strong>Koszt w USD porównuj ostrożnie.</strong> Jeśli runy szły przy różnych
+          stawkach dostawcy, różnica w dolarach mierzy zmianę cennika, nie skutek
+          optymalizacji. Miarą odporną są <strong>tokeny wyjścia na hipotezę</strong>.
+        </p>
         <p class="meta">
           Porównanie kosztu bez porównania jakości nie rozstrzyga niczego. Trafność
           i fałszywki wymagają złotego zestawu — dopóki go nie ma, ta tabela mówi

@@ -88,6 +88,67 @@ zapisywał się jako `zakonczony` z zerem findingów** — czyli **wyglądał ja
 konta bez problemów**. To najgroźniejsza możliwa pomyłka w tym narzędziu: cisza
 udająca czyste konto. Naprawione — taki run dostaje status `przerwany`.
 
+## Pomiar 2026-08-12 — pierwsza udana ewaluacja (8 hipotez, 0,82 USD)
+
+Run `ewal-4klasy`: cztery klasy × dwie hipotezy, snapshot 6. **Wszystkie trzy pytania
+zamknięte, jedno z odpowiedzią odwrotną do oczekiwanej.**
+
+### 1. Prompt caching DZIAŁA — 79,2% wejścia z cache
+
+| | tokenów |
+|---|---|
+| wejście świeże | 13 023 |
+| **z cache (odczyt)** | **435 399** |
+| zapis do cache | 101 388 |
+| wyjście | 20 114 |
+
+Wyliczenie z rachunku dawało ~90%; odczyt z SDK mówi **79,2%**. Rozbieżność
+11 punktów pokazuje, ile warte są wyliczenia z sumy — kierunek był dobry, precyzja
+nie. **Zwężanie inwentarza definitywnie odrzucone**: 4/5 wejścia idzie po dziesiątej
+części ceny.
+
+### 2. Koszt NIE idzie za budżetem narzędzi — korelacja jest ODWROTNA
+
+| klasa | budżet | użyto | USD/hip. | wyjście/hip. | s/hip. |
+|---|---|---|---|---|---|
+| `BOARD_GHOST` | 4 | 2 | **0,1965** | 3 372 | 49,6 |
+| `DUPLICATE_STRUCTURE` | 10 | 5 | 0,0978 | 2 970 | 42,9 |
+| `BOARD_OVERCOMPLEX` | 8 | 2 | 0,0753 | 2 444 | 37,2 |
+| `ZOMBIE_ACCOUNT` | **0** | 0 | **0,0424** | 1 270 | 20,6 |
+
+Najdroższa klasa ma budżet 4, najtańsza 0, a klasa z budżetem 10 jest w środku.
+**Budżet wywołań nie przewiduje kosztu.**
+
+### 3. Koszt idzie za DŁUGOŚCIĄ WYJŚCIA i tylko za nią
+
+Uszereguj tabelę powyżej po którejkolwiek kolumnie — kolejność jest identyczna:
+koszt, wyjście i czas rosną razem. `BOARD_GHOST` produkuje 2,7× więcej tokenów
+wyjścia niż `ZOMBIE_ACCOUNT` i kosztuje 4,6× więcej.
+
+**To jest jedyny cel optymalizacji, jaki ma sens**: krótsze wyjście obniża koszt
+I czas jednocześnie, bo oba wynikają z tego samego.
+
+### 4. Poprawka `wpisow: 0` zadziałała
+
+**Odsetek odrzuceń na walidacji: 0,00** (było 0,25 wobec progu ≤0,15). Siedem z ośmiu
+hipotez dało finding, żaden nie odpadł na kontrakcie. `BOARD_GHOST` — klasa, która
+generowała wszystkie 9 wcześniejszych odrzuceń — przeszła bez problemu.
+
+### Czego ten pomiar NIE mówi
+
+**Czy `ZOMBIE_ACCOUNT` na tańszym modelu dałby ten sam wynik.** Wiemy, że kosztuje
+0,0424 USD/hip. i że agent nic tam nie ustala (`rola_agenta: brak`), ale to 10,3%
+rachunku tej próbki. Router po `rola_agenta` zwróci więc niewiele — prawdziwe
+pieniądze są w skróceniu wyjścia we wszystkich klasach.
+
+**Nic o jakości.** Złoty zestaw nadal niewypełniony, więc 7 znalezisk z 8 hipotez to
+liczba, nie ocena. Wysoki odsetek (88% wobec 31% w pełnym runie) wynika z tego, że
+próbka wzięła po dwie PIERWSZE hipotezy każdej klasy, a nie losowe.
+
+**Koszt na hipotezę wzrósł, nie spadł**: 0,0825 → 0,1030 USD. Przy zmienionym
+cenniku nie da się rozdzielić, ile z tego to nowe stawki, a ile inny skład klas.
+Dlatego raport porównuje też **tokeny wyjścia na hipotezę** — miarę odporną na ceny.
+
 ## Jak odtworzyć pomiar
 
 ```bash

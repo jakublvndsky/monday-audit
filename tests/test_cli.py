@@ -214,3 +214,38 @@ def test_eksport_zapisuje_czytelny_json(con: sqlite3.Connection, tmp_path: Path)
     assert json.loads(cel.read_text(encoding="utf-8"))["meta"] == {"a": 1}
     # Wcięcia, bo ten plik czyta człowiek przy BRAMIE.
     assert "\n  " in cel.read_text(encoding="utf-8")
+
+
+def test_na_klase_bierze_n_z_kazdej_klasy() -> None:
+    """`--limit` obcina GLOBALNIE, `--na-klase` per klasa. To nie to samo.
+
+    ZMIERZONE 2026-08-12: `--klasy` × 4 razem z `--limit 8` dało
+    `{'BOARD_GHOST': 8}` — osiem hipotez jednej klasy, bo detektory zwracają listę
+    pogrupowaną. Próbka ewaluacyjna miała PORÓWNAĆ klasy o różnych budżetach, więc
+    taka próbka nie odpowiedziałaby na pytanie, po co powstała — i wydałaby 0,66 USD
+    na pomiar bez wartości.
+
+    Test odtwarza samą regułę wyboru, bo pełne wywołanie CLI wymagałoby modelu.
+    """
+    klasy = ["A", "A", "A", "B", "B", "C"]
+
+    for na_klase, oczekiwane in ((1, ["A", "B", "C"]), (2, ["A", "A", "B", "B", "C"])):
+        licznik: dict[str, int] = {}
+        wybrane = []
+        for k in klasy:
+            if licznik.get(k, 0) < na_klase:
+                licznik[k] = licznik.get(k, 0) + 1
+                wybrane.append(k)
+        assert wybrane == oczekiwane, f"--na-klase {na_klase}"
+
+    # Kontrast: globalne obcięcie do 3 daje same „A" — czyli zero porównania.
+    assert klasy[:3] == ["A", "A", "A"]
+
+
+def test_na_klase_jest_w_parserze() -> None:
+    """Flaga musi istnieć w CLI, nie tylko w teście reguły."""
+    from monday_audit.cli_agent import zbuduj_parser
+
+    a = zbuduj_parser().parse_args(["--klient", "acme", "--snapshot", "6", "--na-klase", "2"])
+    assert a.na_klase == 2
+    assert a.limit is None, "--na-klase nie może ustawiać --limit"

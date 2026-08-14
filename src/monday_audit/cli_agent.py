@@ -68,6 +68,15 @@ def zbuduj_parser() -> argparse.ArgumentParser:
         metavar="N",
         help="zbadaj najwyżej N hipotez — do tanich prób przed pełnym runem",
     )
+    parser.add_argument(
+        "--na-klase",
+        type=int,
+        default=None,
+        metavar="N",
+        help="najwyżej N hipotez Z KAŻDEJ klasy — do porównywania klas między sobą; "
+        "`--limit` obcina globalnie, więc przy kilku klasach zwraca same hipotezy "
+        "pierwszej z nich",
+    )
     parser.add_argument("--model", default=MODEL, help=f"domyślnie przypięty {MODEL}")
     parser.add_argument(
         "--budzet-monday",
@@ -122,6 +131,19 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
     hipotezy, raport_detektorow = uruchom_detektory(con, argumenty.snapshot, rubryka)
     if argumenty.klasy:
         hipotezy = [h for h in hipotezy if h.klasa_id in set(argumenty.klasy)]
+    if argumenty.na_klase is not None:
+        # ZMIERZONE: `--limit 8` przy czterech klasach dawało {'BOARD_GHOST': 8},
+        # bo obcina listę globalnie, a detektory zwracają ją pogrupowaną. Do
+        # PORÓWNANIA klas (koszt per klasa, etap 4) trzeba po N z każdej — inaczej
+        # próbka mierzy jedną klasę i nie odpowiada na pytanie, po co powstała.
+        licznik: dict[str, int] = {}
+        wybrane: list[Hipoteza] = []
+        for h in hipotezy:
+            ile = licznik.get(h.klasa_id, 0)
+            if ile < argumenty.na_klase:
+                licznik[h.klasa_id] = ile + 1
+                wybrane.append(h)
+        hipotezy = wybrane
     if argumenty.limit is not None:
         hipotezy = hipotezy[: argumenty.limit]
     if not hipotezy:
