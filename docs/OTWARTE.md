@@ -1159,3 +1159,29 @@ Wnioskiem praktycznym z tej próby jest coś innego: **brak środków objawiał 
 run „zakończony" z zerem znalezisk.** Naprawione (status `przerwany`), ale warto
 pamiętać, że każda awaria po stronie modelu wygląda w danych jak zdrowe konto,
 dopóki ktoś tego nie odróżni.
+
+## O31 — GUEST_SPRAWL nierozstrzygalny bez tokena admina (2026-08-14)
+
+Klasa wymaga w dowodzie `tablice_dostepne[]` — do czego goście mają dostęp. **API
+nie zwraca tego dla kont gościa przy tokenie bez uprawnień admina.** Zmierzone na
+runie `ewal-uzytkownicy-s7`: zapytanie `tablice_osoby` zwróciło 0 tablic dla
+sprawdzonych kont, przy 124 tablicach w workspace.
+
+Agent zachował się poprawnie: zgłosił finding o 11 z 12 gości bez aktywności ponad
+180 dni, rozpoznał model agencyjny i **nie** potraktował samej liczby gości jako
+anomalii (warunek odrzucenia z rubryki), a puste pole opisał wprost — „dostęp poza
+zakresem jest nieznany, nie potwierdzony jako zerowy".
+
+Walidacja odrzuciła to za puste `tablice_dostepne[]`. **Decyzja (Kuba, 2026-08-14):
+zostawiamy odrzucenie.** Bez wiedzy o dostępie finding nie mówi nic o skali ryzyka,
+a klasa jest o ryzyku, nie o liczbie kont. Nie rozluźniamy walidacji i nie zmieniamy
+rubryki, żeby dopasować ją do tego, co akurat widać.
+
+Skutek: `GUEST_SPRAWL` **nie wchodzi do złotego zestawu** — pozycja usunięta, powód
+zapisany w pliku zestawu. Klasa wróci, gdy audyt dostanie token z uprawnieniami
+admina. Do tego czasu każdy run na koncie bez takiego tokena będzie tę klasę
+odrzucał, i to jest zachowanie zamierzone, nie usterka.
+
+Warto odnotować napięcie: to najlepszy finding tego runu pod względem rozumowania,
+odrzucony na formalności. Ale formalność jest dobra — alternatywą jest raport, który
+mówi „11 gości to ryzyko" bez umiejętności powiedzenia, czym to ryzyko jest.

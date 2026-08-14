@@ -281,6 +281,27 @@ _ALTERNATYWA = re.compile(r"\(([^)]*\s(?:albo|lub)\s[^)]*)\)")
 def _fakt_obecny(fakt: str, finding: Finding) -> bool:
     """Czy finding niesie ten fakt.
 
+    ## Fakt można podać na kilka sposobów i wszystkie są dobre
+
+    ZMIERZONE na runie `ewal-uzytkownicy-s7`: rzeczowość wyszła 0,143, a odczyt
+    findingów pokazał, że są rzeczowe. Agent pisał „konto typu member" tam, gdzie
+    zestaw mówił „zajmuje płatne miejsce", i „nie pojawia się w logach" tam, gdzie
+    zestaw mówił „brak śladu w logach". Fakt był podany — brakowało moich słów.
+
+    Miara ZANIŻAJĄCA jest równie zła jak zawyżająca: kazałaby wydłużać opisy,
+    żeby trafić w sformułowania zestawu, a cel jest odwrotny — krótko i rzeczowo.
+
+    Dlatego fakt może być spełniony na trzy sposoby, a nie tylko dosłownie:
+    wariantami zapisanymi po `|` w zestawie, słowami z opisu, albo POLEM DOWODU
+    o właściwej wartości. Ostatnia droga jest najmocniejsza: `kind: member`
+    w dowodzie to fakt sprawdzalny maszynowo, nie kwestia sformułowania.
+
+    ## Warianty rozdzielone `|`
+
+    Zestaw może napisać `że konto zajmuje płatne miejsce|typu member|kind: admin`.
+    Wystarczy JEDEN wariant. To pozostaje wymaganiem twardym — nie „coś podobnego",
+    tylko jedna z wypisanych możliwości.
+
     Trzy drogi, w tej kolejności:
 
     1. **liczba w nawiasie** — „(co najmniej 285)" znaczy: w tekście musi być
@@ -292,6 +313,11 @@ def _fakt_obecny(fakt: str, finding: Finding) -> bool:
     3. **pole dowodu** — gdy fakt nazywa pole (`kind`, `last_activity`),
        wystarczy jego obecność w dowodzie findingu.
     """
+    # Warianty rozdzielone `|` — wystarczy jeden. Rozbijamy PRZED czymkolwiek
+    # innym, bo każdy wariant może mieć własny nawias z liczbą albo alternatywą.
+    if "|" in fakt:
+        return any(_fakt_obecny(w.strip(), finding) for w in fakt.split("|") if w.strip())
+
     tekst = _bez_ogonkow(finding.tekst)
     dopasowanie = _LICZBA_W_NAWIASIE.search(fakt)
     if dopasowanie:
@@ -334,9 +360,27 @@ def _fakt_obecny(fakt: str, finding: Finding) -> bool:
         return True
     if all(s in tekst for s in istotne):
         return True
-    # Ostatnia droga: fakt nazywa pole dowodu wprost.
+
+    # Ostatnia droga: fakt nazywa pole dowodu — po kluczu ALBO po jego wartości.
+    #
+    # Wartość liczy się na równi z tekstem, bo `{"kind": "member"}` w dowodzie
+    # jest twardszym potwierdzeniem faktu „konto zajmuje płatne miejsce" niż
+    # jakiekolwiek zdanie: to pole ze snapshotu, nie sformułowanie agenta.
+    #
+    # Zapis `pole: wartosc` w zestawie („kind: member") wymaga OBU — samo
+    # `{"kind": "guest"}` nie potwierdza faktu o płatnym miejscu.
+    if ":" in fakt:
+        pole, _, oczekiwana = fakt.partition(":")
+        klucz = _bez_ogonkow(pole).strip()
+        chciana = _bez_ogonkow(oczekiwana).strip()
+        for k, v in finding.dowod.items():
+            if _bez_ogonkow(k).strip() == klucz and chciana in _bez_ogonkow(str(v)):
+                return True
+        return False
+
     klucze = {_bez_ogonkow(k) for k in finding.dowod}
-    return any(s in klucze for s in istotne)
+    wartosci = " ".join(_bez_ogonkow(str(v)) for v in finding.dowod.values())
+    return any(s in klucze or s in wartosci for s in istotne)
 
 
 # Zakazy z `nie_powinno_zawierac` są opisami, nie wzorcami — „spekulacja

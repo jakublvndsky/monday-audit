@@ -205,3 +205,81 @@ def test_normalizacja_radzi_sobie_z_l_kreskowanym() -> None:
     from mierz import _bez_ogonkow
 
     assert _bez_ogonkow("ĄĆĘŁŃÓŚŹŻ ałę") == "acelnoszz ale"
+
+
+def test_warianty_po_pionowej_kresce_wystarczy_jeden() -> None:
+    """`a|b|c` znaczy „którekolwiek z trzech", nie „wszystkie trzy".
+
+    ZMIERZONE na runie `ewal-uzytkownicy-s7`: rzeczowość wyszła 0,143, a odczyt
+    findingów pokazał, że są rzeczowe — agent pisał „konto typu member" tam,
+    gdzie zestaw mówił „zajmuje płatne miejsce". Miara ZANIŻAJĄCA kazałaby
+    wydłużać opisy, żeby trafić w moje sformułowania, a cel jest odwrotny.
+    Po poprawce: 0,857.
+    """
+    z: dict[str, Any] = {
+        "oczekiwane": [
+            {
+                "klasa_id": "ZOMBIE_ACCOUNT",
+                "obiekt": "abc123",
+                "musi_zawierac": ["płatne miejsce|typu member|kind: member"],
+            }
+        ],
+        "niedopuszczalne": [],
+        "pominiete": [],
+    }
+    # Wariant drugi — agent nie użył słów „płatne miejsce", ale fakt podał.
+    w = ocen(
+        [finding(opis="Konto typu member, status ACTIVE.")],
+        z,
+        run_id="t",
+        nazwa_zestawu="t.yaml",
+    )
+    assert w.rzeczowosc == 1.0
+
+    # Żaden wariant — fakt faktycznie nieobecny.
+    w2 = ocen(
+        [finding(opis="Konto nieaktywne od dawna.", dowod={"user_hash": "abc123"})],
+        z,
+        run_id="t",
+        nazwa_zestawu="t.yaml",
+    )
+    assert w2.rzeczowosc == 0.0
+
+
+def test_wartosc_pola_dowodu_potwierdza_fakt() -> None:
+    """`kind: member` w dowodzie jest twardsze niż jakiekolwiek zdanie agenta.
+
+    To pole ze snapshotu, nie sformułowanie — więc liczy się na równi z tekstem.
+    """
+    z: dict[str, Any] = {
+        "oczekiwane": [
+            {"klasa_id": "ZOMBIE_ACCOUNT", "obiekt": "abc123", "musi_zawierac": ["kind: member"]}
+        ],
+        "niedopuszczalne": [],
+        "pominiete": [],
+    }
+    w = ocen(
+        [finding(opis="Nieużywane konto.", dowod={"user_hash": "abc123", "kind": "member"})],
+        z,
+        run_id="t",
+        nazwa_zestawu="t.yaml",
+    )
+    assert w.rzeczowosc == 1.0
+
+
+def test_zla_wartosc_pola_dowodu_nie_potwierdza_faktu() -> None:
+    """`kind: guest` nie potwierdza faktu o płatnym miejscu — wymagamy OBU."""
+    z: dict[str, Any] = {
+        "oczekiwane": [
+            {"klasa_id": "ZOMBIE_ACCOUNT", "obiekt": "abc123", "musi_zawierac": ["kind: member"]}
+        ],
+        "niedopuszczalne": [],
+        "pominiete": [],
+    }
+    w = ocen(
+        [finding(opis="Nieużywane konto.", dowod={"user_hash": "abc123", "kind": "guest"})],
+        z,
+        run_id="t",
+        nazwa_zestawu="t.yaml",
+    )
+    assert w.rzeczowosc == 0.0
