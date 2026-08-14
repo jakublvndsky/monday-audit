@@ -2,10 +2,15 @@
 
     uv run python -m monday_audit.cli_ewaluacja --run acme-20260811T093330Z-agent
     uv run python -m monday_audit.cli_ewaluacja --run <nowy> --wobec <baseline>
+    uv run python -m monday_audit.cli_ewaluacja --run <run> \
+        --zestaw evals/zloty_zestaw/acme_snapshot7.yaml
 
 `--wobec` daje kolumnę porównania: baseline obok eksperymentu. To jest sedno przy
 optymalizacji — koszt zawsze da się obniżyć, pytanie tylko, czy nie za cenę
 trafności. Bez tej pary każdy eksperyment wygląda na sukces.
+
+`--zestaw` wypełnia sekcję jakości. Bez niej raport mówi „brak miary" — i to jest
+poprawne, nie brakujące: zero w tabeli czytałoby się jak wynik pomiaru.
 """
 
 from __future__ import annotations
@@ -14,6 +19,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
+from typing import Any
 
 from monday_audit.baza import polacz, zastosuj_migracje
 from monday_audit.ewaluacja import wyrenderuj, zbierz_zuzycie
@@ -32,9 +38,39 @@ def zbuduj_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--run", required=True, help="run_id do zewaluowania")
     parser.add_argument("--wobec", default=None, metavar="RUN_ID", help="baseline do porównania")
+    parser.add_argument(
+        "--zestaw",
+        type=Path,
+        default=None,
+        metavar="PLIK",
+        help="złoty zestaw YAML; bez niego sekcja jakości mówi „brak miary”",
+    )
     parser.add_argument("--baza", type=Path, default=None)
     parser.add_argument("--plik-env", type=Path, default=None, metavar="PLIK")
     return parser
+
+
+def _jakosc(baza: Path, run_id: str, zestaw: Path) -> dict[str, Any] | None:
+    """Metryki ze złotego zestawu, albo `None` gdy miernika nie da się wczytać.
+
+    `evals/` nie jest pakietem — jest katalogiem obok `src`, bo harness ewaluacyjny
+    nie wchodzi do wdrożenia. Stąd import przez ścieżkę, a nie `from monday_audit`.
+    Gdy się nie uda (brak katalogu w instalacji produkcyjnej), raport powstaje bez
+    sekcji jakości zamiast się wywracać.
+    """
+    import sys as _sys
+
+    katalog = Path(__file__).resolve().parents[2] / "evals"
+    if not (katalog / "mierz.py").exists():
+        logger.warning("brak evals/mierz.py — raport bez sekcji jakości")
+        return None
+    if str(katalog) not in _sys.path:
+        _sys.path.insert(0, str(katalog))
+    from mierz import zmierz
+
+    wynik = zmierz(baza, run_id, zestaw)
+    slownik: dict[str, Any] = wynik.do_slownika()
+    return slownik
 
 
 def uruchom(argumenty: argparse.Namespace) -> int:
@@ -55,9 +91,27 @@ def uruchom(argumenty: argparse.Namespace) -> int:
     finally:
         con.close()
 
+    jakosc = _jakosc(baza, argumenty.run, argumenty.zestaw) if argumenty.zestaw else None
+    # Baseline mierzymy TYM SAMYM zestawem. Gdy nie badał tych klas, wyjdzie
+    # trafność 0 z zerowej próbki — dlatego pomijamy go, jeśli nie ma ani jednego
+    # trafienia i ani jednej hipotezy w klasach zestawu. Inaczej porównanie
+    # sugerowałoby regresję tam, gdzie po prostu nie było pomiaru.
+    jakosc_poprzedni = None
+    if argumenty.zestaw and argumenty.wobec:
+        kandydat = _jakosc(baza, argumenty.wobec, argumenty.zestaw)
+        if kandydat and (kandydat["trafionych"] or kandydat["hipotez_na_klase"]):
+            jakosc_poprzedni = kandydat
+        else:
+            logger.info(
+                "baseline %s nie badał klas z zestawu — bez porównania jakości", argumenty.wobec
+            )
+
     KATALOG.mkdir(exist_ok=True)
     cel = KATALOG / f"ewaluacja_{argumenty.run}.html"
-    cel.write_text(wyrenderuj(z, poprzedni=poprzedni), encoding="utf-8")
+    cel.write_text(
+        wyrenderuj(z, poprzedni=poprzedni, jakosc=jakosc, jakosc_poprzedni=jakosc_poprzedni),
+        encoding="utf-8",
+    )
 
     print(f"\n  {z.run_id}: {z.hipotez} hipotez, {z.findingow} znalezisk")
     print(f"  koszt: {z.koszt_usd:.2f} USD", end="")
@@ -71,6 +125,11 @@ def uruchom(argumenty: argparse.Namespace) -> int:
         # tylko bez rozbicia per klasa.
         print("\n  UWAGA: ten run nie ma rozbicia per hipoteza (sprzed migracji 010).")
         print("  Sumy NIE dzielimy po równo — raport mówi o tym wprost.")
+    if jakosc:
+        print(f"\n  jakość wobec {jakosc['zestaw']}:")
+        print(f"    trafność   {jakosc['trafnosc']:.3f}  (próg ≥ 0,7)")
+        print(f"    fałszywki  {jakosc['falszywki']:.3f}  (próg ≤ 0,1)")
+        print(f"    rzeczowość {jakosc['rzeczowosc']:.3f}")
     print(f"\n  raport: {cel}")
     return 0
 

@@ -250,3 +250,95 @@ def test_raport_nie_wypuszcza_pii(con: sqlite3.Connection) -> None:
     # Wzorzec ADRESU, nie samo `@` — arkusz marki ma komentarz o `@import`, więc
     # szukanie znaku dawało fałszywy alarm (pierwsza wersja tego testu).
     assert re.search(r"[\w.+-]+@[\w-]+\.[\w.]+", html) is None, "adres e-mail w treści"
+
+
+def test_sekcja_jakosci_pokazuje_metryki_gdy_sa(con: sqlite3.Connection) -> None:
+    """Z metrykami sekcja przestaje mówić „brak miary" i pokazuje liczby.
+
+    Kształt słownika jest ten sam, co zwraca `evals/mierz.py::Wynik.do_slownika()`.
+    Nie importujemy miernika — `evals/` nie jest pakietem, a raport ma działać bez
+    niego; szablon dostaje dane, nie zależność.
+    """
+    _zapisz(con)
+    jakosc = {
+        "zestaw": "acme_snapshot7.yaml",
+        "oczekiwanych": 7,
+        "trafionych": 7,
+        "falszywek": 0,
+        "findingow": 7,
+        "trafnosc": 1.0,
+        "trafnosc_w_zasiegu": 1.0,
+        "osiagalna_trafnosc": 1.0,
+        "falszywki": 0.0,
+        "rzeczowosc": 0.857,
+        "progi_spelnione": {"trafnosc": True, "falszywki": True},
+        "zgloszone_niedopuszczalne": [],
+        "poza_zestawem": {},
+        "pominietych_w_zestawie": 0,
+        "hipotez_na_klase": {"ZOMBIE_ACCOUNT": 7},
+        "pozycje": [
+            {
+                "klasa_id": "ZOMBIE_ACCOUNT",
+                "obiekt": "b1ee2f84cee84480",
+                "znalezione": True,
+                "brakujace_fakty": ["liczba dni bez aktywności (co najmniej 106)"],
+                "przeciekle": [],
+            }
+        ],
+    }
+
+    html = wyrenderuj(zbierz_zuzycie(con, RUN, RUBRYKA), jakosc=jakosc)
+
+    assert "Brak miary jakości" not in html
+    assert "acme_snapshot7.yaml" in html
+    assert "0.857" in html
+    # Wykaz braków — bez niego „rzeczowość 0,857" jest liczbą, której nie da się użyć.
+    assert "Brakujące fakty" in html
+    assert "b1ee2f84cee84480" in html
+    # Pusta sekcja `pominiete` MUSI być powiedziana wprost: 1,000 wobec danych
+    # snapshotu to nie to samo co 1,000 wobec rzeczywistości konta.
+    assert "nie z rzeczywistością konta" in html
+
+
+def test_porownanie_bez_jakosci_baseline_nie_udaje_pomiaru(con: sqlite3.Connection) -> None:
+    """Baseline bez metryk → mówimy to wprost, nie podstawiamy zera.
+
+    Baseline mógł badać inne klasy, więc ten sam zestaw go nie opisuje. Zero
+    w kolumnie czytałoby się jako „miał zerową trafność".
+    """
+    _zapisz(con)
+    con.execute(
+        "INSERT INTO runy (run_id, client_id, snapshot_id, status, started_at, "
+        "hipotez_zbadanych, hipotez_odrzuconych, findingow, odrzuconych_walidacja, "
+        "koszt_usd, sekund_agenta) VALUES ('r-baseline', 'cxlabs', 1, 'zakonczony', "
+        "'2026-08-10T00:00:00+00:00', 10, 2, 7, 1, 0.5, 300)"
+    )
+    con.commit()
+    jakosc = {
+        "zestaw": "z.yaml",
+        "oczekiwanych": 7,
+        "trafionych": 7,
+        "falszywek": 0,
+        "findingow": 7,
+        "trafnosc": 1.0,
+        "trafnosc_w_zasiegu": 1.0,
+        "osiagalna_trafnosc": 1.0,
+        "falszywki": 0.0,
+        "rzeczowosc": 1.0,
+        "progi_spelnione": {"trafnosc": True, "falszywki": True},
+        "zgloszone_niedopuszczalne": [],
+        "poza_zestawem": {},
+        "pominietych_w_zestawie": 0,
+        "hipotez_na_klase": {},
+        "pozycje": [],
+    }
+
+    html = wyrenderuj(
+        zbierz_zuzycie(con, RUN, RUBRYKA),
+        poprzedni=zbierz_zuzycie(con, "r-baseline", RUBRYKA),
+        jakosc=jakosc,
+        jakosc_poprzedni=None,
+    )
+
+    assert "Jakość obu przebiegów" not in html
+    assert "baseline nie ma" in html

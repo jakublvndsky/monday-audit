@@ -37,6 +37,7 @@ import logging
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from monday_audit.raport import KATALOG_SZABLONOW, LOGO, srodowisko, zasob_data_uri
 from monday_audit.rubryka import Rubryka
@@ -259,6 +260,8 @@ def wyrenderuj(
     z: Zuzycie,
     *,
     poprzedni: Zuzycie | None = None,
+    jakosc: dict[str, Any] | None = None,
+    jakosc_poprzedni: dict[str, Any] | None = None,
     katalog: Path = KATALOG_SZABLONOW,
 ) -> str:
     """Raport HTML. Reużywa środowiska jinja z `raport` — jedno źródło marki (D14).
@@ -266,11 +269,26 @@ def wyrenderuj(
     `poprzedni` daje kolumnę porównania: baseline obok eksperymentu. Bez tej pary
     każdy eksperyment wygląda na sukces, bo koszt zawsze da się obniżyć — pytanie
     tylko, czy nie za cenę trafności.
+
+    `jakosc` to wynik `evals/mierz.py` (`Wynik.do_slownika()`) albo `None`. Zostaje
+    `None`, gdy dla tego runu nie ma złotego zestawu — i wtedy sekcja jakości mówi
+    „brak miary". Zero w tabeli wyglądałoby jak wynik pomiaru, a to różnica między
+    „zmierzyliśmy i wyszło źle" a „nie mierzyliśmy".
+
+    `jakosc_poprzedni` to te same metryki dla baseline'u — bez nich tabela porównania
+    mówi tylko „było taniej", a to nie jest wniosek: taniej zawsze da się zrobić.
+    Bywa `None` nawet gdy `jakosc` nie jest, bo baseline mógł badać inne klasy i ten
+    sam zestaw go nie opisuje. Wtedy szablon mówi „brak miary", nie podstawia zera.
+
+    Miernik nie jest importowany tutaj: `evals/` nie jest pakietem, a raport ma
+    działać także bez niego. Kto ma metryki, ten je podaje.
     """
     szablon = srodowisko(katalog).get_template(SZABLON)
     return szablon.render(
         z=z,
         poprzedni=poprzedni,
+        jakosc=jakosc,
+        jakosc_poprzedni=jakosc_poprzedni,
         udzialy=udzial_w_rachunku(z),
         progi=PROGI,
         logo=zasob_data_uri(LOGO, katalog=katalog / "zasoby"),

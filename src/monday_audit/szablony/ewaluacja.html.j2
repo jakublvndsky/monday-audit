@@ -154,18 +154,98 @@
   <details class="sekcja" open>
     <summary>Jakość <span class="opis">wobec złotego zestawu (etap 4)</span></summary>
     <div class="sekcja__ciało">
+      {%- if jakosc %}
+      <p class="opis">
+        Zmierzone wobec <code>{{ jakosc.zestaw }}</code>: {{ jakosc.oczekiwanych }}
+        {{ 'pozycja' if jakosc.oczekiwanych == 1 else 'pozycji' }} wyliczonych z danych
+        snapshotu <strong>przed</strong> uruchomieniem agenta.
+        {%- if not jakosc.pominietych_w_zestawie %}
+        Sekcja <code>pominiete</code> zestawu jest pusta, więc trafność mówi o zgodności
+        z <strong>danymi snapshotu</strong>, nie z rzeczywistością konta — agent może mieć
+        1,000 i przegapić rzecz, o której snapshot nie wie.
+        {%- endif %}
+      </p>
+      {%- else %}
       <p class="brak-miary">
         <strong>Brak miary jakości — złoty zestaw nie jest jeszcze wypełniony.</strong>
         Trafność i fałszywe trafienia liczą się WYŁĄCZNIE wobec ręcznego przejścia
         konta przez człowieka (<code>evals/zloty_zestaw/</code>), nie wobec tego, co
         agent wyprodukował. Ocena własnego wyniku to racjonalizacja, nie ewaluacja.
       </p>
+      {%- endif %}
       <div class="przewijane">
         <table class="tabela-lista ewal-progi">
           <thead><tr><th>Metryka</th><th>Próg v1</th><th>Wynik</th></tr></thead>
           <tbody>
-            <tr><th>trafność</th><td>≥ {{ progi.trafnosc }}</td><td class="pusto">brak miary</td></tr>
-            <tr><th>fałszywe trafienia</th><td>≤ {{ progi.falszywki }}</td><td class="pusto">brak miary</td></tr>
+            {#- Metryki ze złotego zestawu. Gdy `jakosc` jest `None`, zostaje
+                „brak miary" — zero w tej kolumnie czytałoby się jak pomiar. #}
+            <tr>
+              <th>
+                trafność
+                {%- if jakosc %}
+                <span class="opis">{{ jakosc.trafionych }} z {{ jakosc.oczekiwanych }} pozycji zestawu</span>
+                {%- endif %}
+              </th>
+              <td>≥ {{ progi.trafnosc }}</td>
+              {%- if jakosc %}
+              <td>
+                <span {% if not jakosc.progi_spelnione.trafnosc %}class="ponizej-progu"{% endif %}>
+                  {{ jakosc.trafnosc }}
+                </span>
+              </td>
+              {%- else %}<td class="pusto">brak miary</td>{%- endif %}
+            </tr>
+            {#- Trafność w zasięgu pokazujemy TYLKO przy zawężonej próbce. Przy
+                pełnej byłaby równa trafności i mnożyłaby liczby bez treści. #}
+            {%- if jakosc and jakosc.osiagalna_trafnosc < 1.0 %}
+            <tr>
+              <th>
+                trafność w zasięgu próbki
+                <span class="opis">
+                  run dostał hipotezy dla części zestawu — maksimum osiągalne
+                  {{ jakosc.osiagalna_trafnosc }}; to ta liczba idzie do progu
+                </span>
+              </th>
+              <td>≥ {{ progi.trafnosc }}</td>
+              <td>
+                <span {% if jakosc.trafnosc_w_zasiegu < progi.trafnosc %}class="ponizej-progu"{% endif %}>
+                  {{ jakosc.trafnosc_w_zasiegu }}
+                </span>
+              </td>
+            </tr>
+            {%- endif %}
+            <tr>
+              <th>
+                fałszywe trafienia
+                {%- if jakosc %}
+                <span class="opis">
+                  {{ jakosc.falszywek }} z {{ jakosc.findingow }} findingów w klasach, które zestaw każe odrzucić
+                </span>
+                {%- endif %}
+              </th>
+              <td>≤ {{ progi.falszywki }}</td>
+              {%- if jakosc %}
+              <td>
+                <span {% if not jakosc.progi_spelnione.falszywki %}class="ponizej-progu"{% endif %}>
+                  {{ jakosc.falszywki }}
+                </span>
+              </td>
+              {%- else %}<td class="pusto">brak miary</td>{%- endif %}
+            </tr>
+            {#- Rzeczowość NIE MA progu w 04-test.md, bo to nowa miara. Kolumna
+                progu zostaje pusta zamiast dostać liczbę z sufitu. #}
+            <tr>
+              <th>
+                rzeczowość
+                <span class="opis">
+                  ile trafionych findingów niesie wszystkie wymagane fakty i żaden zakaz
+                  — miara „rzeczowo, nie długo"
+                </span>
+              </th>
+              <td class="pusto">bez progu</td>
+              {%- if jakosc %}<td>{{ jakosc.rzeczowosc }}</td>
+              {%- else %}<td class="pusto">brak miary</td>{%- endif %}
+            </tr>
             <tr><th>powtarzalność (2 runy)</th><td>≥ {{ progi.powtarzalnosc }}</td><td class="pusto">brak miary</td></tr>
             <tr>
               <th>
@@ -192,6 +272,58 @@
           </tbody>
         </table>
       </div>
+
+      {#- Wykaz pozycja po pozycji. Bez niego „rzeczowość 0,857" jest liczbą,
+          której nie da się użyć — nie wiadomo, co poprawić w prompcie. #}
+      {%- if jakosc %}
+        {%- set braki = jakosc.pozycje | selectattr('znalezione') | selectattr('brakujace_fakty') | list %}
+        {%- set przecieki = jakosc.pozycje | selectattr('znalezione') | selectattr('przeciekle') | list %}
+        {%- set nieznalezione = jakosc.pozycje | rejectattr('znalezione') | list %}
+
+        {%- if przecieki %}
+        <h4>Przecieki <span class="opis">treść, której finding NIE powinien zawierać</span></h4>
+        <ul class="lista-uwag">
+          {%- for poz in przecieki %}
+          <li>
+            <code>{{ poz.klasa_id }}</code> {{ poz.obiekt }}
+            {%- for z in poz.przeciekle %}<br><span class="ponizej-progu">{{ z }}</span>{% endfor %}
+          </li>
+          {%- endfor %}
+        </ul>
+        {%- endif %}
+
+        {%- if braki %}
+        <h4>Brakujące fakty <span class="opis">finding trafiony, ale bez wymaganej treści</span></h4>
+        <ul class="lista-uwag">
+          {%- for poz in braki %}
+          <li>
+            <code>{{ poz.klasa_id }}</code> {{ poz.obiekt }}
+            {%- for f in poz.brakujace_fakty %}<br><span class="opis">brak: {{ f }}</span>{% endfor %}
+          </li>
+          {%- endfor %}
+        </ul>
+        {%- endif %}
+
+        {%- if nieznalezione %}
+        <h4>Nieznalezione <span class="opis">pozycje zestawu, których agent nie zgłosił</span></h4>
+        <ul class="lista-uwag">
+          {%- for poz in nieznalezione %}
+          <li><code>{{ poz.klasa_id }}</code> {{ poz.obiekt }}</li>
+          {%- endfor %}
+        </ul>
+        {%- endif %}
+
+        {#- Klasy, o których zestaw milczy. NIE są fałszywkami — brak wpisu znaczy
+            „nie wiem", nie „błąd" — ale są dziurą w zestawie i trzeba je widzieć. #}
+        {%- if jakosc.poza_zestawem %}
+        <h4>Poza zestawem <span class="opis">nie liczone do metryk — zestaw tych klas nie opisuje</span></h4>
+        <p class="opis">
+          {%- for klasa, ile in jakosc.poza_zestawem.items() %}
+          <code>{{ klasa }}</code>&nbsp;×{{ ile }}{{ ', ' if not loop.last }}
+          {%- endfor %}
+        </p>
+        {%- endif %}
+      {%- endif %}
     </div>
   </details>
 
@@ -290,11 +422,81 @@
           stawkach dostawcy, różnica w dolarach mierzy zmianę cennika, nie skutek
           optymalizacji. Miarą odporną są <strong>tokeny wyjścia na hipotezę</strong>.
         </p>
+        {#- Jakość baseline'u obok jakości eksperymentu. Bez tej pary tabela mówi
+            tylko „było taniej", a to nie jest wniosek — taniej zawsze da się zrobić.
+            `jakosc_poprzedni` bywa `None` nawet gdy `jakosc` jest: baseline mógł
+            badać inne klasy, więc ten sam zestaw go nie opisuje. Wtedy mówimy
+            wprost „brak miary", nie podstawiamy zera. #}
+        {%- if jakosc and jakosc_poprzedni %}
+          <h4>Jakość obu przebiegów <span class="opis">to jest ten wiersz, który rozstrzyga</span></h4>
+          <div class="przewijane">
+            <table class="tabela-lista">
+              <thead>
+                <tr>
+                  <th>Metryka</th>
+                  <th>{{ poprzedni.run_id }}</th>
+                  <th>{{ z.run_id }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th>trafność {% if jakosc_poprzedni.osiagalna_trafnosc < 1.0 or jakosc.osiagalna_trafnosc < 1.0 %}<span class="opis">w zasięgu próbki — runy widziały różne części zestawu</span>{% endif %}</th>
+                  <td>{{ jakosc_poprzedni.trafnosc_w_zasiegu }}</td>
+                  <td>{{ jakosc.trafnosc_w_zasiegu }}</td>
+                </tr>
+                <tr>
+                  <th>fałszywe trafienia</th>
+                  <td>{{ jakosc_poprzedni.falszywki }}</td>
+                  <td>{{ jakosc.falszywki }}</td>
+                </tr>
+                <tr>
+                  <th>
+                    rzeczowość
+                    <span class="opis">
+                      liczona po TRAFIONYCH pozycjach: {{ jakosc_poprzedni.trafionych }}
+                      wobec {{ jakosc.trafionych }}
+                    </span>
+                  </th>
+                  <td>{{ jakosc_poprzedni.rzeczowosc }}</td>
+                  <td>{{ jakosc.rzeczowosc }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="meta">
+            Tańszy run jest lepszy tylko wtedy, gdy te trzy wiersze się nie pogorszyły.
+            Spadek rzeczowości przy spadku kosztu znaczy, że skrócenie odpowiedzi
+            zabrało treść — a to nie oszczędność, tylko gorszy raport.
+          </p>
+          {#- Zastrzeżenie do mianownika. ZMIERZONE na tej właśnie parze runów:
+              rzeczowość 1,0 → 0,857 wygląda jak regresja, a wynika z próbki.
+              Baseline miał 2 trafione pozycje (obie czyste), nowy run 7 (sześć
+              czystych, jedna z brakiem). Te same dwa konta są czyste w OBU.
+              Bez tego akapitu każde rozszerzenie próbki czytałoby się jako
+              pogorszenie jakości. #}
+          {%- if jakosc_poprzedni.trafionych < jakosc.trafionych and jakosc.rzeczowosc < jakosc_poprzedni.rzeczowosc %}
+          <p class="meta">
+            <strong>Uwaga na mianownik:</strong> rzeczowość spadła, ale próbka wzrosła
+            ({{ jakosc_poprzedni.trafionych }} → {{ jakosc.trafionych }} trafionych pozycji).
+            1,0 z {{ jakosc_poprzedni.trafionych }} pozycji nie jest tą samą pewnością co
+            {{ jakosc.rzeczowosc }} z {{ jakosc.trafionych }}. Zanim uznasz to za regresję,
+            porównaj wykaz braków wyżej — jeśli pozycje wspólne dla obu runów są czyste
+            w obu, jakość się nie pogorszyła, tylko zmierzyliśmy więcej.
+          </p>
+          {%- endif %}
+        {%- else %}
         <p class="meta">
-          Porównanie kosztu bez porównania jakości nie rozstrzyga niczego. Trafność
-          i fałszywki wymagają złotego zestawu — dopóki go nie ma, ta tabela mówi
-          tylko, czy było taniej, nie czy było dobrze.
+          Porównanie kosztu bez porównania jakości nie rozstrzyga niczego.
+          {%- if jakosc %}
+          Jakość zmierzona jest tylko dla <code>{{ z.run_id }}</code> — baseline nie ma
+          metryk wobec tego zestawu (mógł badać inne klasy), więc tabela wyżej mówi,
+          czy było taniej, nie czy było dobrze.
+          {%- else %}
+          Trafność i fałszywki wymagają złotego zestawu — dopóki go nie ma, ta tabela
+          mówi tylko, czy było taniej, nie czy było dobrze.
+          {%- endif %}
         </p>
+        {%- endif %}
       </div>
     </details>
   {% endif %}
