@@ -1185,3 +1185,33 @@ odrzucał, i to jest zachowanie zamierzone, nie usterka.
 Warto odnotować napięcie: to najlepszy finding tego runu pod względem rozumowania,
 odrzucony na formalności. Ale formalność jest dobra — alternatywą jest raport, który
 mówi „11 gości to ryzyko" bez umiejętności powiedzenia, czym to ryzyko jest.
+
+## O32 — ENGAGEMENT_DROP domknięty danymi, nierozstrzygnięty jakością (2026-08-14)
+
+Klasa była **nierozstrzygalna**: rubryka wymaga `data_zwrotu` i
+`zdarzenie_towarzyszace`, a snapshot niósł kubełki czasowe tylko per tablica — nie
+dało się powiedzieć, KTO przestał działać. Domknięte w kroku 1 etapu 4:
+`aktywnosc.per_uzytkownik` daje rozkład akcji per osoba (`kubelki_dni`, `po_event`,
+lista tablic), bez ani jednego nowego wywołania monday.
+
+Widać w danych sygnaturę, o którą ta klasa pyta. Ze snapshotu #7:
+
+    103df6a8b444ee7c   153 akcje, 4 tablice, WSZYSTKIE w kubełku 31-60 dni
+    3f9dfd32fdf376b6    77 akcji,  2 tablice, 76 w kubełku 61-90, 1 w 8-30
+
+Pierwszy przypadek to ktoś, kto pracował intensywnie i zniknął. Drugi — ktoś, kto
+niemal zniknął. To jest `data_zwrotu` w rozdzielczości kubełka.
+
+**Czego NADAL nie ma:** `zdarzenie_towarzyszace` — co działo się na tablicach tej
+osoby, gdy przestała działać. Dane są (`aktywnosc_tablic` niesie `po_event` i daty),
+ale zestawienia „spadek osoby X wobec zdarzeń na jej tablicach" nie robimy. Agent
+musiałby to złożyć sam, czyli płacić rozumowaniem — a to jest robota collectora (D1).
+
+**Klasa nie została jeszcze zmierzona.** Run `ewal-uzytkownicy-s7` badał
+`ZOMBIE_ACCOUNT`, `GUEST_SPRAWL` i `PLAN_MISMATCH`; `ENGAGEMENT_DROP` nie miał
+hipotezy, bo detektor go nie wzbudził na tym snapshocie. Do rozstrzygnięcia
+przy następnym runie: czy detektor milczy słusznie (8 osób w logach to mało na
+„grupę", o której mówi rubryka), czy próg detektora jest za wysoki.
+
+Do tego czasu klasa **nie wchodzi do złotego zestawu** — nie mamy ani jednej
+pozycji, którą dałoby się uzasadnić dwoma niezależnymi dowodami.
