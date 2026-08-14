@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -204,6 +204,16 @@ class SygnalyTablicy:
     najstarszy_at: str | None
     najnowszy_od_znanego_at: str | None
     kubelki_dni: dict[str, int]
+    # Rozkład aktywności PER AUTOR: hash → {kubełek → liczba akcji} oraz
+    # hash → {zdarzenie → liczba}. Powstaje w tej samej pętli, co pozostałe
+    # liczniki — pętla ma naraz autora, czas i zdarzenie, tylko dotąd liczyła
+    # je do trzech osobnych `Counter`, gubiąc powiązanie.
+    #
+    # Po co: odpowiada na pytania „kiedy ta osoba była aktywna, jak była aktywna,
+    # z czego korzysta". Bez tego `ENGAGEMENT_DROP` jest nierozstrzygalny —
+    # rubryka wymaga `data_zwrotu`, a kubełki per TABLICA jej nie dają.
+    kubelki_per_autor: dict[str, dict[str, int]]
+    eventy_per_autor: dict[str, dict[str, int]]
     ostatnich_od_znanych: int
     ostatnich_zbadanych: int
     urwane: bool
@@ -240,6 +250,8 @@ class SygnalyTablicy:
             "najstarszy_at": self.najstarszy_at,
             "najnowszy_od_znanego_at": self.najnowszy_od_znanego_at,
             "kubelki_dni": dict(self.kubelki_dni),
+            "kubelki_per_autor": {h: dict(k) for h, k in self.kubelki_per_autor.items()},
+            "eventy_per_autor": {h: dict(e) for h, e in self.eventy_per_autor.items()},
             "ostatnich_od_znanych": self.ostatnich_od_znanych,
             "ostatnich_zbadanych": self.ostatnich_zbadanych,
             "pozornie_zywa": self.pozornie_zywa,
@@ -256,9 +268,63 @@ class WynikLogow:
     def do_snapshotu(self) -> dict[str, Any]:
         return {
             "aktywnosc_tablic": [s.do_snapshotu() for s in self.sygnaly],
+            "per_uzytkownik": self.per_uzytkownik(),
             "podsumowanie": self.podsumowanie(),
             "discovery": dict(self.discovery),
         }
+
+    def per_uzytkownik(self) -> list[dict[str, Any]]:
+        """Aktywność zestawiona PER OSOBA, nie per tablica.
+
+        ## Po co, skoro dane już są
+
+        `aktywnosc_tablic` niesie `udzial_autorow` i `po_event`, ale **per tablicę** —
+        żeby odpowiedzieć na „kiedy ta osoba była aktywna i z czego korzysta", agent
+        musiałby przejść 100 tablic i sam zsumować. Robił to w prompcie, płacąc za
+        rozumowanie, które jest deterministyczne. To robota collectora (D1).
+
+        Trzy pytania, na które ta sekcja odpowiada wprost:
+
+        * **kiedy** — `kubelki_dni` per osoba (0-7 / 8-30 / 31-60 / 61-90);
+        * **jak** — `po_event` per osoba (`create_pulse` vs `update_column_value`);
+        * **gdzie** — `tablic` i `boardy`, czyli z ilu i z których tablic korzysta.
+
+        Bez tego `ENGAGEMENT_DROP` jest nierozstrzygalny: rubryka wymaga
+        `data_zwrotu`, a kubełki per tablica nie mówią, KTO przestał działać.
+
+        Sortowane po liczbie akcji malejąco — najaktywniejsi pierwsi, bo o nich
+        pyta się najczęściej. Zero treści, same hashe i liczby.
+        """
+        akcje: Counter[str] = Counter()
+        kubelki: defaultdict[str, Counter[str]] = defaultdict(Counter)
+        eventy: defaultdict[str, Counter[str]] = defaultdict(Counter)
+        boardy: defaultdict[str, set[str]] = defaultdict(set)
+
+        for sygnal in self.sygnaly:
+            for haszyk, ile in sygnal.udzial_autorow.items():
+                akcje[haszyk] += ile
+                boardy[haszyk].add(sygnal.board_id)
+            for haszyk, rozklad in sygnal.kubelki_per_autor.items():
+                kubelki[haszyk].update(rozklad)
+            for haszyk, zdarzenia in sygnal.eventy_per_autor.items():
+                eventy[haszyk].update(zdarzenia)
+
+        return [
+            {
+                "user_hash": haszyk,
+                "akcji": ile,
+                # Ile tablic ta osoba tyka — „jedna tablica, 200 akcji" to inna
+                # historia niż „dwadzieścia tablic, 200 akcji".
+                "tablic": len(boardy[haszyk]),
+                "boardy": sorted(boardy[haszyk]),
+                "kubelki_dni": dict(kubelki[haszyk]),
+                "po_event": dict(eventy[haszyk]),
+                # Czy działa NADAL. Pusty kubełek `0-7` przy niepustych starszych
+                # to dokładnie sygnał, którego szuka `ENGAGEMENT_DROP`.
+                "aktywny_ostatnie_7d": bool(kubelki[haszyk].get("0-7")),
+            }
+            for haszyk, ile in akcje.most_common()
+        ]
 
     def podsumowanie(self) -> dict[str, Any]:
         zdarzenia: Counter[str] = Counter()
@@ -364,6 +430,11 @@ def _sygnaly(
     udzial: Counter[str] = Counter()
     kubelki: Counter[str] = Counter()
     klasy: Counter[str] = Counter()
+    # Per autor: kiedy działał i co robił. Ta pętla ma już wszystkie trzy
+    # informacje naraz (autor, czas, zdarzenie), więc powiązanie ich nie kosztuje
+    # ani jednego dodatkowego wywołania API.
+    kubelki_autora: defaultdict[str, Counter[str]] = defaultdict(Counter)
+    eventy_autora: defaultdict[str, Counter[str]] = defaultdict(Counter)
     znanych = 0
     najnowszy_znany: datetime | None = None
 
@@ -376,6 +447,9 @@ def _sygnaly(
         if haszyk is None:
             continue
         udzial[haszyk] += 1
+        if kubelek:
+            kubelki_autora[haszyk][kubelek] += 1
+        eventy_autora[haszyk][str(wpis.get("event"))] += 1
         if haszyk in znane_hashe:
             znanych += 1
             if kiedy and (najnowszy_znany is None or kiedy > najnowszy_znany):
@@ -398,6 +472,8 @@ def _sygnaly(
         najstarszy_at=czyste[-1].isoformat() if czyste else None,
         najnowszy_od_znanego_at=najnowszy_znany.isoformat() if najnowszy_znany else None,
         kubelki_dni=dict(kubelki),
+        kubelki_per_autor={h: dict(k) for h, k in kubelki_autora.items()},
+        eventy_per_autor={h: dict(e) for h, e in eventy_autora.items()},
         ostatnich_od_znanych=sum(1 for _, haszyk in ostatnie if haszyk and haszyk in znane_hashe),
         ostatnich_zbadanych=len(ostatnie),
         urwane=urwane,

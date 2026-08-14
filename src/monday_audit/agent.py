@@ -186,6 +186,19 @@ def _inwentarz(narzedzia: Narzedzia) -> str:
         "automatyzacje_uruchomienia": narzedzia.wycinek("$.automatyzacje.uruchomienia"),
         "aktywnosc": narzedzia.wycinek("$.aktywnosc.podsumowanie"),
         "aktywnosc_discovery": narzedzia.wycinek("$.aktywnosc.discovery"),
+        # PEŁNA lista aktywności per osoba, nie podsumowanie — wyjątek od reguły
+        # „tu wchodzą tylko agregaty", i to świadomy.
+        #
+        # Powód: klasy o użytkownikach (`ZOMBIE_ACCOUNT`, `ENGAGEMENT_DROP`,
+        # `GUEST_SPRAWL`) pytają o KONKRETNE osoby, a nie o rozkład. Bez tej sekcji
+        # agent musiałby przejść narzędziem 100 tablic i sam zsumować akcje per
+        # osoba — czyli płacić rozumowaniem za coś deterministycznego (D1).
+        #
+        # ZMIERZONE: ~550 tokenów dla 8 aktywnych osób. Idzie do prefiksu, więc
+        # przy prompt cachingu (79% z cache, pomiar 2026-08-12) to ~0,002 USD na
+        # kilkanaście hipotez. Lista rośnie z liczbą osób WIDOCZNYCH W LOGACH, nie
+        # z liczbą kont — na koncie CXLABS to 8 z 94.
+        "aktywnosc_per_uzytkownik": narzedzia.wycinek("$.aktywnosc.per_uzytkownik"),
     }
     return json.dumps(sekcje, ensure_ascii=False, indent=1)
 

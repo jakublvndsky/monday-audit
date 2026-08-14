@@ -613,3 +613,109 @@ async def test_brak_listy_uzytkownikow_daje_bezwartosciowy_sygnal(zbuduj: Any) -
 
     assert wynik.discovery["znanych_uzytkownikow_na_wejsciu"] == 0
     assert wynik.sygnaly[0].autorow_nieznanych == 1
+
+
+# ── aktywność PER UŻYTKOWNIK ─────────────────────────────────────────────
+#
+# Powstało, bo `ENGAGEMENT_DROP` był nierozstrzygalny: rubryka wymaga `data_zwrotu`,
+# a snapshot miał kubełki czasowe tylko PER TABLICĘ. Odpowiada też na pytania Kuby
+# o użytkownikach — kiedy był aktywny, jak, z czego korzysta.
+#
+# Dane były już w logach; brakowało POWIĄZANIA autora z czasem i zdarzeniem, choć
+# pętla agregująca ma wszystkie trzy naraz. Zero nowych wywołań API.
+
+
+async def test_per_uzytkownik_sumuje_sie_do_udzialu_autorow(zbuduj: Any) -> None:
+    """Agregat MUSI zgadzać się z sumą per tablica — inaczej jest fikcją.
+
+    To najważniejszy test tej sekcji: dwie drogi do tej samej liczby, które muszą
+    dać ten sam wynik. Rozjazd znaczy, że agent czyta co innego niż my.
+    """
+    klient = zbuduj(
+        odpowiedz(
+            {
+                "1": [wpis(user_id="101"), wpis(user_id="101"), wpis(user_id="102")],
+                "2": [wpis(user_id="101")],
+            }
+        )
+    )
+
+    wynik = await zbierz_logi(
+        klient, [tablica("1"), tablica("2")], client_id=KLIENT, sol=SOL, znane_hashe=set()
+    )
+
+    per_user = {u["user_hash"]: u for u in wynik.per_uzytkownik()}
+    h101 = policz_hash(KLIENT, "101", SOL)
+    # Kontrola: suma `udzial_autorow` po wszystkich tablicach.
+    kontrola = sum(s.udzial_autorow.get(h101, 0) for s in wynik.sygnaly)
+    assert per_user[h101]["akcji"] == kontrola == 3
+    assert per_user[h101]["tablic"] == 2, "osoba działała na dwóch tablicach"
+    assert per_user[policz_hash(KLIENT, "102", SOL)]["akcji"] == 1
+
+
+async def test_per_uzytkownik_mowi_kiedy_i_jak(zbuduj: Any) -> None:
+    """Trzy pytania Kuby: kiedy był aktywny, jak, z czego korzysta.
+
+    `kubelki_dni` per osoba odpowiada na „kiedy", `po_event` na „jak", `boardy`
+    na „gdzie". Bez tego agent musiałby zsumować 100 tablic w prompcie — czyli
+    płacić za rozumowanie, które jest deterministyczne (D1).
+    """
+    klient = zbuduj(
+        odpowiedz(
+            {
+                "1": [
+                    wpis(user_id="101", event="create_pulse"),
+                    wpis(user_id="101", event="update_column_value"),
+                ]
+            }
+        )
+    )
+
+    wynik = await zbierz_logi(klient, [tablica("1")], client_id=KLIENT, sol=SOL, znane_hashe=set())
+
+    u = wynik.per_uzytkownik()[0]
+    assert u["po_event"] == {"create_pulse": 1, "update_column_value": 1}, "brak informacji JAK"
+    assert sum(u["kubelki_dni"].values()) == 2, "brak informacji KIEDY"
+    assert u["boardy"] == ["1"], "brak informacji GDZIE"
+
+
+async def test_per_uzytkownik_nie_wypuszcza_id_osob(zbuduj: Any) -> None:
+    """Nowa sekcja niesie hashe, więc obowiązuje ją ta sama granica PII.
+
+    Łatwo o tym zapomnieć przy dodawaniu sekcji — dlatego test jest osobny,
+    a nie tylko ten na całym snapshocie.
+    """
+    klient = zbuduj(odpowiedz({"1": [wpis(user_id="101")]}))
+
+    wynik = await zbierz_logi(klient, [tablica("1")], client_id=KLIENT, sol=SOL, znane_hashe=set())
+    payload = json.dumps(wynik.per_uzytkownik(), ensure_ascii=False)
+
+    assert '"101"' not in payload
+    assert policz_hash(KLIENT, "101", SOL) in payload
+
+
+async def test_aktywny_ostatnie_7d_odroznia_czynnego_od_milczacego(zbuduj: Any) -> None:
+    """Pusty kubełek `0-7` przy niepustych starszych to sygnał `ENGAGEMENT_DROP`.
+
+    To jest liczba, której brakowało: mówi, KTO przestał działać, a nie tylko
+    że aktywność na tablicy spadła.
+    """
+    # `CZAS_LOGU` to 2026-07-03, czyli ~41 dni przed „teraz" — kubełek `31-60`,
+    # nie `0-7`. Pierwsza wersja tego testu tego nie sprawdziła i padła na własnym
+    # założeniu, że stała oznacza „dzisiaj". Dlatego liczymy czas od zegara.
+    from datetime import UTC, datetime
+
+    # `na_datetime` dzieli przez 10^7 i liczy od epoki UNIXA — bez przesunięcia
+    # Windows, które dodałem w pierwszej wersji i dostałem rok 2395.
+    teraz_100ns = int(datetime.now(tz=UTC).timestamp() * 1e7)
+    swiezy = teraz_100ns - int(2 * 24 * 3600 * 1e7)  # 2 dni temu → kubełek 0-7
+    stary = teraz_100ns - int(50 * 24 * 3600 * 1e7)  # 50 dni temu → kubełek 31-60
+    klient = zbuduj(
+        odpowiedz({"1": [wpis(user_id="101", czas=swiezy), wpis(user_id="102", czas=stary)]})
+    )
+
+    wynik = await zbierz_logi(klient, [tablica("1")], client_id=KLIENT, sol=SOL, znane_hashe=set())
+
+    per_user = {u["user_hash"]: u for u in wynik.per_uzytkownik()}
+    assert per_user[policz_hash(KLIENT, "101", SOL)]["aktywny_ostatnie_7d"] is True
+    assert per_user[policz_hash(KLIENT, "102", SOL)]["aktywny_ostatnie_7d"] is False
