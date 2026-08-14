@@ -132,8 +132,11 @@ docstring-code-format = true
 
 [tool.mypy]
 python_version = "3.12"
-mypy_path = "src"
-files = ["src", "tests"]
+# `evals` obok `src`, bo `evals/mierz.py` to narzędzie, którym oceniamy jakość
+# agenta — miernik z usterką daje liczby wyglądające na wynik. Nie jest pakietem
+# (odpalany jako skrypt), więc trafia na ścieżkę, a nie do zależności.
+mypy_path = "src:evals"
+files = ["src", "tests", "evals"]
 exclude = ['^migracje/']
 
 # Profil podstawowy: sprawdzamy ciała funkcji bez adnotacji, ale nie wymuszamy
