@@ -931,6 +931,7 @@ def engagement_drop(con: sqlite3.Connection, snapshot_id: int, budzet: int) -> l
 _PARY_TABLIC = f"""
 WITH snap AS (SELECT payload FROM snapshots WHERE id = :snapshot_id),
 {_TABLICE},
+{_AKTYWNOSC},
 kolumny AS (
     SELECT tablice.board_id, tablice.workspace_id,
            json_extract(k.value, '$.title') || ':' || json_extract(k.value, '$.type') AS kol
@@ -963,12 +964,25 @@ SELECT
       JOIN subskrypcje sb ON sa.user_hash = sb.user_hash
      WHERE sa.board_id = pary.a_id AND sb.board_id = pary.b_id) AS wspolnych_subskrybentow,
     (SELECT COUNT(DISTINCT user_hash) FROM subskrypcje
-      WHERE board_id IN (pary.a_id, pary.b_id)) AS subskrybentow_razem
+      WHERE board_id IN (pary.a_id, pary.b_id)) AS subskrybentow_razem,
+    -- AKTYWNOŚĆ OBU STRON PARY. `LEFT JOIN`, nie `JOIN`: tablica bez próbki logu
+    -- ma `NULL`, a to znaczy „nie wiem", nie „zero wpisów". Zlanie tych dwóch
+    -- dałoby fakt „obie martwe" dla pary, której w ogóle nie próbkowaliśmy.
+    --
+    -- POWÓD DODANIA (2026-08-17): agent przy `effort=medium` gubił ten fakt
+    -- w 3 z 6 findingów — niesystematycznie, bo nikt go nie wymagał. Rubryka nie
+    -- miała aktywności w polach dowodu, więc walidacja tego nie pilnowała, a fakt
+    -- „czy któraś ze stron w ogóle żyje" ROZSTRZYGA klasę: rubryka opisuje
+    -- rozjazd jako „jedna aktywna, reszta cichnie".
+    aa.wpisow AS a_wpisow, ab.wpisow AS b_wpisow,
+    aa.najnowszy_at AS a_najnowszy, ab.najnowszy_at AS b_najnowszy
 FROM pary
 JOIN rozmiary ra ON ra.board_id = pary.a_id
 JOIN rozmiary rb ON rb.board_id = pary.b_id
 JOIN tablice   ta ON ta.board_id = pary.a_id
 JOIN tablice   tb ON tb.board_id = pary.b_id
+LEFT JOIN aktywnosc aa ON aa.board_id = pary.a_id
+LEFT JOIN aktywnosc ab ON ab.board_id = pary.b_id
 ORDER BY pary.a_id, pary.b_id
 """
 
@@ -1007,6 +1021,18 @@ def duplicate_structure(con: sqlite3.Connection, snapshot_id: int, budzet: int) 
                     if w["subskrybentow_razem"]
                     else 0.0,
                     "subskrybentow_wspolnych": w["wspolnych_subskrybentow"],
+                    # Aktywność KAŻDEJ ze stron osobno — to ona rozstrzyga, czy
+                    # to rozjazd („jedna aktywna, reszta cichnie", jak mówi
+                    # rubryka), czy obie tablice są martwe od powstania.
+                    #
+                    # `None` zamiast zera, gdy tablica nie weszła do próbki logów:
+                    # „nie wiem" i „zero wpisów" to dwie różne rzeczy, a agent ma
+                    # prawo je odróżnić. Kontrakt dopuszcza `None` w tym polu
+                    # przez ten sam wyjątek, co `kubelki_dni` (POLA_ROZKLADU).
+                    "aktywnosc_stron": {
+                        str(w["a_id"]): w["a_wpisow"],
+                        str(w["b_id"]): w["b_wpisow"],
+                    },
                     "daty_utworzenia": {
                         str(w["a_id"]): w["a_created"],
                         str(w["b_id"]): w["b_created"],

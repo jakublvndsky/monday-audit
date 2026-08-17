@@ -302,11 +302,32 @@ klasy:
     warunki_odrzucenia:
       - nazwy tworzą jawną serię (rok, klient, region) i wszystkie aktywne
       - tablice w różnych workspace'ach należących do różnych zespołów
+      # ZMIERZONE 2026-08-17 (O33): agent przy wysokim wysiłku sam to rozpoznaje
+      # („workspace nazywa się CRM_PL_Demo, co wskazuje na materiał demo/szablonowy,
+      # nie produkcyjny rozjazd"), ale kosztowało to 0,77 USD na 6 hipotez.
+      # Warunek jawny jest tańszy niż to samo rozumowanie w każdej sesji.
+      #
+      # UWAGA na granicę: nazwa workspace to HEURYSTYKA. Klient może trzymać
+      # produkcję w workspace nazwanym „Demo" po nieudanym pilocie — dlatego
+      # warunek wymaga DRUGIEGO sygnału (obie strony pary martwe), nie samej nazwy.
+      - >-
+        workspace nazwany jako demo, sandbox, test albo szkolenie ORAZ obie
+        tablice pary bez aktywności w oknie — wtedy to szablon rozstawiony raz,
+        nie rozjazd procesu. Sama nazwa nie wystarcza: produkcja po nieudanym
+        pilocie też bywa w workspace „Demo"
+      # Bez tego warunku klasa mówi „duplikat" o parze, która nigdy nie żyła —
+      # a rubryka opisuje rozjazd jako „jedna aktywna, reszta cichnie".
+      - obie tablice pary mają zero wpisów w logu od chwili utworzenia
     waga: wysoka
     wysilek_naprawy: wysoki
     typ_wyceny: ryzyko
     wzor: null
-    dowod: ["board_ids[]", nakladanie_kolumn, nakladanie_subskrybentow, daty_utworzenia]
+    # `aktywnosc_stron` dodane 2026-08-17: agent przy `effort=medium` gubił ten
+    # fakt w 3 z 6 findingów, bo NIKT go nie wymagał. Fakt rozstrzyga klasę
+    # (rozjazd czy martwy szablon), więc musi być w dowodzie, nie w dobrej woli.
+    dowod:
+      ["board_ids[]", nakladanie_kolumn, nakladanie_subskrybentow, daty_utworzenia,
+       aktywnosc_stron]
     widocznosc: klient
     trop_sprzedazowy: konsolidacja i przebudowa — projekt, nie poprawka
 

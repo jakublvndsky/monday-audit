@@ -260,3 +260,73 @@ Na zmierzonych średnich (nie na dwóch obserwacjach):
 
 Najsłabszy element tej ekstrapolacji to `BOARD_GHOST`: 30 hipotez, czyli 38%
 całości, oparte na 10 pomiarach z runów o innym zakresie.
+
+---
+
+## Krok 2 domknięty — 3346 → 1236 tok/hip. przy jakości 1,000/0,000/1,000
+
+Cel planu był 2200. Osiągnięte **1236**, czyli 44% poniżej celu i **−63% wobec
+baseline'u**, przy wszystkich trzech metrykach maksymalnych.
+
+| run | USD/hip. | out/hip. | s/hip. | trafność | fałszywki | rzeczowość |
+|---|---|---|---|---|---|---|
+| `ewal-tablice-s7` (baseline) | 0,1017 | 3346 | 48 | 1,000 | 0,000 | 1,000 |
+| `effort-medium-s7` | 0,0771 | 1576 | 26 | 1,000 | 0,000 | **0,833** |
+| `effort-high-s7` | 0,1280 | 4121 | 56 | **0,833** | 0,000 | 1,000 |
+| `effort-medium-v2` | 0,0663 | 815 | 17 | — | — | — |
+| **`effort-medium-v3`** | **0,0710** | **1236** | **20** | **1,000** | **0,000** | **1,000** |
+
+Wobec baseline'u: **koszt −30,2%, wyjście −63,1%, czas −57,8%.**
+
+### Czego nie dało samo `effort`
+
+`effort=medium` zbił wyjście, ale rzeczowość spadła do 0,833 — i sprawdzenie
+pokazało, że **fakt był gubiony NIESYSTEMATYCZNIE**: 3 z 6 findingów miały
+aktywność w dowodzie, 3 nie. To nie był brak wysiłku, a brak wymogu.
+
+Przyczyna: rubryka nie miała aktywności w polach `dowod`, więc walidacja tego nie
+pilnowała, a detektor nie podawał jej w faktach. Agent czasem sam ją znajdował,
+czasem nie — i to jest dokładnie ten wzorzec, o którym mówi zasada projektu:
+**guardrail w prompcie (a tu nawet nie w prompcie, tylko w dobrej woli modelu)
+jest gorszy od guardraila w kodzie.**
+
+Naprawa u źródła, nie przez oddanie effortu:
+
+1. **Detektor** dokłada `aktywnosc_stron` — wpisy w logu dla KAŻDEJ strony pary,
+   z `LEFT JOIN`, żeby `None` znaczyło „nie wiem", nie „zero".
+2. **Rubryka** wymaga `aktywnosc_stron` w dowodzie → walidacja odrzuci finding
+   bez tego faktu, więc agent nie ma jak go pominąć.
+3. **Dwa nowe warunki odrzucenia**: workspace nazwany demo/sandbox/test **ORAZ**
+   obie strony martwe (decyzja Kuby po O33), oraz „obie strony zero wpisów".
+
+Po tym `effort=medium` daje rzeczowość 1,000 i wyjście **jeszcze niższe** (1236
+wobec 1576) — bo agent nie szuka faktu, który dostaje w faktach hipotezy.
+
+### Skutek uboczny, który jest ważniejszy niż liczby
+
+Nowy warunek odrzucenia wycina **16 z 21 hipotez** tej klasy na snapshocie #7:
+
+    16 par — obie strony 0 wpisów   → odrzucenie (szablon rozstawiony raz)
+     2 pary — któraś strona żyje    → realny rozjazd
+     3 pary — brak próbki logu      → nie orzekamy
+
+Czyli 76% tego, co ta klasa dotąd zgłaszała, to były pary NIGDY nieużywane.
+Rubryka definiuje rozjazd jako „jedna aktywna, reszta cichnie" — para martwa po
+obu stronach nie była procesem, więc zgłaszanie jej kazało klientowi konsolidować
+coś, czego nie używa.
+
+Złoty zestaw przebudowany: 2 pozycje oczekiwane (z żywą stroną) i 3 niedopuszczalne
+— **te same obiekty, które w poprzedniej wersji były oczekiwane.** Ten sam obiekt
+po przeciwnej stronie zestawu to najostrzejszy test, czy warunek działa, a nie
+tylko istnieje w YAML-u. Agent odrzucił wszystkie trzy.
+
+Najmocniejsza pozycja oczekiwana: `5093364943+5093573354` — dwie kopie
+„AI Notetaker Meetings Log" z **83 wpisami na każdej stronie** i 129/124 itemami.
+Dwa dzienniki tego samego procesu prowadzone równolegle, nie porzucona kopia.
+
+### Czego NIE przypinamy
+
+`effort` zostaje flagą, nie wartością domyślną. Powód: `high` wyszedł **droższy
+od baseline'u** (0,1280 wobec 0,1017 USD/hip.) i zgubił jedną pozycję — więc
+„więcej wysiłku = lepiej" jest fałszem, a każda wartość domyślna byłaby
+przypięciem liczby zmierzonej na jednej klasie i jednym koncie demo.
