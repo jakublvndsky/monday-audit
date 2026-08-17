@@ -72,6 +72,7 @@ from monday_audit.cennik import Stawka
 from monday_audit.detektory import Hipoteza
 from monday_audit.narzedzia import Narzedzia, NarzedziaHipotezy, NarzedzieError
 from monday_audit.rubryka import Klasa, Rubryka
+from monday_audit.szablony_findingow import z_szablonu
 
 logger = logging.getLogger(__name__)
 
@@ -716,18 +717,32 @@ async def zbadaj_hipotezy(
         # `monotonic`, nie `datetime.now`: zegar systemowy potrafi skoczyć w trakcie
         # godzinnego runu i dać czas ujemny.
         zaczeto = time.monotonic()
-        wynik = await zbadaj_hipoteze(
-            hipoteza,
-            zestaw=zestaw,
-            rubryka=rubryka,
-            prompt=prompt,
-            inwentarz=inwentarz,
-            serwer=serwer,
-            biezace=biezace,
-            klucz_api=klucz_api,
-            stawki=stawki,
-            model=model,
-        )
+        # ── ŚCIEŻKA BEZ MODELU ────────────────────────────────────────────
+        #
+        # Klasa z `rola_agenta: brak` i szablonem nie wchodzi do sesji wcale.
+        # ZMIERZONE na `ZOMBIE_ACCOUNT`: szablon daje trafność 1,000, fałszywki
+        # 0,000 i rzeczowość 1,000 — te same liczby co model, za 0 USD zamiast
+        # 0,357 USD na run. Model przepisywał `dowod` z faktów detektora bajt
+        # w bajt i dokładał zdanie.
+        #
+        # Rozdzielenie idzie TUTAJ, nie w `zbadaj_hipoteze`: tamta funkcja jest
+        # o prowadzeniu sesji, a nie o tym, czy sesja jest potrzebna.
+        szablonowy = z_szablonu(hipoteza, rubryka.po_id[hipoteza.klasa_id])
+        if szablonowy is not None:
+            wynik = WynikHipotezy(hipoteza=hipoteza, finding=szablonowy)
+        else:
+            wynik = await zbadaj_hipoteze(
+                hipoteza,
+                zestaw=zestaw,
+                rubryka=rubryka,
+                prompt=prompt,
+                inwentarz=inwentarz,
+                serwer=serwer,
+                biezace=biezace,
+                klucz_api=klucz_api,
+                stawki=stawki,
+                model=model,
+            )
         sekund = round(time.monotonic() - zaczeto, 3)
         for klucz in ("tokens_in", "tokens_out", "tokens_cache_read", "tokens_cache_write"):
             zuzycie[klucz] += wynik.zuzycie.get(klucz, 0)
