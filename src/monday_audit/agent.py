@@ -464,6 +464,7 @@ def zbuduj_opcje(
     serwer: Any,
     klucz_api: str,
     model: str = MODEL,
+    effort: str | None = None,
 ) -> ClaudeAgentOptions:
     """Opcje jednej sesji. Wydzielone, ŻEBY DAŁO SIĘ SPRAWDZIĆ PODŁĄCZENIE.
 
@@ -485,7 +486,30 @@ def zbuduj_opcje(
     podpięta. To samo powtórzyło się z kluczem API: 493 testy były zielone,
     a klucz nie dochodził do podprocesu. Skoro obie usterki siedziały
     w konstrukcji opcji, konstrukcja musi być osobno testowalna.
+
+    ## `effort` — jedyna dźwignia na wyjście, wskazana pomiarem
+
+    ZMIERZONE (run `instr-011`, migracja 011): wyjście to 49% rachunku, a w nim
+    **74-76% to tokeny MYŚLENIA**. Wyrzuconych bloków tekstu jest ZERO — agent
+    odpowiada jednym blokiem, od razu JSON-em. Czyli instrukcja w prompcie
+    („nie rozpisuj rozumowania") walczyłaby o zero, a `max_tokens` w SDK nie
+    istnieje wcale.
+
+    Zostaje `effort`. Zaleta wobec zmiany promptu: prompt jest prefiksem cache'u
+    (88,7% odczytu), więc jego zmiana zresetowałaby cache i `prompt_hash`, czyli
+    porównywalność z poprzednimi runami. `effort` jest poza prefiksem — jedna
+    flaga, odwracalna, bez kosztu przy pierwszym runie.
+
+    Ryzyko do zmierzenia, nie do założenia: `effort` cina jakość rozumowania,
+    a nie samą długość. `DUPLICATE_STRUCTURE` rozstrzyga (porównuje tablice
+    między sobą), nie przepisuje — więc każde obniżenie mierzymy złotym zestawem
+    i cofamy przy spadku rzeczowości.
+
+    `None` znaczy „nie przekazuj wcale", nie „domyślny" — brak pola w opcjach
+    zostawia decyzję SDK, a jawna wartość domyślna przypięłaby nas do liczby,
+    której nie zmierzyliśmy.
     """
+    dodatkowe: dict[str, Any] = {"effort": effort} if effort else {}
     return ClaudeAgentOptions(
         model=model,
         # KLUCZ MUSI TU BYĆ JAWNIE. `pydantic-settings` wczytuje `.env` do
@@ -514,6 +538,7 @@ def zbuduj_opcje(
         # zależeć od plików, które zmieniamy przy każdym etapie.
         setting_sources=[],
         permission_mode="default",
+        **dodatkowe,
     )
 
 
@@ -529,6 +554,7 @@ async def zbadaj_hipoteze(
     klucz_api: str,
     stawki: dict[str, Stawka] | None = None,
     model: str = MODEL,
+    effort: str | None = None,
 ) -> WynikHipotezy:
     """Jedna hipoteza, jedna sesja, budżet z rubryki."""
     klasa = rubryka.po_id[hipoteza.klasa_id]
@@ -542,6 +568,7 @@ async def zbadaj_hipoteze(
         serwer=serwer,
         klucz_api=klucz_api,
         model=model,
+        effort=effort,
     )
     zadanie = ZADANIE.format(
         klasa=_opis_klasy(klasa),
@@ -675,6 +702,7 @@ async def zbadaj_hipotezy(
     klucz_api: str,
     stawki: dict[str, Stawka] | None = None,
     model: str = MODEL,
+    effort: str | None = None,
     sciezka_promptu: Path = SCIEZKA_PROMPTU,
 ) -> dict[str, Any]:
     """Bada wszystkie hipotezy i składa dokument D8. Nie waliduje — to `kontrakt`.
@@ -742,6 +770,7 @@ async def zbadaj_hipotezy(
                 klucz_api=klucz_api,
                 stawki=stawki,
                 model=model,
+                effort=effort,
             )
         sekund = round(time.monotonic() - zaczeto, 3)
         for klucz in ("tokens_in", "tokens_out", "tokens_cache_read", "tokens_cache_write"):

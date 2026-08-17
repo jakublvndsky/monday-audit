@@ -77,6 +77,24 @@ def zbuduj_parser() -> argparse.ArgumentParser:
         "`--limit` obcina globalnie, więc przy kilku klasach zwraca same hipotezy "
         "pierwszej z nich",
     )
+    parser.add_argument(
+        "--effort",
+        default=None,
+        choices=("low", "medium", "high", "xhigh", "max"),
+        help="wysiłek rozumowania modelu. ZMIERZONE (migracja 011): 74-76%% wyjścia "
+        "to tokeny MYŚLENIA, a wyrzuconych bloków tekstu jest zero — więc to jedyna "
+        "dźwignia na koszt wyjścia. Bez flagi decyduje SDK: nie przypinamy wartości, "
+        "której nie zmierzyliśmy",
+    )
+    parser.add_argument(
+        "--obiekt",
+        action="append",
+        default=[],
+        metavar="ID",
+        help="zawęź do konkretnych obiektów (można podać wielokrotnie). Bez tego "
+        "`--limit N` bierze N PIERWSZYCH, więc próbka mierzy losowość doboru "
+        "zamiast zmiany, którą badamy",
+    )
     parser.add_argument("--model", default=MODEL, help=f"domyślnie przypięty {MODEL}")
     parser.add_argument(
         "--budzet-monday",
@@ -131,6 +149,19 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
     hipotezy, raport_detektorow = uruchom_detektory(con, argumenty.snapshot, rubryka)
     if argumenty.klasy:
         hipotezy = [h for h in hipotezy if h.klasa_id in set(argumenty.klasy)]
+    if argumenty.obiekt:
+        # Dobór PO IDENTYFIKATORZE, nie po kolejności. Powód: próbka do pomiaru
+        # optymalizacji musi zawierać hipotezy, dla których trafność jest MIERZALNA
+        # (te ze złotego zestawu). `--limit 6` bierze sześć pierwszych z listy
+        # posortowanej przez detektor, więc mierzyłoby losowość doboru.
+        chciane = set(argumenty.obiekt)
+        hipotezy = [h for h in hipotezy if h.obiekt_id in chciane]
+        brakujace = chciane - {h.obiekt_id for h in hipotezy}
+        if brakujace:
+            # Ostrzeżenie, nie błąd: literówka w identyfikatorze albo obiekt,
+            # którego detektor nie wzbudził, dałyby po cichu mniejszą próbkę
+            # i pomiar na innej liczbie hipotez, niż się zamawiało.
+            logger.warning("nie ma hipotez dla obiektów: %s", ", ".join(sorted(brakujace)))
     if argumenty.na_klase is not None:
         # ZMIERZONE: `--limit 8` przy czterech klasach dawało {'BOARD_GHOST': 8},
         # bo obcina listę globalnie, a detektory zwracają ją pogrupowaną. Do
@@ -261,6 +292,7 @@ async def _zbadaj_i_zapisz(
             rubryka=rubryka,
             run_id=run_id,
             model=argumenty.model,
+            effort=argumenty.effort,
             stawki=stawki,
             klucz_api=klucz_anthropic(ustawienia),
         )

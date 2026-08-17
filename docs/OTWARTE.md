@@ -1215,3 +1215,36 @@ przy następnym runie: czy detektor milczy słusznie (8 osób w logach to mało 
 
 Do tego czasu klasa **nie wchodzi do złotego zestawu** — nie mamy ani jednej
 pozycji, którą dałoby się uzasadnić dwoma niezależnymi dowodami.
+
+## O33 — cały workspace 5610281 to `CRM_PL_Demo` (2026-08-17)
+
+**124 ze 124 tablic snapshotu #7 leży w workspace o nazwie `CRM_PL_Demo`.** To dane
+demonstracyjne albo szablonowe, nie produkcyjne.
+
+Znalezione nie przez przegląd danych, a przez **agenta przy `effort=high`**, który
+odrzucił hipotezę `DUPLICATE_STRUCTURE` z uzasadnieniem: „Workspace nazywa się
+`CRM_PL_Demo`, co wskazuje na materiał demo/szablonowy, nie produkcyjny rozjazd.
+[…] brak charakterystycznego dla tej klasy wzorca »jedna aktywna, reszta cichnie«".
+Dodał obserwację, której nie miałem w zestawie: obie tablice powstały **w tej samej
+sekundzie** (2026-03-18T11:13:30Z), z tym samym właścicielem i subskrybentem —
+sygnatura jednorazowego scaffoldingu z szablonu, nie niezależnego zakładania kopii.
+
+**Skutek dla złotego zestawu tablic:** `acme_snapshot7_tablice.yaml` opisuje
+32 duplikaty, które z dużym prawdopodobieństwem są szablonem CRM rozstawionym
+dwujęzycznie, a nie rozjazdem procesu u klienta. Trafność 1,000 na tym zestawie
+znaczy „agent zgadza się ze mną co do danych demo", nie „agent dobrze audytuje
+konto produkcyjne".
+
+**Skutek dla pomiarów kosztu:** liczby kosztu i czasu ZOSTAJĄ ważne — 0,1017 USD
+na hipotezę to koszt pracy modelu niezależnie od tego, czy dane są produkcyjne.
+Ważność tracą wyłącznie metryki JAKOŚCI dla klas o tablicach.
+
+**Do rozstrzygnięcia przez człowieka:** czy `DUPLICATE_STRUCTURE` powinno mieć
+warunek odrzucenia „workspace nazwany jako demo/sandbox/test". Argument za: agent
+i tak to rozpoznaje przy wysokim wysiłku, więc warunek jawny byłby tańszy.
+Argument przeciw: nazwa workspace to heurystyka, a klient może trzymać produkcję
+w workspace nazwanym „Demo" po nieudanym pilocie. **Nie zmieniam rubryki bez
+decyzji** — to zmiana definicji klasy, a te należą do człowieka.
+
+Klasy o użytkownikach są tym NIEDOTKNIĘTE: `ZOMBIE_ACCOUNT` mówi o kontach na
+poziomie konta monday (94 osoby, 19 płatnych miejsc), nie o tablicach w workspace.
