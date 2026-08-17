@@ -127,7 +127,9 @@ def test_finding_w_klasie_niedopuszczalnej_to_falszywka() -> None:
     assert w.falszywek == 1
     assert w.odsetek_falszywek == 1.0
     assert w.progi_spelnione["falszywki"] is False
-    assert w.zgloszone_niedopuszczalne == ["PLAN_MISMATCH"]
+    # Klasa I obiekt — bez identyfikatora nie wiadomo, co poprawić, gdy zestaw
+    # zakazuje czterech tablic z szesnastu.
+    assert w.zgloszone_niedopuszczalne == ["PLAN_MISMATCH konto"]
 
 
 def test_klasa_poza_zestawem_nie_jest_falszywka() -> None:
@@ -283,3 +285,71 @@ def test_zla_wartosc_pola_dowodu_nie_potwierdza_faktu() -> None:
         nazwa_zestawu="t.yaml",
     )
     assert w.rzeczowosc == 0.0
+
+
+def test_zakaz_dotyczy_obiektu_nie_calej_klasy() -> None:
+    """Zestaw zakazujący jednej tablicy nie czyni fałszywkami findingów o innych.
+
+    ZMIERZONA USTERKA (2026-08-17): pierwsza wersja liczyła fałszywki po KLASIE.
+    Zestaw zakazujący 4 tablic `BOARD_OVERCOMPLEX` uznał za fałszywki wszystkie
+    12 findingów tej klasy z runu z 11 sierpnia — w tym poprawne, na zupełnie
+    innych tablicach. Wyszło 0,444 zamiast 0,083, i to na metryce, która ma
+    pierwszeństwo nad trafnością.
+    """
+    z: dict[str, Any] = {
+        "oczekiwane": [],
+        "niedopuszczalne": [{"klasa_id": "BOARD_OVERCOMPLEX", "obiekt": "111"}],
+        "pominiete": [],
+    }
+    w = ocen(
+        [
+            finding(klasa="BOARD_OVERCOMPLEX", obiekt="111", dowod={"board_id": "111"}),
+            finding(klasa="BOARD_OVERCOMPLEX", obiekt="222", dowod={"board_id": "222"}),
+            finding(klasa="BOARD_OVERCOMPLEX", obiekt="333", dowod={"board_id": "333"}),
+        ],
+        z,
+        run_id="t",
+        nazwa_zestawu="t.yaml",
+    )
+    assert w.falszywek == 1, "tylko tablica 111 jest zakazana"
+    assert w.odsetek_falszywek == pytest.approx(1 / 3)
+    assert w.zgloszone_niedopuszczalne == ["BOARD_OVERCOMPLEX 111"]
+
+
+def test_gwiazdka_zakazuje_calej_klasy() -> None:
+    """`obiekt: "*"` to jawna decyzja „ta klasa nie ma prawa tu wystąpić".
+
+    Zakaz całoklasowy musi być możliwy, ale jako świadomy wybór — nie skutek
+    uboczny wskazania jednego obiektu.
+    """
+    z: dict[str, Any] = {
+        "oczekiwane": [],
+        "niedopuszczalne": [{"klasa_id": "PLAN_MISMATCH", "obiekt": "*"}],
+        "pominiete": [],
+    }
+    w = ocen(
+        [
+            finding(klasa="PLAN_MISMATCH", obiekt="27690228"),
+            finding(klasa="PLAN_MISMATCH", obiekt="cokolwiek"),
+        ],
+        z,
+        run_id="t",
+        nazwa_zestawu="t.yaml",
+    )
+    assert w.falszywek == 2
+
+
+def test_obiekt_z_listy_board_ids_sklada_sie_w_pare() -> None:
+    """`DUPLICATE_STRUCTURE` opisuje RELACJĘ, więc jego dowód niesie listę.
+
+    ZMIERZONA USTERKA: miernik czytał tylko `board_id` w liczbie pojedynczej, więc
+    wszystkim findingom tej klasy przypisywał „konto" i trafność wyszłaby 0,0 przy
+    dobrym runie. Sortowanie jest konieczne — agent może wypisać identyfikatory
+    w innej kolejności niż detektor, a „a+b" i „b+a" to różne napisy.
+    """
+    from mierz import _obiekt_findingu
+
+    assert _obiekt_findingu({"board_ids": ["222", "111"]}) == "111+222"
+    assert _obiekt_findingu({"board_id": "111"}) == "111"
+    assert _obiekt_findingu({"user_hash": "abc"}) == "abc"
+    assert _obiekt_findingu({}) == "konto"

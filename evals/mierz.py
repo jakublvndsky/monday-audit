@@ -238,13 +238,35 @@ def wczytaj_zestaw(sciezka: Path) -> dict[str, Any]:
     return dane
 
 
-def wczytaj_findingi(con: sqlite3.Connection, run_id: str) -> list[Finding]:
-    """Znaleziska runu. `obiekt` wyciągamy z dowodu — nie ma go w kolumnie.
+def _obiekt_findingu(dowod: dict[str, Any]) -> str:
+    """Identyfikator bytu, o którym mówi finding — wyciągnięty z dowodu.
 
-    Kolejność prób w dowodzie: `user_hash` (klasy o osobach), `board_id`
-    (o tablicach), potem `obiekt`. Gdy nic nie ma — `konto`, bo klasy jak
-    `GUEST_SPRAWL` czy `PLAN_MISMATCH` opisują całe konto, nie pojedynczy byt.
+    Nie ma go w kolumnie, bo kontrakt D8 nie wymaga osobnego pola: każda klasa
+    nazywa swój byt inaczej, zgodnie z własnymi polami dowodu z rubryki.
+
+    ## `board_ids` jako lista — klasy o RELACJACH między tablicami
+
+    `DUPLICATE_STRUCTURE` opisuje parę tablic, nie tablicę, więc jego dowód niesie
+    `board_ids: ["5093364928", "5093573344"]`. Detektor buduje z tego `obiekt_id`
+    w formacie `id+id` (identyfikatory posortowane), i tak samo składamy tu — bo
+    miernik dopasowuje po parze (klasa, obiekt) i musi trafić w to samo.
+
+    ZMIERZONA USTERKA (2026-08-17, przed runem `ewal-tablice-s7`): pierwsza wersja
+    sprawdzała tylko `board_id` w liczbie pojedynczej, więc wszystkim findingom tej
+    klasy przypisywała `"konto"` i trafność wyszłaby 0,0 przy dobrym runie. Złapane
+    odczytem prawdziwych findingów ze starego runu, nie testem.
+
+    Sortowanie jest konieczne: agent może wypisać identyfikatory w innej kolejności
+    niż detektor, a `"a+b"` i `"b+a"` to dla dopasowania dwa różne napisy.
     """
+    ids = dowod.get("board_ids")
+    if isinstance(ids, list) and ids:
+        return "+".join(sorted(str(x) for x in ids))
+    return str(dowod.get("user_hash") or dowod.get("board_id") or dowod.get("obiekt") or "konto")
+
+
+def wczytaj_findingi(con: sqlite3.Connection, run_id: str) -> list[Finding]:
+    """Znaleziska runu. `obiekt` wyciągamy z dowodu — nie ma go w kolumnie."""
     wynik: list[Finding] = []
     for wiersz in con.execute(
         "SELECT klasa_id, opis, rekomendacja, dowod FROM findings WHERE run_id = ?",
@@ -254,9 +276,7 @@ def wczytaj_findingi(con: sqlite3.Connection, run_id: str) -> list[Finding]:
             dowod = json.loads(wiersz["dowod"] or "{}")
         except json.JSONDecodeError:
             dowod = {}
-        obiekt = str(
-            dowod.get("user_hash") or dowod.get("board_id") or dowod.get("obiekt") or "konto"
-        )
+        obiekt = _obiekt_findingu(dowod if isinstance(dowod, dict) else {})
         wynik.append(
             Finding(
                 klasa_id=wiersz["klasa_id"],
@@ -483,9 +503,25 @@ def ocen(
             )
         )
 
-    # Fałszywki: findingi w klasie, którą zestaw jawnie odrzuca.
+    # Fałszywki: findingi na OBIEKCIE, którego zestaw zakazuje — nie w całej klasie.
+    #
+    # ZMIERZONA USTERKA (2026-08-17): pierwsza wersja liczyła po klasie, więc przy
+    # zestawie zakazującym 4 tablic `BOARD_OVERCOMPLEX` uznała za fałszywki
+    # WSZYSTKIE 12 findingów tej klasy z runu z 11 sierpnia — w tym poprawne
+    # findingi na zupełnie innych tablicach. Fałszywki wyszły 0,444 zamiast 0,083.
+    # Miara ZAWYŻAJĄCA na metryce, która ma pierwszeństwo nad trafnością.
+    #
+    # Zakaz całej klasy nadal da się wyrazić: pozycja z `obiekt: "*"`. Wtedy jest
+    # to decyzja jawna („ta klasa nie ma prawa wystąpić na tym koncie"), a nie
+    # skutek uboczny wskazania jednego obiektu.
     zakazane_klasy = {str(p["klasa_id"]) for p in niedopuszczalne}
-    falszywe = [f for f in findingi if f.klasa_id in zakazane_klasy]
+    zakazane_pary = {(str(p["klasa_id"]), str(p["obiekt"])) for p in niedopuszczalne}
+    klasy_calkiem = {k for k, o in zakazane_pary if o == "*"}
+    falszywe = [
+        f
+        for f in findingi
+        if (f.klasa_id, f.obiekt) in zakazane_pary or f.klasa_id in klasy_calkiem
+    ]
 
     # Klasy, o których zestaw milczy. Nie fałszywki — dziury w zestawie.
     opisane = {str(p["klasa_id"]) for p in oczekiwane} | zakazane_klasy
@@ -502,7 +538,9 @@ def ocen(
         falszywek=len(falszywe),
         findingow=len(findingi),
         pozycje=pozycje,
-        zgloszone_niedopuszczalne=sorted({f.klasa_id for f in falszywe}),
+        # Klasa I obiekt — „BOARD_OVERCOMPLEX" bez identyfikatora nie mówi, co
+        # poprawić, gdy zestaw zakazuje czterech tablic z szesnastu.
+        zgloszone_niedopuszczalne=sorted({f"{f.klasa_id} {f.obiekt}" for f in falszywe}),
         poza_zestawem=poza,
         pominietych_w_zestawie=len(pominiete),
         hipotez_na_klase=dict(na_klase or {}),
