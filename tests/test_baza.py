@@ -90,7 +90,7 @@ def test_migracje_aplikuja_sie_od_zera(tmp_path: Path) -> None:
     wiadomo było tylko, że run kosztował 7,09 USD — nie z czego.
     """
     con = polacz(tmp_path / "nowa.db")
-    assert zastosuj_migracje(con) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    assert zastosuj_migracje(con) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     con.close()
 
 

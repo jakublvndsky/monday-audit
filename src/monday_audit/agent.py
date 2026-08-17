@@ -133,6 +133,28 @@ class WynikHipotezy:
     wywolania_narzedzi: list[str] = field(default_factory=list)
     zuzycie: dict[str, float] = field(default_factory=dict)
     blad: str | None = None
+    # ── ROZBICIE WYJŚCIA (etap 4, instrumentacja) ─────────────────────────
+    #
+    # `tokens_out` skleja trzy rzeczy o TRZECH RÓŻNYCH dźwigniach, a bez ich
+    # rozdzielenia wybór dźwigni jest zgadywaniem po ~0,6 USD za próbę:
+    #
+    #   1. tokeny MYŚLENIA — model ma myślenie adaptacyjne, `display: omitted`,
+    #      więc nie pojawiają się w żadnym `TextBlock`. Dźwignia: `effort`.
+    #   2. wcześniejsze `TextBlock` — pętla niżej bierze OSTATNI niepusty blok,
+    #      więc poprzednie są rozliczone w tokenach i wyrzucone. Dźwignia:
+    #      instrukcja w prompcie.
+    #   3. finalny JSON — to, co faktycznie trafia do raportu. Dźwignia: limit
+    #      długości w kontrakcie.
+    #
+    # ZMIERZONE przed tą zmianą (szacunek: znaki findingu / 3,3): 79-86% wyjścia
+    # to NIE finding. Ale szacunek nie rozdziela punktu 1 od 2, a to one decydują,
+    # czy ciągnąć `effort`, czy prompt.
+    #
+    # Liczymy ZNAKI, nie tokeny — tokenizatora tu nie mamy, a stosunek znaków
+    # wystarcza do rozstrzygnięcia proporcji.
+    blokow_tekstu: int = 0
+    znakow_wyrzuconych: int = 0
+    znakow_finalnych: int = 0
 
 
 def _tekst_promptu(sciezka: Path = SCIEZKA_PROMPTU) -> str:
@@ -532,7 +554,11 @@ async def zbadaj_hipoteze(
     )
 
     wynik = WynikHipotezy(hipoteza=hipoteza)
-    ostatni_tekst = ""
+    # Wszystkie niepuste bloki tekstu, nie tylko ostatni. Zachowanie się NIE
+    # zmienia — `ostatni_tekst` to nadal ostatni blok — ale wcześniejsze
+    # przestają ginąć bez śladu. To one są kandydatem na 79-86% rachunku za
+    # wyjście i bez ich policzenia nie wiadomo, czy skracać prompt, czy `effort`.
+    bloki: list[str] = []
     try:
         async with ClaudeSDKClient(options=opcje) as klient:
             await klient.query(zadanie)
@@ -540,7 +566,7 @@ async def zbadaj_hipoteze(
                 if isinstance(wiadomosc, AssistantMessage):
                     for blok in wiadomosc.content:
                         if isinstance(blok, TextBlock) and blok.text.strip():
-                            ostatni_tekst = blok.text
+                            bloki.append(blok.text)
                 elif isinstance(wiadomosc, ResultMessage):
                     wynik.zuzycie = _zuzycie(wiadomosc)
                     # BŁĄD API NIE RZUCA WYJĄTKU. Wraca jako `is_error=True`
@@ -559,6 +585,11 @@ async def zbadaj_hipoteze(
     finally:
         wynik.wywolania_narzedzi = list(narzedzia_hipotezy.wywolania)
         biezace.pop("aktywne", None)
+        # W `finally`, bo pomiar ma przeżyć także padniętą hipotezę — sesja
+        # zerwana po trzech blokach rozumowania zapłaciła za te bloki tak samo.
+        wynik.blokow_tekstu = len(bloki)
+        wynik.znakow_finalnych = len(bloki[-1]) if bloki else 0
+        wynik.znakow_wyrzuconych = sum(len(b) for b in bloki[:-1])
 
     if wynik.blad:
         # Błąd po stronie API. Nie próbujemy parsować odpowiedzi, której nie ma.
@@ -566,7 +597,7 @@ async def zbadaj_hipoteze(
         return wynik
 
     try:
-        rozstrzygniecie = _wyluskaj_json(ostatni_tekst)
+        rozstrzygniecie = _wyluskaj_json(bloki[-1] if bloki else "")
     except AgentError as blad:
         wynik.blad = str(blad)
         return wynik
@@ -720,6 +751,12 @@ async def zbadaj_hipotezy(
                 # jeśli większość kończy się odrzuceniem, płacimy głównie za
                 # dowiadywanie się, że czegoś NIE MA.
                 "byl_finding": bool(wynik.finding),
+                # Rozbicie wyjścia — patrz komentarz przy `WynikHipotezy`.
+                # `tokens_out` minus (znaki / ~3,3) to tokeny myślenia, których
+                # nie widać w żadnym bloku tekstu.
+                "blokow_tekstu": wynik.blokow_tekstu,
+                "znakow_wyrzuconych": wynik.znakow_wyrzuconych,
+                "znakow_finalnych": wynik.znakow_finalnych,
             }
         )
         if wynik.blad:

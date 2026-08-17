@@ -507,6 +507,17 @@ async def _zbierz_i_zapisz(
 # wołana z obu ścieżek, i test pilnujący, że żadna nie zapisuje mniej.
 
 
+def _liczba_albo_nic(wartosc: Any) -> int | None:
+    """`None` gdy klucza nie ma, liczba gdy jest — także gdy jest zerem.
+
+    Rozróżnienie istotne dla kolumn z migracji 011: `blokow_tekstu = 0` znaczy
+    „sesja padła przed pierwszą odpowiedzią", a `NULL` znaczy „ten run powstał
+    przed instrumentacją". Podstawienie zera w drugim przypadku zamieniłoby brak
+    pomiaru w pomiar.
+    """
+    return None if wartosc is None else int(wartosc)
+
+
 def zapisz_zuzycie(
     con: sqlite3.Connection,
     run_id: str,
@@ -543,8 +554,9 @@ def zapisz_zuzycie(
         con.executemany(
             "INSERT INTO zuzycie_hipotez (run_id, klasa_id, obiekt_id, tokens_in, "
             "tokens_out, tokens_cache_read, tokens_cache_write, koszt_usd, sekund, "
-            "wywolan_narzedzi, byl_finding, zapisano) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "wywolan_narzedzi, byl_finding, blokow_tekstu, znakow_wyrzuconych, "
+            "znakow_finalnych, zapisano) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 (
                     run_id,
@@ -558,6 +570,12 @@ def zapisz_zuzycie(
                     float(h.get("sekund") or 0.0),
                     int(h.get("wywolan_narzedzi", 0)),
                     int(bool(h.get("byl_finding"))),
+                    # Rozbicie wyjścia (migracja 011). `None`, nie zero, gdy klucza
+                    # nie ma — zero znaczyłoby „model nic nie napisał", a prawda
+                    # jest „nie mierzyliśmy". Ta sama zasada co `ma_rozbicie`.
+                    _liczba_albo_nic(h.get("blokow_tekstu")),
+                    _liczba_albo_nic(h.get("znakow_wyrzuconych")),
+                    _liczba_albo_nic(h.get("znakow_finalnych")),
                     teraz,
                 )
                 for h in (per_hipoteza or [])
