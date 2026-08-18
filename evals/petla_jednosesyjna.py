@@ -368,12 +368,27 @@ async def _uruchom(argumenty: argparse.Namespace) -> int:
             | {"byl_finding": bool(w.get("finding"))}
             for w in wynik["wyniki"]
         ]
+        # `findingow` zostaje NULL, nie liczbą.
+        #
+        # ZMIERZONA USTERKA (2026-08-18): pierwsza wersja zapisywała tu
+        # `diagnoza["findingow"]`, czyli 2, nie zapisując ANI JEDNEGO wiersza
+        # do tabeli `findings` — bo ten skrypt jest eksperymentem i findingi
+        # trzyma w JSON-ie, nie w bazie.
+        #
+        # Skutek wyszedł poza eksperyment: `_ostatni_run` w `pulpit.py` wybiera
+        # najnowszy run z `findingow > 0`, więc panel klienta ACME zaczął wybierać
+        # ten run, nie znajdował dla niego findingów i **przestawał się otwierać**.
+        # Zamiast dziesięciu audytów do wyboru pokazywał „ten klient nie ma jeszcze
+        # audytu" i formularz klucza API.
+        #
+        # Wniosek: run eksperymentalny NIE MOŻE wyglądać w `runy` jak run
+        # produkcyjny. `NULL` znaczy „nie wiem, ile znalezisk" i to jest prawda —
+        # w tej tabeli ich nie ma. Liczba jest w pliku JSON i w `zuzycie_hipotez`.
         con.execute(
-            "UPDATE runy SET status = 'zakonczony', finished_at = ?, findingow = ?, "
+            "UPDATE runy SET status = 'zakonczony', finished_at = ?, "
             "hipotez_zbadanych = ?, hipotez_odrzuconych = ? WHERE run_id = ?",
             (
                 datetime.now(tz=UTC).isoformat(),
-                diagnoza["findingow"],
                 len(hipotezy),
                 diagnoza["odrzuconych"],
                 argumenty.run_id,

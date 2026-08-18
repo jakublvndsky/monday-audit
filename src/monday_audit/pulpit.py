@@ -358,7 +358,18 @@ def lista_runow(con: sqlite3.Connection, client_id: str) -> list[PozycjaRunu]:
         "SELECT r.run_id, r.started_at, "
         "(SELECT COUNT(*) FROM findings f WHERE f.run_id = r.run_id) findingow "
         "FROM runy r WHERE r.client_id = ? AND r.status = 'zakonczony' "
-        "AND r.findingow > 0 ORDER BY r.started_at DESC",
+        "AND r.findingow > 0 "
+        # Run bez snapshotu NIE MOŻE wejść do drop-downu.
+        #
+        # ZMIERZONE (2026-08-18): `agent-pelny-19` z lipca ma `findingow = 11`
+        # i `snapshot_id = NULL` (snapshot skasowany), więc pokazywał się na
+        # liście wersji — a jego wybór dawał 404 „nie znaleziono audytu". Kontrolka
+        # oferująca wybór, który się nie otwiera, jest gorsza od braku pozycji:
+        # odbiorca nie ma jak zgadnąć, że to stary run testowy, a nie usterka.
+        #
+        # Siedem takich runów jest w bazie, jeden trafiał do drop-downu.
+        "AND EXISTS (SELECT 1 FROM snapshots s WHERE s.id = r.snapshot_id) "
+        "ORDER BY r.started_at DESC",
         (client_id,),
     ):
         pozycje.append(
@@ -488,13 +499,31 @@ def zbuduj_pulpit(
         raise RaportError(f"klient {client_id} nie ma zakończonego audytu ze znaleziskami")
 
     raport: Raport = zbuduj_raport(con, run_id=wybrany, rubryka=rubryka, odbiorca=odbiorca)
-    payload = json.loads(
-        con.execute(
-            "SELECT payload FROM snapshots WHERE id = "
-            "(SELECT snapshot_id FROM findings WHERE run_id = ? LIMIT 1)",
-            (wybrany,),
-        ).fetchone()["payload"]
-    )
+    # Snapshot bierzemy z `runy`, NIE z `findings`.
+    #
+    # ZMIERZONA USTERKA (2026-08-18): stała tu podkwerenda
+    # `SELECT snapshot_id FROM findings WHERE run_id = ? LIMIT 1`, więc run
+    # o zerze wierszy w `findings` dawał `NULL` → `fetchone()` zwracał `None`
+    # → `TypeError: 'NoneType' object is not subscriptable`. Cały panel klienta
+    # przestawał się otwierać: front dostawał wyjątek, pokazywał „ten klient nie
+    # ma jeszcze audytu" i formularz klucza API, a dziesięć zakończonych audytów
+    # stawało się niewidoczne — nie dało się wybrać wersji, bo lista wersji jedzie
+    # w tym samym payloadzie.
+    #
+    # Wyzwoliło to `evals/petla_jednosesyjna.py`, który zapisał `runy.findingow`
+    # bez wierszy w `findings`. Ale przyczyną nie jest tamten skrypt: `runy` ZNA
+    # swój `snapshot_id` od migracji 001, więc czytanie go przez `findings` było
+    # obejściem, które działa tylko dla runów ze znaleziskami.
+    #
+    # `_ostatni_run` filtruje po `findingow > 0`, więc normalnie tu nie wejdziemy —
+    # ale „normalnie" jest właśnie tym założeniem, które padło.
+    wiersz_snapshotu = con.execute(
+        "SELECT s.payload FROM snapshots s JOIN runy r ON r.snapshot_id = s.id WHERE r.run_id = ?",
+        (wybrany,),
+    ).fetchone()
+    if wiersz_snapshotu is None:
+        raise RaportError(f"run {wybrany} nie ma snapshotu — nie da się zbudować panelu")
+    payload = json.loads(wiersz_snapshotu["payload"])
     nazwa = str(((payload.get("konto") or {}).get("konto") or {}).get("nazwa") or client_id)
 
     wewnetrzny = odbiorca == ODBIORCA_WEWNETRZNY

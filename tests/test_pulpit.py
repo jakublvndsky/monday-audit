@@ -572,3 +572,77 @@ def test_dezaktywowane_konto_nie_liczy_sie_jako_dostep(con: sqlite3.Connection) 
     con.commit()
 
     assert zbuduj_liste_klientow(con)[0].ma_konto is False
+
+
+def test_panel_otwiera_sie_gdy_run_nie_ma_wierszy_w_findings(con: sqlite3.Connection) -> None:
+    """Snapshot bierzemy z `runy`, nie przez `findings`.
+
+    ZMIERZONA USTERKA (2026-08-18): `zbuduj_pulpit` czytał snapshot podkwerendą
+    `SELECT snapshot_id FROM findings WHERE run_id = ?`, więc run z zerem wierszy
+    w `findings` dawał `NULL` → `fetchone()` zwracał `None` → `TypeError`.
+
+    Skutek był nieproporcjonalny do przyczyny: CAŁY panel klienta przestawał się
+    otwierać. Front dostawał wyjątek, pokazywał „ten klient nie ma jeszcze audytu"
+    i formularz klucza API, a dziewięć zakończonych audytów stawało się
+    niewidoczne — bo lista wersji jedzie w tym samym payloadzie.
+
+    Wyzwoliło to `evals/petla_jednosesyjna.py` (licznik bez findingów), ale
+    przyczyną było czytanie snapshotu przez tabelę, która nie musi mieć wiersza.
+    """
+    _finding(con, KLASA_KLIENTA, run_id="r1")  # `r1` istnieje w fixture
+    # Run z licznikiem, ale BEZ findingów — dokładnie kształt, który to zepsuł.
+    con.execute(
+        "INSERT INTO runy (run_id, client_id, snapshot_id, status, started_at, "
+        "hipotez_zbadanych, findingow) VALUES "
+        "('r-bez-findingow', 'cxlabs', 5, 'zakonczony', '2026-08-06T10:00:00+00:00', 3, 2)"
+    )
+    con.commit()
+
+    # Wprost na tym runie: przedtem `TypeError`, teraz panel się buduje.
+    pulpit = zbuduj_pulpit(con, client_id="cxlabs", rubryka=RUBRYKA, run_id="r-bez-findingow")
+
+    assert pulpit.run_id == "r-bez-findingow"
+    assert pulpit.findingi == ()
+    # I najważniejsze: lista wersji NADAL ma poprzedni audyt, więc drop-down żyje.
+    assert "r1" in {w.run_id for w in pulpit.wersje}
+
+
+def test_run_bez_snapshotu_nie_wchodzi_do_dropdownu(con: sqlite3.Connection) -> None:
+    """Kontrolka nie może oferować wyboru, który daje 404.
+
+    ZMIERZONE: `agent-pelny-19` z lipca ma `findingow = 11` i `snapshot_id = NULL`
+    (snapshot skasowany), więc pokazywał się na liście wersji — a jego wybór dawał
+    „nie znaleziono audytu". Odbiorca nie ma jak zgadnąć, że to stary run testowy,
+    a nie usterka panelu.
+    """
+    _finding(con, KLASA_KLIENTA, run_id="r1")  # `r1` istnieje w fixture
+    con.execute(
+        "INSERT INTO runy (run_id, client_id, snapshot_id, status, started_at, "
+        "hipotez_zbadanych, findingow) VALUES "
+        "('r-sierota', 'cxlabs', NULL, 'zakonczony', '2026-08-07T10:00:00+00:00', 3, 11)"
+    )
+    con.commit()
+
+    wersje = {w.run_id for w in lista_runow(con, "cxlabs")}
+
+    assert "r1" in wersje
+    assert "r-sierota" not in wersje, "run bez snapshotu nie da się otworzyć"
+
+
+def test_kazda_pozycja_dropdownu_daje_sie_otworzyc(con: sqlite3.Connection) -> None:
+    """Niezmiennik listy wersji: co jest na liście, to się otwiera.
+
+    To jest test tej WŁASNOŚCI, nie konkretnego defektu — dwa poprzednie testy
+    pilnują znanych przyczyn, ten pilnuje skutku, także dla przyczyn, których
+    jeszcze nie znamy.
+    """
+    _run_testowy(con, "r2", "2026-08-05T10:00:00+00:00")
+    con.execute(
+        "INSERT INTO runy (run_id, client_id, snapshot_id, status, started_at, "
+        "hipotez_zbadanych, findingow) VALUES "
+        "('r-sierota', 'cxlabs', NULL, 'zakonczony', '2026-08-07T10:00:00+00:00', 3, 5)"
+    )
+    con.commit()
+
+    for pozycja in lista_runow(con, "cxlabs"):
+        zbuduj_pulpit(con, client_id="cxlabs", rubryka=RUBRYKA, run_id=pozycja.run_id)
