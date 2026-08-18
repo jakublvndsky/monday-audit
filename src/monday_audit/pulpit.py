@@ -43,6 +43,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from monday_audit.deanonimizacja import Deanonimizacja
 from monday_audit.raport import (
     KATALOG_SZABLONOW,
     ODBIORCA_KLIENT,
@@ -123,6 +124,113 @@ class PozycjaRunu:
 
 
 @dataclass(frozen=True, slots=True)
+class UdzialWTablicy:
+    """Jedna komórka macierzy: co dana osoba robiła na danej tablicy."""
+
+    board_id: str
+    nazwa: str
+    akcji: int
+    # Rozkład w czasie i po zdarzeniach — z `kubelki_per_autor` i `eventy_per_autor`
+    # (sekcja dodana w etapie 4). Dzięki nim komórka mówi nie tylko ILE, ale
+    # KIEDY i CO — a to jest różnica między liczbą a odpowiedzią na pytanie.
+    kubelki_dni: dict[str, int] = field(default_factory=dict)
+    po_event: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class ProfilOsoby:
+    """Aktywność jednej osoby: gdzie, kiedy, co, ile.
+
+    Odpowiada na pytanie, na które znaleziska nie odpowiadają. Finding mówi „tu
+    jest problem, zrób X"; to jest obraz stanu, nie problem — dlatego siedzi
+    w osobnej zakładce, a nie w rubryce jako kolejna klasa.
+    """
+
+    user_hash: str
+    # Nazwisko z `osoby_mapowanie`, albo `nieznane konto (prefiks)`. Ta sama
+    # deanonimizacja co raport — jedno źródło, nie druga implementacja.
+    etykieta: str
+    # `member`, `admin`, `guest`, `view_only`, `personal_agent_member` albo `None`
+    # dla autora nieobecnego na liście kont.
+    kind: str | None
+    # Kategoria dla widoku: `czlowiek`, `agent_ai`, `nieznany`. Rozdzielenie jest
+    # KONIECZNE — ZMIERZONE na snapshocie #7: z 8 autorów w logach 3 to konta
+    # agentów AI, a 2 nie istnieją na liście kont (w tym NAJAKTYWNIEJSZY, 205
+    # akcji). Lista pokazująca „Quotation Agent" obok ludzi kłamie o zespole.
+    rodzaj: str
+    title: str | None
+    akcji: int
+    tablic: int
+    kubelki_dni: dict[str, int]
+    po_event: dict[str, int]
+    aktywny_ostatnie_7d: bool
+    # Tablice tej osoby, najaktywniejsza pierwsza.
+    tablice: tuple[UdzialWTablicy, ...] = ()
+
+    @property
+    def to_czlowiek(self) -> bool:
+        return self.rodzaj == "czlowiek"
+
+
+@dataclass(frozen=True, slots=True)
+class UdzialOsoby:
+    """Komórka macierzy widziana od strony tablicy."""
+
+    user_hash: str
+    etykieta: str
+    rodzaj: str
+    akcji: int
+    kubelki_dni: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class ProfilTablicy:
+    """Ta sama macierz obrócona: kto pracował na tej tablicy."""
+
+    board_id: str
+    nazwa: str
+    wpisow: int
+    najnowszy_at: str | None
+    # Autorzy, najaktywniejszy pierwszy. `etykieta` już zdeanonimizowana.
+    autorzy: tuple[UdzialOsoby, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class Ludzie:
+    """Zakładka „Ludzie" — dwa widoki tych samych danych plus kontekst pokrycia.
+
+    ## Dlaczego pokrycie jest w tej samej strukturze
+
+    ZMIERZONE na snapshocie #7: **8 autorów widocznych z 94 kont**, bo logi mamy
+    z **18 tablic z 124**. Widok pokazujący osiem wierszy bez tej informacji czyta
+    się jako „tylko tyle osób pracuje na tym koncie" — a to fałsz. Liczby pokrycia
+    nie są przypisem, są warunkiem, żeby resztę dało się czytać.
+    """
+
+    # Z ilu tablic mamy logi i ile ich jest — mianownik dla wszystkiego niżej.
+    tablic_z_logami: int
+    tablic_w_zakresie: int
+    kont_razem: int
+    # Osoby, agenty i konta nieznane RAZEM, posortowane po liczbie akcji.
+    # Rozdzielenie robi front po polu `rodzaj` — filtrowanie tutaj ukryłoby
+    # agenty AI zamiast je pokazać jako osobną kategorię.
+    osoby: tuple[ProfilOsoby, ...] = ()
+    tablice: tuple[ProfilTablicy, ...] = ()
+
+    @property
+    def ludzi(self) -> int:
+        return sum(1 for o in self.osoby if o.to_czlowiek)
+
+    @property
+    def agentow_ai(self) -> int:
+        return sum(1 for o in self.osoby if o.rodzaj == "agent_ai")
+
+    @property
+    def nieznanych(self) -> int:
+        return sum(1 for o in self.osoby if o.rodzaj == "nieznany")
+
+
+@dataclass(frozen=True, slots=True)
 class Pulpit:
     """Wszystko, co panel jednego klienta dostaje. Serializowalne przez `do_json`."""
 
@@ -138,6 +246,11 @@ class Pulpit:
     suma_kwot: float
     sekcje: tuple[Sekcja, ...]
     zastrzezenia: tuple[str, ...]
+    # Zakładka „Ludzie". Z COLLECTORA, nie od agenta — więc jest nawet wtedy, gdy
+    # agent nic nie znalazł. Idzie za wybraną wersją audytu (decyzja Kuby
+    # 2026-08-18): przełączenie na starszy run pokazuje aktywność z TAMTEGO
+    # snapshotu, więc da się porównać, jak zmieniła się w czasie.
+    ludzie: Ludzie | None = None
     # Wszystkie audyty tego klienta — drop-down wersji. Zawiera też run WŁAŚNIE
     # pokazywany, bo kontrolka musi mieć zaznaczoną pozycję.
     wersje: tuple[PozycjaRunu, ...] = ()
@@ -186,6 +299,155 @@ KLUCZE_WEWNETRZNE = (
 def _liczby(zrodlo: dict[str, Any], klucz: str) -> int:
     wartosc = zrodlo.get(klucz)
     return int(wartosc) if isinstance(wartosc, (int, float)) else 0
+
+
+# Rodzaje kont, które nie są ludźmi. Ta sama stała co w detektorze — importujemy,
+# nie kopiujemy napisu, bo dwa źródła prawdy o tym, co jest człowiekiem, rozjadą się
+# przy pierwszej zmianie w API monday.
+_RODZAJ_AGENT = "personal_agent_member"
+
+
+def _rodzaj_autora(kind: str | None, jest_na_liscie: bool) -> str:
+    """`czlowiek` / `agent_ai` / `nieznany` — kategoria dla widoku.
+
+    ZMIERZONE na snapshocie #7: z 8 autorów w logach 3 to konta agentów AI
+    (Quotation Agent, Lead Enrichment, Conflict Compliance), a 2 nie istnieją
+    na liście kont — w tym NAJAKTYWNIEJSZY, z 205 akcjami na 7 tablicach.
+
+    Bez tego rozdzielenia lista „ludzi" pokazuje agenta obok pracownika i sugeruje,
+    że na koncie pracuje osiem osób. Pracują trzy.
+    """
+    if not jest_na_liscie:
+        return "nieznany"
+    if kind == _RODZAJ_AGENT:
+        return "agent_ai"
+    return "czlowiek"
+
+
+def _nazwy_tablic(payload: dict[str, Any]) -> dict[str, str]:
+    """`board_id` → nazwa, z identyfikatorem gdy nazwa się POWTARZA.
+
+    ZMIERZONE na snapshocie #7: „AI Notetaker Meetings Log" nosiły DWIE różne
+    tablice (zduplikowana para z `DUPLICATE_STRUCTURE`), więc profil osoby pokazywał
+    dwa wiersze o identycznej nazwie i liczbie akcji — czytało się jak usterka
+    widoku, a było prawdą o koncie.
+
+    Nazwa niepowtarzalna zostaje sama. Powtórzona dostaje `(id)`, bo wtedy to
+    identyfikator jest jedyną rzeczą, która je rozróżnia — a w tym projekcie
+    duplikaty nazw są ZNALEZISKIEM, nie przypadkiem.
+    """
+    tablice = (payload.get("tablice") or {}).get("tablice") or []
+    ile_razy: dict[str, int] = {}
+    for tablica in tablice:
+        nazwa = str(tablica.get("nazwa") or "")
+        ile_razy[nazwa] = ile_razy.get(nazwa, 0) + 1
+    wynik: dict[str, str] = {}
+    for tablica in tablice:
+        bid = str(tablica.get("board_id"))
+        nazwa = str(tablica.get("nazwa") or bid)
+        wynik[bid] = f"{nazwa} ({bid})" if ile_razy.get(nazwa, 0) > 1 else nazwa
+    return wynik
+
+
+def zbuduj_ludzi(
+    payload: dict[str, Any],
+    deanon: Deanonimizacja,
+) -> Ludzie:
+    """Zakładka „Ludzie" ze snapshotu. Zero wywołań, zero modelu.
+
+    ## Skąd dane
+
+    Wszystko z `aktywnosc`: `per_uzytkownik` daje wiersz na osobę, a
+    `aktywnosc_tablic[].kubelki_per_autor` i `.eventy_per_autor` — rozbicie
+    KOMÓRKI macierzy na „kiedy" i „co". Obie sekcje dodane w etapie 4 krok 1;
+    do tej pory szły tylko do inwentarza agenta i nie było ich w panelu.
+
+    ## Granica PII
+
+    `deanon` przekazujemy z góry, tego samego, którego używa raport — więc reguła
+    „e-mail tylko wewnętrznie" (`z_emailem`) obowiązuje bez drugiej implementacji.
+    Klient widzi nazwiska swoich ludzi, bo to JEGO pracownicy (decyzja Kuby
+    2026-08-18); filtrowana jest treść wewnętrzna findingów, nie tożsamość.
+    """
+    aktywnosc = payload.get("aktywnosc") or {}
+    tablice_z_logami = [b for b in aktywnosc.get("aktywnosc_tablic") or [] if b.get("wpisow")]
+    nazwy = _nazwy_tablic(payload)
+    konta = {
+        str(o.get("user_hash")): o
+        for o in (payload.get("uzytkownicy") or {}).get("uzytkownicy") or []
+    }
+
+    # Udział per osoba per tablica — z tego powstają OBA widoki, lista i macierz.
+    udzialy: dict[str, list[UdzialWTablicy]] = {}
+    for board in tablice_z_logami:
+        bid = str(board.get("board_id"))
+        kub = board.get("kubelki_per_autor") or {}
+        ev = board.get("eventy_per_autor") or {}
+        for haszyk, ile in (board.get("udzial_autorow") or {}).items():
+            udzialy.setdefault(str(haszyk), []).append(
+                UdzialWTablicy(
+                    board_id=bid,
+                    nazwa=nazwy.get(bid, bid),
+                    akcji=int(ile),
+                    kubelki_dni=dict(kub.get(haszyk) or {}),
+                    po_event=dict(ev.get(haszyk) or {}),
+                )
+            )
+
+    osoby: list[ProfilOsoby] = []
+    for wpis in aktywnosc.get("per_uzytkownik") or []:
+        haszyk = str(wpis.get("user_hash"))
+        konto = konta.get(haszyk)
+        osoby.append(
+            ProfilOsoby(
+                user_hash=haszyk,
+                etykieta=deanon.nazwa(haszyk),
+                kind=(konto or {}).get("kind"),
+                rodzaj=_rodzaj_autora((konto or {}).get("kind"), konto is not None),
+                title=(konto or {}).get("title"),
+                akcji=int(wpis.get("akcji") or 0),
+                tablic=int(wpis.get("tablic") or 0),
+                kubelki_dni=dict(wpis.get("kubelki_dni") or {}),
+                po_event=dict(wpis.get("po_event") or {}),
+                aktywny_ostatnie_7d=bool(wpis.get("aktywny_ostatnie_7d")),
+                tablice=tuple(sorted(udzialy.get(haszyk, []), key=lambda u: -u.akcji)),
+            )
+        )
+
+    # Ten sam zbiór obrócony: tablica → kto na niej pracował.
+    profile_tablic: list[ProfilTablicy] = []
+    for board in tablice_z_logami:
+        bid = str(board.get("board_id"))
+        kub = board.get("kubelki_per_autor") or {}
+        autorzy = [
+            UdzialOsoby(
+                user_hash=str(h),
+                etykieta=deanon.nazwa(str(h)),
+                rodzaj=_rodzaj_autora((konta.get(str(h)) or {}).get("kind"), str(h) in konta),
+                akcji=int(ile),
+                kubelki_dni=dict(kub.get(str(h)) or {}),
+            )
+            for h, ile in (board.get("udzial_autorow") or {}).items()
+        ]
+        profile_tablic.append(
+            ProfilTablicy(
+                board_id=bid,
+                nazwa=nazwy.get(bid, bid),
+                wpisow=int(board.get("wpisow") or 0),
+                najnowszy_at=board.get("najnowszy_at"),
+                autorzy=tuple(sorted(autorzy, key=lambda a: -a.akcji)),
+            )
+        )
+
+    return Ludzie(
+        tablic_z_logami=len(tablice_z_logami),
+        tablic_w_zakresie=int(
+            ((payload.get("tablice") or {}).get("podsumowanie") or {}).get("razem") or 0
+        ),
+        kont_razem=len(konta),
+        osoby=tuple(sorted(osoby, key=lambda o: -o.akcji)),
+        tablice=tuple(sorted(profile_tablic, key=lambda b: -b.wpisow)),
+    )
 
 
 def _sekcje_konta(payload: dict[str, Any]) -> tuple[Sekcja, ...]:
@@ -527,6 +789,19 @@ def zbuduj_pulpit(
     nazwa = str(((payload.get("konto") or {}).get("konto") or {}).get("nazwa") or client_id)
 
     wewnetrzny = odbiorca == ODBIORCA_WEWNETRZNY
+
+    # Zakładka „Ludzie" — z COLLECTORA, więc niezależna od tego, czy agent coś
+    # znalazł. Idzie za wybraną wersją audytu, bo `payload` to snapshot TEGO runu.
+    #
+    # Osobna instancja `Deanonimizacja`, nie ta z `zbuduj_raport`: tamta jest
+    # lokalna dla tamtej funkcji i nie wraca w `Raport` (wraca sam licznik
+    # nieznanych). Reguła e-maila jest ta sama — `z_emailem` tylko wewnętrznie —
+    # więc granica się nie rozjeżdża, choć instancje są dwie.
+    #
+    # Nazwiska widzą OBIE role. To pracownicy klienta, nie nasi (decyzja Kuby
+    # 2026-08-18); filtrowana jest treść wewnętrzna findingów, nie tożsamość —
+    # i tak działa raport od etapu 3.
+    ludzie = zbuduj_ludzi(payload, Deanonimizacja(con, client_id, z_emailem=wewnetrzny))
     return Pulpit(
         odbiorca=odbiorca,
         client_id=client_id,
@@ -540,6 +815,7 @@ def zbuduj_pulpit(
         suma_kwot=raport.suma_kwot,
         sekcje=_sekcje_konta(payload),
         zastrzezenia=raport.zastrzezenia,
+        ludzie=ludzie,
         wersje=tuple(lista_runow(con, client_id)),
         poprzedni_run_at=_poprzedni_run(con, client_id, wybrany),
         hipotezy_odrzucone=raport.hipotezy_odrzucone if wewnetrzny else (),
@@ -572,6 +848,15 @@ def do_json(pulpit: Pulpit) -> dict[str, Any]:
     for sekcja, zrodlo in zip(dane["sekcje"], pulpit.sekcje, strict=True):
         for metryka, oryginal in zip(sekcja["metryki"], zrodlo.metryki, strict=True):
             metryka["udzial"] = oryginal.udzial
+    # To samo dla zakładki „Ludzie": liczniki są właściwościami, więc `asdict` ich
+    # nie widzi. Front nie ma ich liczyć sam — nagłówek „3 osoby, 3 agenty AI,
+    # 2 konta nieznane" to jedno zdanie, które musi być spójne z listą niżej.
+    if dane.get("ludzie") and pulpit.ludzie is not None:
+        dane["ludzie"]["ludzi"] = pulpit.ludzie.ludzi
+        dane["ludzie"]["agentow_ai"] = pulpit.ludzie.agentow_ai
+        dane["ludzie"]["nieznanych"] = pulpit.ludzie.nieznanych
+        for wiersz, zrodlo_osoby in zip(dane["ludzie"]["osoby"], pulpit.ludzie.osoby, strict=True):
+            wiersz["to_czlowiek"] = zrodlo_osoby.to_czlowiek
 
     if pulpit.dla_klienta:
         for klucz in KLUCZE_WEWNETRZNE:

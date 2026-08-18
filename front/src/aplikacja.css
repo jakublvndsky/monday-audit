@@ -656,6 +656,203 @@ body {
   color: var(--cx-ink-10);
 }
 
+
+/* ── zakładka „Ludzie" ──────────────────────────────────────────────────
+ *
+ * Kto na czym pracował, kiedy i co robił. Zero nowych kolorów — wszystko
+ * z tokenów `marka.css`, bo inaczej rozjedzie się przy podmianie firmowego CSS.
+ */
+
+.zakladki {
+  display: flex;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--cx-cloud-2);
+  margin: var(--space-5) 0 var(--space-4);
+}
+.zakladki button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--fg-subtle);
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  cursor: pointer;
+}
+.zakladki button:hover { color: var(--fg); }
+.zakladki button.aktywny {
+  color: var(--fg);
+  border-bottom-color: var(--cx-ink);
+  font-weight: 600;
+}
+/* Licznik przy nazwie zakładki — mówi, ile jest do zobaczenia, zanim klikniesz. */
+.zakladki button small {
+  padding: 0 var(--space-2);
+  border-radius: 999px;
+  background: var(--cx-cloud);
+  color: var(--fg-subtle);
+  font-size: var(--fs-small);
+}
+.zakladki button.aktywny small { background: var(--cx-lime-soft); color: var(--cx-ink); }
+
+/* POKRYCIE jest pierwsze i wyróżnione, bo bez niego reszta wprowadza w błąd:
+ * osiem wierszy przy 94 kontach czyta się jako „tylko tyle osób pracuje". */
+.ludzie__pokrycie {
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--cx-lime);
+  background: var(--cx-mist);
+  color: var(--fg);
+  font-size: var(--fs-small);
+}
+.ludzie__rozklad {
+  margin: var(--space-3) 0;
+  color: var(--fg-subtle);
+  font-size: var(--fs-small);
+}
+.ludzie__sterowanie {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.ludzie__filtr,
+.ludzie__odwrotnie {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--fg-subtle);
+  font-size: var(--fs-small);
+  cursor: pointer;
+}
+
+.przelacznik {
+  display: inline-flex;
+  border: 1px solid var(--cx-cloud-2);
+  border-radius: var(--radius-2, 6px);
+  overflow: hidden;
+}
+.przelacznik button {
+  padding: var(--space-2) var(--space-4);
+  border: 0;
+  background: var(--cx-white);
+  color: var(--fg-subtle);
+  font-family: var(--font-body);
+  font-size: var(--fs-small);
+  cursor: pointer;
+}
+.przelacznik button.aktywny { background: var(--cx-ink); color: var(--cx-white); }
+
+.lista-osob { display: flex; flex-direction: column; gap: var(--space-2); }
+
+.osoba {
+  border: 1px solid var(--cx-cloud);
+  border-radius: var(--radius-2, 6px);
+  background: var(--cx-white);
+}
+/* Agent AI i konto nieznane wyróżnione lewą krawędzią, nie kolorem tekstu:
+ * ZMIERZONE na koncie ACME, 3 z 8 autorów w logach to konta agentów, i lista
+ * bez tego rozróżnienia sugeruje, że pracuje osiem osób. */
+.osoba--agent_ai { border-left: 3px solid var(--cx-gray-3); }
+.osoba--nieznany { border-left: 3px solid var(--cx-cloud-2); }
+.osoba--czlowiek { border-left: 3px solid var(--cx-ink-40); }
+
+.osoba__naglowek {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: 0;
+  background: none;
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  text-align: left;
+  cursor: pointer;
+}
+.osoba__naglowek:hover { background: var(--cx-mist); }
+.osoba__kto { display: flex; align-items: center; gap: var(--space-2); flex: 1 1 auto; min-width: 0; }
+.osoba__kto b { overflow-wrap: anywhere; }
+.osoba__tytul { color: var(--fg-subtle); font-size: var(--fs-small); }
+.osoba__liczby { color: var(--fg); font-size: var(--fs-small); white-space: nowrap; }
+.osoba__strzalka { color: var(--fg-subtle); }
+.osoba__szczegoly {
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border-top: 1px solid var(--cx-cloud);
+}
+
+.znacznik {
+  padding: 1px var(--space-2);
+  border-radius: 999px;
+  font-size: var(--fs-tiny, 0.72rem);
+  white-space: nowrap;
+}
+.znacznik--czlowiek { display: none; }
+.znacznik--agent_ai { background: var(--cx-cloud); color: var(--cx-gray-2); }
+.znacznik--nieznany { background: var(--cx-cloud-2); color: var(--cx-gray-2); }
+.znacznik--zywy { background: var(--cx-lime-soft); color: var(--cx-ink); }
+.znacznik--cichy { background: var(--cx-paper); color: var(--fg-subtle); }
+
+/* Pasek czasu: cztery kubełki od najświeższego. Odpowiedź na „KIEDY" bez
+ * czytania czterech liczb — osoba z pracą tylko po prawej przestała działać. */
+.pasek-czasu {
+  display: inline-flex;
+  gap: 2px;
+  width: 96px;
+  height: 14px;
+  flex: 0 0 auto;
+}
+.pasek-czasu__kubelek { background: var(--cx-ink-40); border-radius: 2px; }
+.pasek-czasu__kubelek--pusty { background: var(--cx-cloud); }
+.pasek-czasu--puste { color: var(--fg-subtle); font-size: var(--fs-small); width: auto; }
+
+.zdarzenia { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
+.zdarzenia code {
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-1, 4px);
+  background: var(--cx-paper);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--fs-tiny, 0.72rem);
+}
+.zdarzenia small { color: var(--fg-subtle); font-size: var(--fs-tiny, 0.72rem); }
+
+.tabela-udzialow { width: 100%; border-collapse: collapse; font-size: var(--fs-small); margin-top: var(--space-3); }
+.tabela-udzialow th,
+.tabela-udzialow td {
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--cx-cloud);
+  text-align: left;
+  vertical-align: middle;
+}
+.tabela-udzialow th { color: var(--fg-subtle); font-weight: 500; }
+.tabela-udzialow .liczba { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Siatka osoby × tablice. Kropka zamiast zera: zero znaczyłoby „sprawdziliśmy,
+ * nic nie robił", a prawda jest „nie ma go na tej tablicy". */
+.siatka-ludzi { border-collapse: collapse; font-size: var(--fs-small); }
+.siatka-ludzi th,
+.siatka-ludzi td {
+  padding: var(--space-2);
+  border: 1px solid var(--cx-cloud);
+  white-space: nowrap;
+}
+.siatka-ludzi thead th { background: var(--cx-mist); font-weight: 500; vertical-align: bottom; }
+.siatka-ludzi__naroznik { background: var(--cx-cloud) !important; color: var(--fg-subtle); }
+/* Nazwy tablic bywają długie (i z emoji) — ucinamy w kolumnie, pełna jest
+ * w `title`. Bez tego jedna tablica rozpycha całą siatkę. */
+.siatka-ludzi__kolumna {
+  display: block;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.siatka-ludzi tbody th { text-align: left; font-weight: 400; }
+.siatka-ludzi .liczba { text-align: right; font-variant-numeric: tabular-nums; }
+.siatka-ludzi .puste { color: var(--cx-cloud-2); }
+
 @media (max-width: 900px) {
   .nawigacja-mobilna {
     display: flex;
@@ -665,6 +862,14 @@ body {
      * menu ląduje między znakiem marki a wylogowaniem. */
     margin: 0 var(--space-3);
   }
+  /* Zakładka „Ludzie" na telefonie: nagłówek wiersza ma pięć elementów, które
+   * nie zmieszczą się w rzędzie. Zawijamy, a pasek czasu i tytuł stanowiska
+   * chowamy — jedno i drugie jest w rozwinięciu. */
+  .osoba__naglowek { flex-wrap: wrap; gap: var(--space-2); }
+  .osoba__naglowek .pasek-czasu { display: none; }
+  .osoba__tytul { display: none; }
+  .zakladki button { padding: var(--space-2) var(--space-3); }
+
   /* Kolumny mniej istotne na telefonie: data i suma. Nazwa, znaleziska i dostęp
    * zostają, bo to one odpowiadają na „co z tym klientem". */
   .tabela-klientow th:nth-child(4),

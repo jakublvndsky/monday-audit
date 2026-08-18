@@ -30,11 +30,16 @@ from pathlib import Path
 
 from monday_audit.pulpit import (
     KLUCZE_WEWNETRZNE,
+    Ludzie,
     Metryka,
     PozycjaKlienta,
     PozycjaRunu,
+    ProfilOsoby,
+    ProfilTablicy,
     Pulpit,
     Sekcja,
+    UdzialOsoby,
+    UdzialWTablicy,
 )
 from monday_audit.raport import Finding
 
@@ -44,7 +49,23 @@ CEL = Path("front/src/api.ts")
 
 # Kolejność ma znaczenie: TypeScript wymaga definicji przed użyciem tylko
 # w typach rekurencyjnych, ale czytelniej jest od dołu do góry.
-KLASY = (Metryka, Sekcja, Finding, PozycjaRunu, Pulpit, PozycjaKlienta)
+# Struktury zakładki „Ludzie" PRZED `Pulpit`, bo on się do nich odwołuje.
+# Lista jest jawna, nie skanowaniem modułu: dopisanie dataclassy do `pulpit.py`
+# nie może po cichu wystawić jej do frontu — a test `test_typy_frontu_sa_aktualne`
+# przypomni o dopisaniu tutaj, gdy pole wejdzie do `Pulpit`.
+KLASY = (
+    Metryka,
+    Sekcja,
+    Finding,
+    PozycjaRunu,
+    UdzialWTablicy,
+    UdzialOsoby,
+    ProfilOsoby,
+    ProfilTablicy,
+    Ludzie,
+    Pulpit,
+    PozycjaKlienta,
+)
 
 NAGLOWEK = """// PLIK GENEROWANY — nie edytuj ręcznie.
 //
@@ -131,6 +152,20 @@ def zbuduj_tresc() -> str:
         tekst = _interfejs(klasa)
         if klasa is Pulpit:
             tekst = tekst.rstrip("}\n").rstrip() + "\n" + _wlasciwosci_pulpitu() + "\n}"
+        if klasa is Ludzie:
+            tekst = tekst.rstrip("}\n").rstrip() + (
+                "\n  // z `@property` — liczniki kategorii. Front ich NIE liczy sam:\n"
+                "  // nagłówek `3 osoby, 3 agenty AI, 2 konta nieznane` musi być\n"
+                "  // spójny z listą niżej, a dwa liczenia to dwa miejsca na rozjazd.\n"
+                "  ludzi: number;\n"
+                "  agentow_ai: number;\n"
+                "  nieznanych: number;\n}"
+            )
+        if klasa is ProfilOsoby:
+            tekst = tekst.rstrip("}\n").rstrip() + (
+                '\n  // z `@property` — skrót na `rodzaj === "czlowiek"`\n'
+                "  to_czlowiek: boolean;\n}"
+            )
         if klasa is Metryka:
             tekst = tekst.rstrip("}\n").rstrip() + (
                 "\n  // z `@property` — udział wyliczony, `null` gdy brak mianownika\n"

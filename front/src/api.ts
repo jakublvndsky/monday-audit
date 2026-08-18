@@ -47,6 +47,60 @@ export interface PozycjaRunu {
   findingow: number;
 }
 
+export interface UdzialWTablicy {
+  board_id: string;
+  nazwa: string;
+  akcji: number;
+  kubelki_dni: Record<string, number>;
+  po_event: Record<string, number>;
+}
+
+export interface UdzialOsoby {
+  user_hash: string;
+  etykieta: string;
+  rodzaj: string;
+  akcji: number;
+  kubelki_dni: Record<string, number>;
+}
+
+export interface ProfilOsoby {
+  user_hash: string;
+  etykieta: string;
+  kind: string | null;
+  rodzaj: string;
+  title: string | null;
+  akcji: number;
+  tablic: number;
+  kubelki_dni: Record<string, number>;
+  po_event: Record<string, number>;
+  aktywny_ostatnie_7d: boolean;
+  tablice: UdzialWTablicy[];
+  // z `@property` — skrót na `rodzaj === "czlowiek"`
+  to_czlowiek: boolean;
+}
+
+export interface ProfilTablicy {
+  board_id: string;
+  nazwa: string;
+  wpisow: number;
+  najnowszy_at: string | null;
+  autorzy: UdzialOsoby[];
+}
+
+export interface Ludzie {
+  tablic_z_logami: number;
+  tablic_w_zakresie: number;
+  kont_razem: number;
+  osoby: ProfilOsoby[];
+  tablice: ProfilTablicy[];
+  // z `@property` — liczniki kategorii. Front ich NIE liczy sam:
+  // nagłówek `3 osoby, 3 agenty AI, 2 konta nieznane` musi być
+  // spójny z listą niżej, a dwa liczenia to dwa miejsca na rozjazd.
+  ludzi: number;
+  agentow_ai: number;
+  nieznanych: number;
+}
+
 export interface Pulpit {
   odbiorca: string;
   client_id: string;
@@ -60,6 +114,7 @@ export interface Pulpit {
   suma_kwot: number;
   sekcje: Sekcja[];
   zastrzezenia: string[];
+  ludzie: Ludzie | null;
   wersje: PozycjaRunu[];
   poprzedni_run_at: string | null;
   hipotezy_odrzucone?: Record<string, unknown>[];

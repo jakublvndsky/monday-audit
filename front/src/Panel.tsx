@@ -22,6 +22,7 @@ import {
   SekcjaMetryk,
   Znaleziska,
 } from "./komponenty/Sekcje";
+import { Ludzie } from "./komponenty/Ludzie";
 
 const KAFLE_KLUCZOWE = ["agentów AI", "zdominowanych jednym autorem"];
 
@@ -83,6 +84,11 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
     ja.rola === "zespol" ? "klienci" : "audyt",
   );
   const [blad, ustawBlad] = useState<string | null>(null);
+  // Zakładka WEWNĄTRZ widoku audytu, nie czwarty widok globalny: „Ludzie" to
+  // inne spojrzenie na TEN SAM audyt, więc drop-down wersji i pasek klienta
+  // muszą zostać na miejscu. Reset przy zmianie klienta — patrząc na nowego
+  // klienta zaczynasz od znalezisk.
+  const [zakladka, ustawZakladke] = useState<"audyt" | "ludzie">("audyt");
 
   const odswiezKlientow = useCallback(() => {
     if (ja.rola !== "zespol") return;
@@ -117,6 +123,13 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
   useEffect(() => {
     void wczytaj();
   }, [wczytaj]);
+
+  // Powrót na „audyt" przy zmianie klienta ALBO wersji. Zostawienie zakładki
+  // „Ludzie" po przełączeniu klienta pokazywałoby cudzych ludzi w miejscu, gdzie
+  // właśnie zmieniłeś kontekst — a to najgorszy moment na taką pomyłkę.
+  useEffect(() => {
+    ustawZakladke("audyt");
+  }, [wybrany]);
 
   const kafle = (pulpit?.sekcje ?? [])
     .flatMap((s) => s.metryki)
@@ -336,6 +349,31 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
             poZakonczeniu={poAudycie}
           />
 
+          {/* ZAKŁADKI. „Ludzie" odpowiada na pytanie, na które znaleziska nie
+              odpowiadają: kto z czego korzysta, jak i kiedy. Dane z collectora,
+              więc zakładka istnieje nawet gdy agent nic nie znalazł — ale bez
+              pulpitu nie ma czego pokazać, stąd warunek. */}
+          {pulpit && (
+            <nav className="zakladki" aria-label="Widok audytu">
+              <button
+                type="button"
+                className={zakladka === "audyt" ? "aktywny" : ""}
+                onClick={() => ustawZakladke("audyt")}
+              >
+                Znaleziska i metryki
+                <small>{pulpit.findingow}</small>
+              </button>
+              <button
+                type="button"
+                className={zakladka === "ludzie" ? "aktywny" : ""}
+                onClick={() => ustawZakladke("ludzie")}
+              >
+                Ludzie
+                {pulpit.ludzie && <small>{pulpit.ludzie.osoby.length}</small>}
+              </button>
+            </nav>
+          )}
+
           {/* Sekcji „Dostęp klienta" TU NIE MA i to jest celowe.
               Reset hasła klienta żyje w „Moje konto" → „Dostępy klientów", razem
               z dodawaniem klienta i widokiem, kto może się zalogować. Trzymanie
@@ -355,7 +393,7 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
             </div>
           )}
 
-          {pulpit && (
+          {pulpit && zakladka === "audyt" && (
             <>
               <div className="kafle-gorne">
                 <KafelDuzy
@@ -465,6 +503,27 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
                 </details>
               )}
             </>
+          )}
+
+          {/* Zakładka „Ludzie". `pulpit.ludzie` może być `null` dla runów sprzed
+              tej zmiany — wtedy mówimy to wprost, zamiast pokazywać pustą tabelę
+              wyglądającą jak „nikt nie pracuje". */}
+          {pulpit && zakladka === "ludzie" && (
+            pulpit.ludzie ? (
+              <Ludzie dane={pulpit.ludzie} />
+            ) : (
+              <div className="brak-danych">
+                <p>
+                  <strong>Ten audyt nie ma danych o aktywności osób.</strong>{" "}
+                  Sekcja `per_uzytkownik` weszła do snapshotu w etapie 4 — starsze
+                  audyty jej nie mają.
+                </p>
+                <p className="meta">
+                  Wybierz nowszą wersję audytu w drop-downie „analiza z", albo
+                  uruchom zbieranie danych ponownie.
+                </p>
+              </div>
+            )
           )}
 
           <footer>

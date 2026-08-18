@@ -22,11 +22,12 @@ import re
 import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from monday_audit.baza import polacz, zastosuj_migracje
-from monday_audit.deanonimizacja import WZORZEC_HASHA
+from monday_audit.deanonimizacja import WZORZEC_HASHA, Deanonimizacja
 from monday_audit.dostep import ROLA_KLIENT, utworz_konto
 from monday_audit.pulpit import (
     KLUCZE_WEWNETRZNE,
@@ -35,6 +36,7 @@ from monday_audit.pulpit import (
     wyrenderuj_indeks,
     wyrenderuj_pulpit,
     zbuduj_liste_klientow,
+    zbuduj_ludzi,
     zbuduj_pulpit,
 )
 from monday_audit.raport import ODBIORCA_KLIENT, ODBIORCA_WEWNETRZNY, RaportError
@@ -646,3 +648,199 @@ def test_kazda_pozycja_dropdownu_daje_sie_otworzyc(con: sqlite3.Connection) -> N
 
     for pozycja in lista_runow(con, "cxlabs"):
         zbuduj_pulpit(con, client_id="cxlabs", rubryka=RUBRYKA, run_id=pozycja.run_id)
+
+
+# ── zakładka „Ludzie" ────────────────────────────────────────────────────
+#
+# Dane z COLLECTORA, nie od agenta — więc zakładka istnieje nawet wtedy, gdy
+# agent nic nie znalazł. Testy sprawdzają trzy rzeczy w tej kolejności: granicę
+# PII, rozdzielenie ludzi od agentów AI, i to, że pokrycie jedzie razem z danymi.
+
+
+def _payload_z_ludzmi() -> dict[str, Any]:
+    """Snapshot z aktywnością per osoba — kształt, który produkuje collector."""
+    dane = json.loads(json.dumps(PAYLOAD))
+    dane["uzytkownicy"]["uzytkownicy"] = [
+        {"user_hash": HASH_ANNY, "kind": "member", "title": "PM"},
+        {"user_hash": "b" * 16, "kind": "personal_agent_member", "title": "Quotation Agent"},
+    ]
+    dane["tablice"]["tablice"] = [
+        {"board_id": "111", "nazwa": "Leady"},
+        {"board_id": "222", "nazwa": "Oferty"},
+        # DWIE tablice o tej samej nazwie — sprawdza rozróżnianie identyfikatorem.
+        {"board_id": "333", "nazwa": "Oferty"},
+    ]
+    dane["aktywnosc"] = {
+        "per_uzytkownik": [
+            {
+                "user_hash": HASH_ANNY,
+                "akcji": 30,
+                "tablic": 2,
+                "boardy": ["111", "222"],
+                "kubelki_dni": {"0-7": 5, "31-60": 25},
+                "po_event": {"create_pulse": 20, "update_column_value": 10},
+                "aktywny_ostatnie_7d": True,
+            },
+            {
+                "user_hash": "b" * 16,
+                "akcji": 8,
+                "tablic": 1,
+                "boardy": ["111"],
+                "kubelki_dni": {"31-60": 8},
+                "po_event": {"update_column_value": 8},
+                "aktywny_ostatnie_7d": False,
+            },
+            # Autor w logach, którego NIE MA na liście kont.
+            {
+                "user_hash": "c" * 16,
+                "akcji": 3,
+                "tablic": 1,
+                "boardy": ["333"],
+                "kubelki_dni": {"61-90": 3},
+                "po_event": {"create_pulse": 3},
+                "aktywny_ostatnie_7d": False,
+            },
+        ],
+        "aktywnosc_tablic": [
+            {
+                "board_id": "111",
+                "wpisow": 28,
+                "najnowszy_at": "2026-08-10T10:00:00Z",
+                "udzial_autorow": {HASH_ANNY: 20, "b" * 16: 8},
+                "kubelki_per_autor": {HASH_ANNY: {"0-7": 5, "31-60": 15}, "b" * 16: {"31-60": 8}},
+                "eventy_per_autor": {
+                    HASH_ANNY: {"create_pulse": 20},
+                    "b" * 16: {"update_column_value": 8},
+                },
+            },
+            {
+                "board_id": "222",
+                "wpisow": 10,
+                "najnowszy_at": "2026-08-01T10:00:00Z",
+                "udzial_autorow": {HASH_ANNY: 10},
+                "kubelki_per_autor": {HASH_ANNY: {"31-60": 10}},
+                "eventy_per_autor": {HASH_ANNY: {"update_column_value": 10}},
+            },
+            {
+                "board_id": "333",
+                "wpisow": 3,
+                "najnowszy_at": "2026-06-01T10:00:00Z",
+                "udzial_autorow": {"c" * 16: 3},
+                "kubelki_per_autor": {"c" * 16: {"61-90": 3}},
+                "eventy_per_autor": {"c" * 16: {"create_pulse": 3}},
+            },
+            # Tablica BEZ wpisów — nie ma prawa wejść do listy tablic.
+            {"board_id": "444", "wpisow": 0, "udzial_autorow": {}},
+        ],
+    }
+    return dane
+
+
+def test_ludzie_rozdzielaja_agenty_ai_od_ludzi(con: sqlite3.Connection) -> None:
+    """ZMIERZONE na #7: z 8 autorów w logach 3 to konta agentów AI, 2 nie istnieją.
+
+    Lista pokazująca „Quotation Agent" obok pracownika sugeruje, że na koncie
+    pracuje osiem osób. Pracują trzy. Rozdzielenie jest w `rodzaj`, nie w filtrze —
+    agenty mają być WIDOCZNE jako osobna kategoria, nie ukryte.
+    """
+    deanon = Deanonimizacja(con, "cxlabs")
+    ludzie = zbuduj_ludzi(_payload_z_ludzmi(), deanon)
+
+    po_rodzaju = {o.user_hash: o.rodzaj for o in ludzie.osoby}
+    assert po_rodzaju[HASH_ANNY] == "czlowiek"
+    assert po_rodzaju["b" * 16] == "agent_ai"
+    assert po_rodzaju["c" * 16] == "nieznany", "autor spoza listy kont"
+    assert (ludzie.ludzi, ludzie.agentow_ai, ludzie.nieznanych) == (1, 1, 1)
+
+
+def test_ludzie_niosa_pokrycie_razem_z_danymi(con: sqlite3.Connection) -> None:
+    """Osiem wierszy przy 94 kontach czyta się jako „tylko tyle osób pracuje".
+
+    Liczby pokrycia nie są przypisem — bez nich reszta widoku wprowadza w błąd,
+    bo logi mamy z 18 tablic ze 124.
+    """
+    ludzie = zbuduj_ludzi(_payload_z_ludzmi(), Deanonimizacja(con, "cxlabs"))
+
+    assert ludzie.tablic_z_logami == 3, "tablica z `wpisow: 0` nie wchodzi"
+    assert ludzie.tablic_w_zakresie == 105, "z podsumowania tablic"
+    assert ludzie.kont_razem == 2
+
+
+def test_komorka_niesie_kiedy_i_co_nie_tylko_ile(con: sqlite3.Connection) -> None:
+    """Sedno zakładki: „ile" to liczba, „kiedy i co" to odpowiedź na pytanie.
+
+    Bierze się z `kubelki_per_autor` i `eventy_per_autor` — sekcji dodanych
+    w etapie 4, które do tej pory szły tylko do inwentarza agenta.
+    """
+    ludzie = zbuduj_ludzi(_payload_z_ludzmi(), Deanonimizacja(con, "cxlabs"))
+    anna = next(o for o in ludzie.osoby if o.user_hash == HASH_ANNY)
+    leady = next(u for u in anna.tablice if u.board_id == "111")
+
+    assert leady.akcji == 20
+    assert leady.kubelki_dni == {"0-7": 5, "31-60": 15}
+    assert leady.po_event == {"create_pulse": 20}
+
+
+def test_tablice_o_tej_samej_nazwie_maja_identyfikator(con: sqlite3.Connection) -> None:
+    """ZMIERZONE: „AI Notetaker Meetings Log" nosiły DWIE tablice na koncie ACME.
+
+    Profil osoby pokazywał dwa wiersze o identycznej nazwie i liczbie akcji —
+    czytało się jak usterka widoku, a było prawdą o koncie (zduplikowana para
+    z `DUPLICATE_STRUCTURE`).
+    """
+    ludzie = zbuduj_ludzi(_payload_z_ludzmi(), Deanonimizacja(con, "cxlabs"))
+    nazwy = {b.board_id: b.nazwa for b in ludzie.tablice}
+
+    assert nazwy["111"] == "Leady", "nazwa niepowtarzalna zostaje sama"
+    assert nazwy["222"] == "Oferty (222)"
+    assert nazwy["333"] == "Oferty (333)"
+
+
+def test_macierz_obrocona_daje_te_same_liczby(con: sqlite3.Connection) -> None:
+    """Lista osób i lista tablic to ten sam zbiór z dwóch stron.
+
+    Gdyby się rozjechały, jeden z widoków kłamałby — a przełącznik między nimi
+    sugeruje odbiorcy, że patrzy na to samo.
+    """
+    ludzie = zbuduj_ludzi(_payload_z_ludzmi(), Deanonimizacja(con, "cxlabs"))
+
+    z_osob = sum(u.akcji for o in ludzie.osoby for u in o.tablice)
+    z_tablic = sum(a.akcji for b in ludzie.tablice for a in b.autorzy)
+    assert z_osob == z_tablic == 41
+
+
+def test_klient_widzi_nazwiska_bez_maili(con: sqlite3.Connection) -> None:
+    """Decyzja Kuby 2026-08-18: to pracownicy KLIENTA, więc widzi ich po imieniu.
+
+    Ale e-mail zostaje wewnętrzny — ta sama reguła co raport (`z_emailem`), bez
+    drugiej implementacji granicy.
+    """
+    dane = _payload_z_ludzmi()
+    wewn = zbuduj_ludzi(dane, Deanonimizacja(con, "cxlabs", z_emailem=True))
+    klient = zbuduj_ludzi(dane, Deanonimizacja(con, "cxlabs", z_emailem=False))
+
+    etykieta_wewn = next(o.etykieta for o in wewn.osoby if o.user_hash == HASH_ANNY)
+    etykieta_klienta = next(o.etykieta for o in klient.osoby if o.user_hash == HASH_ANNY)
+
+    assert "anna@klient.test" in etykieta_wewn
+    assert "Anna Górniak" in etykieta_klienta
+    assert "@" not in etykieta_klienta, "mail nie może przejść do klienta"
+
+
+def test_zakladka_ludzi_idzie_za_wybrana_wersja(con: sqlite3.Connection) -> None:
+    """Decyzja Kuby: przełączenie wersji audytu zmienia też aktywność.
+
+    Dane biorą się z `payload` TEGO runu, więc starszy audyt pokazuje starszą
+    aktywność — i da się zobaczyć, jak zmieniła się w czasie.
+    """
+    _finding(con, KLASA_KLIENTA, run_id="r1")
+    con.commit()
+
+    pulpit = zbuduj_pulpit(con, client_id="cxlabs", rubryka=RUBRYKA, run_id="r1")
+
+    assert pulpit.ludzie is not None
+    # Fixture `PAYLOAD` nie ma sekcji `per_uzytkownik`, więc lista jest pusta —
+    # ale STRUKTURA istnieje i niesie pokrycie. Zakładka mówi „brak danych
+    # o aktywności", nie wywala się.
+    assert pulpit.ludzie.osoby == ()
+    assert pulpit.ludzie.tablic_w_zakresie == 105
