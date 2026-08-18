@@ -36,6 +36,7 @@ from monday_audit.detektory import (
     plan_mismatch,
     process_bypass,
     uruchom_detektory,
+    uzytkownik_wygaszony,
     zombie_account,
 )
 from monday_audit.przebieg import zapisz_snapshot
@@ -372,7 +373,8 @@ def test_raport_wymienia_klasy_bez_detektora(con: sqlite3.Connection) -> None:
     zbudowane = set(DETEKTORY)
     wszystkie = {k.id for k in wczytaj_rubryke().do_detekcji()}
     assert set(raport["klasy_bez_detektora"]) == wszystkie - zbudowane
-    assert raport["rubric_version"] == "0.2"
+    # Podniesione do 0.3 przy dodaniu UZYTKOWNIK_WYGASZONY (etap 4).
+    assert raport["rubric_version"] == "0.3"
 
 
 def test_budzet_bierze_sie_z_rubryki(con: sqlite3.Connection) -> None:
@@ -775,3 +777,160 @@ def test_engagement_drop_wymaga_minimalnej_grupy(con: sqlite3.Connection) -> Non
     snapshot_id = zapisz(con, pelny(uzytkownicy=mala))
 
     assert engagement_drop(con, snapshot_id, 0) == []
+
+
+# ── UZYTKOWNIK_WYGASZONY ─────────────────────────────────────────────────
+#
+# Klasa dopełnia ZOMBIE_ACCOUNT: tamten bierze osoby NIEOBECNE w logach, ta
+# osoby, które w logach są. Zbiory muszą pozostać rozłączne, i jeden z testów
+# tego pilnuje.
+
+
+def payload_z_osobami(
+    per_uzytkownik: list[dict[str, Any]],
+    uzytkownicy: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Snapshot z sekcją `aktywnosc.per_uzytkownik` — tą, którą czyta detektor."""
+    dane = payload(uzytkownicy=uzytkownicy or [])
+    dane["aktywnosc"]["per_uzytkownik"] = per_uzytkownik
+    return dane
+
+
+def wpis_aktywnosci(**nadpisz: Any) -> dict[str, Any]:
+    baza: dict[str, Any] = {
+        "user_hash": "h1",
+        "akcji": 100,
+        "tablic": 3,
+        "boardy": ["1", "2", "3"],
+        "kubelki_dni": {"31-60": 100},
+        "po_event": {"create_pulse": 100},
+        "aktywny_ostatnie_7d": False,
+    }
+    baza.update(nadpisz)
+    return baza
+
+
+def test_osoba_z_akcjami_tylko_w_starych_kubelkach_jest_wygaszona(
+    con: sqlite3.Connection,
+) -> None:
+    snapshot_id = zapisz(
+        con,
+        payload_z_osobami([wpis_aktywnosci()], uzytkownicy=[osoba("h1", kind="member")]),
+    )
+
+    hipotezy = uzytkownik_wygaszony(con, snapshot_id, budzet("UZYTKOWNIK_WYGASZONY"))
+
+    assert [h.obiekt_id for h in hipotezy] == ["h1"]
+    assert hipotezy[0].fakty["udzial_swiezych"] == 0.0
+    assert hipotezy[0].fakty["akcji_starych_31_90"] == 100
+
+
+def test_agent_ai_nie_jest_osoba(con: sqlite3.Connection) -> None:
+    """ZMIERZONE na #7: 3 z 8 autorów w logach to `personal_agent_member`.
+
+    Bez tego filtra klasa zgłaszałaby „agent Quotation przestał pracować".
+    Warunek sprawdzamy w DETEKTORZE, nie zostawiamy agentowi — inaczej płacilibyśmy
+    za to samo rozumowanie w każdej sesji (D1).
+    """
+    snapshot_id = zapisz(
+        con,
+        payload_z_osobami(
+            [wpis_aktywnosci()],
+            uzytkownicy=[osoba("h1", kind="personal_agent_member")],
+        ),
+    )
+
+    assert uzytkownik_wygaszony(con, snapshot_id, 6) == []
+
+
+def test_autor_nieobecny_na_liscie_kont_jest_pomijany(con: sqlite3.Connection) -> None:
+    """Konto usunięte albo spoza zakresu — nie ma o kim orzekać.
+
+    ZMIERZONE: 2 z 8 autorów w logach #7 nie ma w `uzytkownicy`, w tym
+    NAJAKTYWNIEJSZY (205 akcji na 7 tablicach). Zgłoszenie takiego autora dałoby
+    finding o osobie, o której nie wiemy nawet, czy nadal ma konto.
+    """
+    snapshot_id = zapisz(con, payload_z_osobami([wpis_aktywnosci()], uzytkownicy=[]))
+
+    assert uzytkownik_wygaszony(con, snapshot_id, 6) == []
+
+
+def test_osoba_nadal_aktywna_nie_jest_wygaszona(con: sqlite3.Connection) -> None:
+    """Próg 0,15 świeżych wobec starych.
+
+    ZMIERZONE na #7: osoba z 29 akcjami świeżymi wobec 48 starych (udział 0,60)
+    słusznie odpada — ona nadal pracuje, tylko mniej. To nie wygaszenie.
+    """
+    snapshot_id = zapisz(
+        con,
+        payload_z_osobami(
+            [wpis_aktywnosci(kubelki_dni={"0-7": 29, "31-60": 48}, akcji=77)],
+            uzytkownicy=[osoba("h1", kind="member")],
+        ),
+    )
+
+    assert uzytkownik_wygaszony(con, snapshot_id, 6) == []
+
+
+def test_ponizej_progu_akcji_to_szum(con: sqlite3.Connection) -> None:
+    """Cztery kliknięcia sprzed dwóch miesięcy to nie porzucony proces."""
+    snapshot_id = zapisz(
+        con,
+        payload_z_osobami(
+            [wpis_aktywnosci(akcji=4, kubelki_dni={"31-60": 4})],
+            uzytkownicy=[osoba("h1", kind="member")],
+        ),
+    )
+
+    assert uzytkownik_wygaszony(con, snapshot_id, 6) == []
+
+
+def test_brak_starej_aktywnosci_to_nie_wygaszenie(con: sqlite3.Connection) -> None:
+    """Ktoś, kto zaczął w tym tygodniu, nie „przestał"."""
+    snapshot_id = zapisz(
+        con,
+        payload_z_osobami(
+            [wpis_aktywnosci(kubelki_dni={"0-7": 100})],
+            uzytkownicy=[osoba("h1", kind="member")],
+        ),
+    )
+
+    assert uzytkownik_wygaszony(con, snapshot_id, 6) == []
+
+
+def test_dowod_pokrywa_pola_wymagane_przez_rubryke(con: sqlite3.Connection) -> None:
+    """Bez tego finding nie przejdzie walidacji, a run kosztuje pieniądze."""
+    snapshot_id = zapisz(
+        con,
+        payload_z_osobami([wpis_aktywnosci()], uzytkownicy=[osoba("h1", kind="member")]),
+    )
+
+    fakty = uzytkownik_wygaszony(con, snapshot_id, 6)[0].fakty
+    wymagane = wczytaj_rubryke().po_id["UZYTKOWNIK_WYGASZONY"].dowod
+
+    for pole in wymagane:
+        assert pole.rstrip("[]") in fakty, f"brak pola dowodu: {pole}"
+
+
+def test_zbior_wygaszonych_jest_rozlaczny_z_zombie(con: sqlite3.Connection) -> None:
+    """Dwie klasy o osobach nie mogą orzekać o tej samej osobie.
+
+    `zombie_account` ma w SQL `autorzy.user_hash IS NULL`, czyli bierze WYŁĄCZNIE
+    osoby nieobecne w logach. `uzytkownik_wygaszony` czyta `per_uzytkownik`, które
+    powstaje Z logów. Rozłączność jest konstrukcyjna — ten test pilnuje, żeby
+    zmiana w którymkolwiek detektorze jej nie zepsuła.
+    """
+    dane = payload_z_osobami(
+        [wpis_aktywnosci()],
+        uzytkownicy=[osoba("h1", kind="member"), osoba("h2", kind="member")],
+    )
+    # `h1` jest autorem w logach, `h2` nie ma go tam wcale.
+    dane["aktywnosc"]["aktywnosc_tablic"] = [{"board_id": "1", "autorzy": ["h1"]}]
+    snapshot_id = zapisz(con, dane)
+
+    wygaszeni = {h.obiekt_id for h in uzytkownik_wygaszony(con, snapshot_id, 6)}
+    zombie = {h.obiekt_id for h in zombie_account(con, snapshot_id, 0)}
+
+    assert wygaszeni == {"h1"}
+    assert zombie == {"h2"}
+    assert not (wygaszeni & zombie)

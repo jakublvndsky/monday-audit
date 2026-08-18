@@ -136,8 +136,21 @@ class Wynik:
 
     @property
     def trafnosc(self) -> float:
-        """Ile z oczekiwanych agent znalazł."""
-        return self.trafionych / self.oczekiwanych if self.oczekiwanych else 0.0
+        """Ile z oczekiwanych agent znalazł.
+
+        Zwraca 1.0 przy PUSTEJ sekcji `oczekiwane` — nie 0.0. Zestaw bez pozycji
+        oczekiwanych znaczy „na tych danych nie ma czego znaleźć", a agent, który
+        nic nie zgłosił, zachował się poprawnie. Zero czytałoby się jako porażka.
+
+        ZMIERZONE na runie `wygaszeni-s7`: obie hipotezy `UZYTKOWNIK_WYGASZONY`
+        agent odrzucił, i po sprawdzeniu danych oba odrzucenia były trafne (jedna
+        osoba — zamknięcie projektu na wszystkich jej tablicach, druga —
+        przekazanie obowiązków). Zestaw ma tam pustą sekcję `oczekiwane`, więc
+        trafność 0,000 mówiłaby o wadzie tam, gdzie jej nie ma.
+        """
+        if not self.oczekiwanych:
+            return 1.0
+        return self.trafionych / self.oczekiwanych
 
     @property
     def odsetek_falszywek(self) -> float:
@@ -155,10 +168,14 @@ class Wynik:
 
         Liczona po trafionych, nie po wszystkich — pozycja nieznaleziona nie ma
         jak być nierzeczowa, i wliczanie jej dwa razy karałoby za to samo.
+
+        `1.0` przy braku trafionych pozycji, gdy zestaw NIE MA oczekiwanych — nie
+        ma czego oceniać, więc zero byłoby zarzutem bez podstawy. Gdy oczekiwane
+        SĄ, a trafionych nie ma, zostaje 0.0: to realne przeoczenie.
         """
         trafione = [p for p in self.pozycje if p.znalezione]
         if not trafione:
-            return 0.0
+            return 1.0 if not self.oczekiwanych else 0.0
         return sum(1 for p in trafione if p.rzeczowa) / len(trafione)
 
     @property

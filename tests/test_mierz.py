@@ -353,3 +353,51 @@ def test_obiekt_z_listy_board_ids_sklada_sie_w_pare() -> None:
     assert _obiekt_findingu({"board_id": "111"}) == "111"
     assert _obiekt_findingu({"user_hash": "abc"}) == "abc"
     assert _obiekt_findingu({}) == "konto"
+
+
+def test_pusty_zestaw_oczekiwanych_to_trafnosc_jeden() -> None:
+    """„Nie ma czego znaleźć" nie jest tym samym co „nie znalazł".
+
+    ZMIERZONE na runie `wygaszeni-s7`: agent odrzucił obie hipotezy
+    `UZYTKOWNIK_WYGASZONY` i po sprawdzeniu danych oba odrzucenia były trafne —
+    jedna osoba to zamknięcie projektu na wszystkich jej tablicach, druga to
+    przekazanie obowiązków. Zestaw ma tam pustą sekcję `oczekiwane`, więc trafność
+    0,000 mówiłaby o wadzie tam, gdzie jej nie ma.
+    """
+    pusty: dict[str, Any] = {"oczekiwane": [], "niedopuszczalne": [], "pominiete": []}
+    w = ocen([], pusty, run_id="t", nazwa_zestawu="t.yaml")
+
+    assert w.trafnosc == 1.0
+    assert w.rzeczowosc == 1.0
+    assert w.progi_spelnione["trafnosc"] is True
+
+
+def test_puste_oczekiwane_ale_falszywka_nadal_boli() -> None:
+    """Brak oczekiwanych NIE rozbraja sekcji `niedopuszczalne`.
+
+    Gdyby rozbrajał, zestaw złożony z samych zakazów przepuszczałby wszystko —
+    a to jest właśnie ten kształt zestawu, który pilnuje regresji detektora.
+    """
+    z: dict[str, Any] = {
+        "oczekiwane": [],
+        "niedopuszczalne": [{"klasa_id": "UZYTKOWNIK_WYGASZONY", "obiekt": "agent1"}],
+        "pominiete": [],
+    }
+    w = ocen(
+        [finding(klasa="UZYTKOWNIK_WYGASZONY", obiekt="agent1")],
+        z,
+        run_id="t",
+        nazwa_zestawu="t.yaml",
+    )
+
+    assert w.trafnosc == 1.0, "brak oczekiwanych"
+    assert w.falszywek == 1
+    assert w.progi_spelnione["falszywki"] is False
+
+
+def test_brak_trafionych_przy_niepustych_oczekiwanych_to_zero() -> None:
+    """Rozróżnienie od testu wyżej: tu przeoczenie jest REALNE."""
+    w = wynik([])
+
+    assert w.trafnosc == 0.0
+    assert w.rzeczowosc == 0.0

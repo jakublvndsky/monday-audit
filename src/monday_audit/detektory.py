@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
+from monday_audit.osoby import RODZAJ_AGENT
 from monday_audit.rubryka import Rubryka, wczytaj_rubryke
 
 logger = logging.getLogger(__name__)
@@ -1142,6 +1143,104 @@ def process_bypass(con: sqlite3.Connection, snapshot_id: int, budzet: int) -> li
     return hipotezy
 
 
+# ── UZYTKOWNIK_WYGASZONY ─────────────────────────────────────────────────
+#
+# Osoba WIDOCZNA w logach, której akcje leżą tylko w starych kubełkach.
+# To dopełnienie `ZOMBIE_ACCOUNT`: tamten bierze osoby NIEOBECNE w logach
+# (`autorzy.user_hash IS NULL`), więc zbiory są rozłączne z konstrukcji —
+# zmierzone na snapshocie #7: 8 osób w logach, 7 kont zombie, 0 wspólnych.
+#
+# Czyta gotową sekcję `aktywnosc.per_uzytkownik`, więc zero nowych wywołań monday.
+
+# Ile akcji musi być, żeby mówić o „pracy". Poniżej tego jedno kliknięcie sprzed
+# dwóch miesięcy dawałoby finding — a to szum, nie proces.
+MIN_AKCJI_WYGASZONEGO = 5
+
+# Jaki udział świeżej aktywności (0-30 dni) w starej (31-90) jeszcze uznajemy za
+# wygaszenie. ZMIERZONE na #7: przy 0,15 kandydatami zostają dwie osoby, a osoba
+# z 29 akcjami świeżymi wobec 48 starych (0,60) słusznie odpada — ona nadal pracuje,
+# tylko mniej.
+PROG_SWIEZEJ_AKTYWNOSCI = 0.15
+
+# Rodzaje kont, które nie są ludźmi. `personal_agent_member` to konto agenta AI —
+# ZMIERZONE: 3 z 8 osób w logach snapshotu #7. Bez tego filtra klasa zgłaszałaby
+# „agent Quotation przestał pracować".
+RODZAJE_NIE_LUDZIE = frozenset({RODZAJ_AGENT})
+
+
+def uzytkownik_wygaszony(con: sqlite3.Connection, snapshot_id: int, budzet: int) -> list[Hipoteza]:
+    """Osoba, która pracowała w logach i przestała — z tym, CO robiła.
+
+    Różnica wobec `ZOMBIE_ACCOUNT` jest jakościowa: tam konto milczy i nie wiadomo,
+    co robiło. Tutaj `boardy[]`, `po_event` i `kubelki_dni` mówią na czym pracowała,
+    co dokładnie robiła i w którym przedziale czasu — więc finding może odpowiedzieć
+    na „co, gdzie, kiedy przestał", a nie tylko „ile dni ciszy".
+
+    Warunki odrzucenia z rubryki, które da się sprawdzić deterministycznie, są
+    sprawdzone TUTAJ, nie zostawione agentowi: konta agentów AI i autorzy nieobecni
+    na liście kont. Zostawienie ich modelowi kosztowałoby sesję za sesją to samo
+    rozumowanie, a wynik byłby ten sam (D1).
+    """
+    wiersz = con.execute(
+        "SELECT payload FROM snapshots WHERE id = :snapshot_id",
+        {"snapshot_id": snapshot_id},
+    ).fetchone()
+    if wiersz is None:
+        return []
+    payload = json.loads(wiersz["payload"])
+    per_uzytkownik = (payload.get("aktywnosc") or {}).get("per_uzytkownik") or []
+    lista_osob = (payload.get("uzytkownicy") or {}).get("uzytkownicy") or []
+    konta = {str(o.get("user_hash")): o for o in lista_osob}
+
+    hipotezy: list[Hipoteza] = []
+    for wpis in per_uzytkownik:
+        haszyk = str(wpis.get("user_hash"))
+        if int(wpis.get("akcji") or 0) < MIN_AKCJI_WYGASZONEGO:
+            continue
+        konto = konta.get(haszyk)
+        # Autor w logach, którego nie ma na liście kont: usunięty albo spoza
+        # zakresu. Nie ma o kim orzekać — i to jest ODRZUCENIE detektora, nie
+        # pytanie do agenta.
+        if konto is None or konto.get("kind") in RODZAJE_NIE_LUDZIE:
+            continue
+
+        kubelki = wpis.get("kubelki_dni") or {}
+        swieze = int(kubelki.get("0-7") or 0) + int(kubelki.get("8-30") or 0)
+        stare = int(kubelki.get("31-60") or 0) + int(kubelki.get("61-90") or 0)
+        if not stare:
+            continue
+        if swieze / stare >= PROG_SWIEZEJ_AKTYWNOSCI:
+            continue
+
+        hipotezy.append(
+            Hipoteza(
+                klasa_id="UZYTKOWNIK_WYGASZONY",
+                obiekt_id=haszyk,
+                fakty={
+                    "user_hash": haszyk,
+                    "kind": konto.get("kind"),
+                    "kubelki_dni": kubelki,
+                    "boardy": list(wpis.get("boardy") or []),
+                    "po_event": dict(wpis.get("po_event") or {}),
+                    "akcji": int(wpis.get("akcji") or 0),
+                    "tablic": int(wpis.get("tablic") or 0),
+                    # Jawnie, żeby agent nie musiał liczyć tego z kubełków.
+                    "akcji_swiezych_0_30": swieze,
+                    "akcji_starych_31_90": stare,
+                    "udzial_swiezych": round(swieze / stare, 4),
+                    "prog_swiezych": PROG_SWIEZEJ_AKTYWNOSCI,
+                    "aktywny_ostatnie_7d": bool(wpis.get("aktywny_ostatnie_7d")),
+                    "do_zbadania_przez_agenta": (
+                        "czy te same tablice żyją dalej z innym autorem — wtedy to "
+                        "przekazanie obowiązków, nie porzucenie procesu"
+                    ),
+                },
+                budzet_wywolan=budzet,
+            )
+        )
+    return hipotezy
+
+
 def _w_oknie(znacznik: str, srodek: str, dni: int) -> bool:
     """Czy `znacznik` wpada w ±`dni` od `srodek`. Oba w UTC ze snapshotu."""
     try:
@@ -1156,6 +1255,7 @@ def _w_oknie(znacznik: str, srodek: str, dni: int) -> bool:
 # mówi o tym wprost, zamiast po cichu zwracać pustą listę.
 DETEKTORY: dict[str, Detektor] = {
     "ZOMBIE_ACCOUNT": zombie_account,
+    "UZYTKOWNIK_WYGASZONY": uzytkownik_wygaszony,
     "PLAN_MISMATCH": plan_mismatch,
     "GUEST_SPRAWL": guest_sprawl,
     "ENGAGEMENT_DROP": engagement_drop,

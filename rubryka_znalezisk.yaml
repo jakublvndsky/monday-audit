@@ -33,7 +33,7 @@
 # To są decyzje biznesowe z etapu 1 i pomiary techniczne nie mają do nich nic
 # do powiedzenia.
 
-wersja: "0.2"
+wersja: "0.3"
 odbiorca_domyslny: wewnetrzny
 
 # ──────────────────────────────────────────────────────────────
@@ -173,6 +173,60 @@ klasy:
     trop_sprzedazowy: uporządkowanie uprawnień i governance
 
   # ═══ ZAANGAŻOWANIE ═════════════════════════════════════════
+
+  # ── UZYTKOWNIK_WYGASZONY ───────────────────────────────────────────────
+  #
+  # Klasa dodana 2026-08-17 (etap 4). Powstała, bo między ZOMBIE_ACCOUNT
+  # a ENGAGEMENT_DROP była dziura, w którą wpadały osoby faktycznie widoczne
+  # w logach:
+  #
+  #   * ZOMBIE_ACCOUNT ich NIE WIDZI — jego detektor ma `autorzy.user_hash IS NULL`,
+  #     czyli bierze wyłącznie osoby NIEOBECNE w logach. Przecięcie zbiorów jest
+  #     puste z konstrukcji (zmierzone: 8 osób w logach, 7 kont zombie, 0 wspólnych).
+  #   * ENGAGEMENT_DROP mierzy GRUPY (zespół, workspace), nie osoby, i na snapshocie
+  #     #7 wzbudza zero hipotez — żaden zespół nie spełnia obu progów naraz.
+  #
+  # Różnica wobec ZOMBIE_ACCOUNT jest jakościowa, nie ilościowa: tam konto MILCZY
+  # (nie wiadomo, co robiło), tutaj wiadomo DOKŁADNIE, na czym pracowało, na ilu
+  # tablicach i w którym przedziale czasu — bo to jest w `aktywnosc.per_uzytkownik`.
+  # Dlatego finding może odpowiedzieć na „co, gdzie, kiedy przestał", a nie tylko
+  # „ile dni ciszy".
+  - id: UZYTKOWNIK_WYGASZONY
+    nazwa: Osoba przestała pracować, choć konto zostało
+    modul_zrodlowy: 2
+    sygnal: |
+      osoba obecna w activity logs, której akcje leżą WYŁĄCZNIE
+      w kubełkach 31-60 i 61-90 dni (albo świeże to <15% starych),
+      przy co najmniej 5 akcjach łącznie — pracowała i przestała
+    rola_agenta: |
+      Ustal, CO robiła i czy praca przeszła gdzie indziej.
+      `boardy[]` mówi na których tablicach, `po_event` co dokładnie
+      (tworzenie itemów to inna praca niż porządkowanie kolumn),
+      `kubelki_dni` w którym przedziale. Sprawdź, czy te same tablice
+      żyją dalej z innym autorem — jeśli tak, to przekazanie obowiązków,
+      nie porzucenie procesu, i wtedy odrzuć.
+    budzet_wywolan: 6
+    warunki_odrzucenia:
+      # Konta agentów AI to nie ludzie. ZMIERZONE na snapshocie #7: 3 z 8 osób
+      # w logach to `personal_agent_member` — bez tego warunku klasa zgłaszałaby
+      # „agent Quotation przestał pracować", co jest bez sensu.
+      - kind = personal_agent_member — konto agenta AI, nie człowiek
+      # Autor w logach nieobecny na liście kont: konto usunięte albo gość spoza
+      # zakresu. ZMIERZONE: 2 z 8 (w tym najaktywniejsza osoba, 205 akcji).
+      - autor nieobecny w `uzytkownicy` — konto usunięte, nie ma o kim orzekać
+      - praca przeszła na inną osobę na tych samych tablicach — przekazanie obowiązków
+      - okres nieobecności pokrywa się z urlopem albo zamknięciem projektu
+    waga: srednia
+    wysilek_naprawy: niski
+    typ_wyceny: ryzyko
+    wzor: null
+    dowod: [user_hash, kubelki_dni, "boardy[]", po_event, akcji, tablic]
+    # Mówi o KONKRETNEJ osobie, więc nie do raportu klienta bez rozmowy —
+    # ta sama granica co ENGAGEMENT_DROP.
+    widocznosc: tylko_wewnetrzne
+    trop_sprzedazowy: |
+      przegląd przypisań i przekazania obowiązków. Wewnętrzne, bo
+      "ta osoba przestała pracować" wymaga rozmowy, nie akapitu w PDF.
 
   - id: ENGAGEMENT_DROP
     nazwa: Spadek zaangażowania zespołu lub działu
