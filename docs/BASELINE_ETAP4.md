@@ -330,3 +330,71 @@ Dwa dzienniki tego samego procesu prowadzone równolegle, nie porzucona kopia.
 od baseline'u** (0,1280 wobec 0,1017 USD/hip.) i zgubił jedną pozycję — więc
 „więcej wysiłku = lepiej" jest fałszem, a każda wartość domyślna byłaby
 przypięciem liczby zmierzonej na jednej klasie i jednym koncie demo.
+
+---
+
+## Krok 4 — test pętli jednosesyjnej: odpowiedź NIE, i to podwójnie
+
+Luka z docstringu `agent.py`: trzy argumenty za jedną sesją na hipotezę, żaden
+zmierzony. Skrypt `evals/petla_jednosesyjna.py` (poza ścieżką produkcyjną) prowadzi
+5 hipotez `DUPLICATE_STRUCTURE` w JEDNEJ sesji — te same 5 co run kontrolny
+`effort-medium-v3`, więc baseline jest darmowy.
+
+| | USD/hip. | out/hip. | s/hip. | cache |
+|---|---|---|---|---|
+| osobne sesje (dziś) | **0,0710** | **1236** | 20 | **75,9%** |
+| jedna sesja | 0,2000 | 2108 | 11 | 64,5% |
+
+**Pętla jest droższa o 182% i produkuje o 70% więcej wyjścia.**
+
+### Dlaczego droższa — mechanizm widoczny w danych
+
+`tokens_cache_read` per tura: `[0, 34579, 71312, 110232, 150788]`. Historia narasta
+liniowo, więc każda kolejna hipoteza czyta z cache'u wszystko, co poprzednie
+napisały. Pierwsza tura ma zero cache'u (nie ma czego czytać), a piąta czyta 150 tys.
+tokenów. Suma odczytów rośnie kwadratowo z liczbą hipotez.
+
+Przy osobnych sesjach prefiks jest ten sam dla wszystkich, więc odczyt jest stały
+na sesję — i dlatego cache wychodzi WYŻSZY (75,9% wobec 64,5%), choć intuicja
+podpowiada odwrotnie.
+
+### Degradacja — twoja obawa potwierdzona liczbowo
+
+Obawa brzmiała: „zrobi poprawnie pięć, a kolejne pięć na zasadzie »zrobiłem te
+pięć, to kolejne też będą takie same«". Trzy z czterech miar to pokazują:
+
+    nachylenie długości opisu:  -38,3 znaków na pozycję   ← odpowiedzi się skracają
+    podobieństwo kolejnych:      0,36 → 0,14 → 0,49 → 0,67 ← ROŚNIE
+    nachylenie podobieństwa:    +0,127                     ← agent kopiuje siebie
+    wywołania narzędzi:          0 w obu połowach
+
+Długość opisu: 459 → 508 → 473 → 359 → 342 znaków. Ostatnie dwie odpowiedzi są
+o czwartą część krótsze od pierwszych, a podobieństwo między czwartą i piątą wynosi
+**0,667** — dwie trzecie słów wspólnych. To jest dokładnie ten wzorzec.
+
+### Urwanie kontekstu — NIE wystąpiło
+
+`error_max_turns` nie zapaliło się przy sufcie 80 obrotów, a `cache_read` rósł
+monotonicznie, czyli SDK nie kompaktował kontekstu. Przy 5 hipotezach kontekst się
+nie urywa — ale przy 37 (tyle ma pełny run tej klasy) odczyt cache'u szedłby
+w miliony tokenów, więc problem przesuwa się z „urwie się" na „będzie drogie".
+
+### Jakość — jedyna rzecz, która nie spadła
+
+Trafność 1,000, fałszywki 0,000, rzeczowość 1,000 (liczone z pliku JSON, bo skrypt
+eksperymentalny nie zapisuje findingów do tabeli `findings`). Agent poprawnie
+zgłosił 2 realne pary i odrzucił 3 martwe, cytując warunek rubryki.
+
+Czyli pętla **nie psuje jakości na pięciu hipotezach** — psuje koszt. I to jest
+odpowiedź warta 1,00 USD: gdyby jakość spadła, wiedzielibyśmy tylko, że jest gorzej.
+Wiemy więcej: wiemy, ŻE jest drożej i DLACZEGO (narastająca historia w cache).
+
+### Ograniczenie zapisane jawnie
+
+`_zbuduj_narzedzia` domyka się nad jedną hipotezą, więc w pętli budżet narzędzi
+jest wspólny i nie da się przypisać wywołania do hipotezy. Nie naprawiane — to jest
+argument za obecną architekturą, ten sam, który stoi w docstringu `agent.py`.
+W tym runie agent nie użył narzędzi wcale, więc pomiar kosztu jest nietknięty.
+
+**Wniosek: architektura zostaje bez zmian.** Jedna sesja na hipotezę była wyborem
+nieudokumentowanym pomiarem — teraz jest udokumentowanym.
