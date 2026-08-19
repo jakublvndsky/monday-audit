@@ -21,6 +21,15 @@ import type { Ludzie as DaneLudzi, ProfilOsoby, ProfilTablicy } from "../api";
 // zawsze ten sam kierunek, inaczej nie da się porównać dwóch osób wzrokiem.
 const KUBELKI = ["0-7", "8-30", "31-60", "61-90"] as const;
 
+// Podpisy POD słupkami — muszą być krótkie, bo słupek ma ~22 px szerokości.
+// „7 d" znaczy „do 7 dni temu"; pełny opis jest w `OPISY_KUBELKOW` i w `title`.
+const PODPISY_OSI: Record<string, string> = {
+  "0-7": "7 d",
+  "8-30": "30 d",
+  "31-60": "2 mies.",
+  "61-90": "3 mies.",
+};
+
 const OPISY_KUBELKOW: Record<string, string> = {
   "0-7": "ostatni tydzień",
   "8-30": "8–30 dni temu",
@@ -34,34 +43,98 @@ const ETYKIETY_RODZAJU: Record<string, string> = {
   nieznany: "konto nieznane",
 };
 
-/** Pasek rozkładu aktywności w czasie — cztery kubełki, od najświeższego.
+/** Rozkład aktywności w czasie — pasek Z PODPISAMI i zdaniem po polsku.
  *
- * To jest odpowiedź na „KIEDY" w jednym elemencie: osoba z pracą tylko w dwóch
- * prawych kubełkach przestała działać, osoba z lewymi pracuje teraz. Bez tego
- * trzeba czytać cztery liczby i porównywać je w głowie.
+ * ZGŁOSZONE (Kuba, 2026-08-18): „mamy coś takiego jak »Kiedy«, ale ja z tego nie
+ * potrafię nic wyczytać". Pierwsza wersja rysowała cztery szare prostokąty bez
+ * podpisu, bez skali i bez osi — trzeba było najechać myszką na każdy osobno,
+ * a na telefonie były w ogóle ukryte.
+ *
+ * Teraz każdy kubełek ma widoczną liczbę, a nad paskiem stoi zdanie wyliczone
+ * z danych („przestał — ostatnio 1–2 miesiące temu"). Zdanie jest pierwsze, bo
+ * ono odpowiada na pytanie; pasek jest po nim, bo pokazuje kształt rozkładu,
+ * którego zdanie nie oddaje.
  */
-function PasekCzasu({ kubelki }: { kubelki: Record<string, number> }) {
+function PasekCzasu({
+  kubelki,
+  zwarty = false,
+}: {
+  kubelki: Record<string, number>;
+  zwarty?: boolean;
+}) {
   const suma = KUBELKI.reduce((acc, k) => acc + (kubelki[k] ?? 0), 0);
-  if (!suma) return <span className="pasek-czasu pasek-czasu--puste">brak danych</span>;
+  if (!suma) return <span className="rozklad rozklad--puste">brak aktywności w oknie</span>;
 
   return (
-    <span className="pasek-czasu" role="img" aria-label={opisRozkladu(kubelki)}>
-      {KUBELKI.map((k) => {
-        const ile = kubelki[k] ?? 0;
-        return (
-          <span
-            key={k}
-            className={`pasek-czasu__kubelek${ile ? "" : " pasek-czasu__kubelek--pusty"}`}
-            style={{ flexGrow: Math.max(ile, 0.08) }}
-            title={`${OPISY_KUBELKOW[k]}: ${ile} ${odmianaAkcji(ile)}`}
-          />
-        );
-      })}
+    <span className={`rozklad${zwarty ? " rozklad--zwarty" : ""}`}>
+      {!zwarty && <span className="rozklad__zdanie">{zdanieOKiedy(kubelki)}</span>}
+      <span className="rozklad__slupki" aria-label={opisRozkladu(kubelki)}>
+        {KUBELKI.map((k) => {
+          const ile = kubelki[k] ?? 0;
+          return (
+            <span key={k} className="rozklad__kolumna" title={`${OPISY_KUBELKOW[k]}: ${ile}`}>
+              {/* Liczba NAD słupkiem, nie w tooltipie — to ona jest treścią.
+                  Kropka przy zerze, bo pusty słupek bez znaku wygląda jak brak
+                  danych, a znaczy „w tym okresie nic nie robił". */}
+              <span className="rozklad__liczba">{ile || "·"}</span>
+              <span
+                className={`rozklad__slupek${ile ? "" : " rozklad__slupek--pusty"}`}
+                style={{ height: `${ile ? Math.max((ile / suma) * 100, 8) : 2}%` }}
+              />
+              <span className="rozklad__podpis">{PODPISY_OSI[k]}</span>
+            </span>
+          );
+        })}
+      </span>
     </span>
   );
 }
 
-/** Tekst dla czytnika ekranu — pasek bez tego jest niedostępny. */
+/** Zdanie po polsku, wyliczone z kubełków. To ono odpowiada na „kiedy".
+ *
+ * Trzy przypadki, wszystkie zaobserwowane na koncie ACME:
+ *   * praca również w ostatnim miesiącu → „pracuje nadal", plus gdzie był szczyt;
+ *   * cała praca starsza niż miesiąc → „przestał", plus kiedy ostatnio;
+ *   * praca tylko w jednym kubełku → „cała praca w jednym okresie" (sygnatura
+ *     kogoś, kto rozstawił coś raz i skończył — np. 153 akcje w kubełku 31-60).
+ */
+function zdanieOKiedy(kubelki: Record<string, number>): string {
+  const suma = KUBELKI.reduce((acc, k) => acc + (kubelki[k] ?? 0), 0);
+  const swieze = (kubelki["0-7"] ?? 0) + (kubelki["8-30"] ?? 0);
+  const niepuste = KUBELKI.filter((k) => kubelki[k]);
+  const ostatni = niepuste[0];
+  // `ostatni` bywa `undefined` wg typów (filtr nie gwarantuje elementu), ale
+  // funkcja jest wołana tylko przy `suma > 0`, więc pusty przypadek nie zachodzi.
+  // Zwracamy z niego zdanie zamiast rzucać — widok nie ma prawa paść na tekście.
+  if (!ostatni) return "brak aktywności w oknie";
+
+  const szczyt =
+    KUBELKI.reduce<(typeof KUBELKI)[number]>(
+      (a, b) => ((kubelki[b] ?? 0) > (kubelki[a] ?? 0) ? b : a),
+      KUBELKI[0],
+    );
+
+  if (niepuste.length === 1) {
+    return `cała praca (${suma}) w jednym okresie: ${OPISY_KUBELKOW[ostatni]}`;
+  }
+
+  const udzial = Math.round((swieze / suma) * 100);
+  // Próg 10%, nie „cokolwiek świeżego".
+  //
+  // ZŁAPANE na podglądzie danych ACME: konto z 76 akcjami w kubełku 61-90 i JEDNĄ
+  // w 8-30 dostawało zdanie „pracuje nadal — 1% aktywności w ostatnim miesiącu".
+  // Formalnie prawda, w praktyce mylące: jedna akcja z 77 to cisza, nie praca.
+  // Dziesięć procent to granica, przy której „nadal" znaczy cokolwiek.
+  if (udzial >= 10) {
+    return `pracuje nadal — ${udzial}% aktywności w ostatnim miesiącu, szczyt ${OPISY_KUBELKOW[szczyt]}`;
+  }
+  if (swieze > 0) {
+    return `prawie przestał — tylko ${udzial}% (${swieze} z ${suma}) w ostatnim miesiącu, szczyt ${OPISY_KUBELKOW[szczyt]}`;
+  }
+  return `przestał — ostatnia praca ${OPISY_KUBELKOW[ostatni]}, szczyt ${OPISY_KUBELKOW[szczyt]}`;
+}
+
+/** Tekst dla czytnika ekranu — słupki bez tego są niedostępne. */
 function opisRozkladu(kubelki: Record<string, number>): string {
   const czesci = KUBELKI.filter((k) => kubelki[k]).map(
     (k) => `${OPISY_KUBELKOW[k]}: ${kubelki[k]}`,
@@ -125,7 +198,7 @@ function WierszOsoby({ osoba }: { osoba: ProfilOsoby }) {
           <b>{osoba.akcji}</b> {odmianaAkcji(osoba.akcji)} · {osoba.tablic}{" "}
           {osoba.tablic === 1 ? "tablica" : "tablic"}
         </span>
-        <PasekCzasu kubelki={osoba.kubelki_dni} />
+        <PasekCzasu kubelki={osoba.kubelki_dni} zwarty />
         {osoba.aktywny_ostatnie_7d ? (
           <span className="znacznik znacznik--zywy">aktywny w tym tygodniu</span>
         ) : (
@@ -138,6 +211,11 @@ function WierszOsoby({ osoba }: { osoba: ProfilOsoby }) {
 
       {otwarty && (
         <div className="osoba__szczegoly">
+          {/* Zdanie o „kiedy" JAKO PIERWSZE w rozwinięciu — w nagłówku wiersza
+              jest tylko zwarty pasek, bo pełne zdanie nie zmieściłoby się obok
+              nazwy, liczb i znaczników. */}
+          <p className="osoba__kiedy">{zdanieOKiedy(osoba.kubelki_dni)}</p>
+          <PasekCzasu kubelki={osoba.kubelki_dni} />
           <Zdarzenia po_event={osoba.po_event} />
           <table className="tabela-udzialow">
             <thead>
@@ -154,7 +232,7 @@ function WierszOsoby({ osoba }: { osoba: ProfilOsoby }) {
                   <td>{u.nazwa}</td>
                   <td className="liczba">{u.akcji}</td>
                   <td>
-                    <PasekCzasu kubelki={u.kubelki_dni} />
+                    <PasekCzasu kubelki={u.kubelki_dni} zwarty />
                   </td>
                   <td>
                     <Zdarzenia po_event={u.po_event} />
@@ -220,7 +298,7 @@ function WierszTablicy({ tablica }: { tablica: ProfilTablicy }) {
                   </td>
                   <td className="liczba">{a.akcji}</td>
                   <td>
-                    <PasekCzasu kubelki={a.kubelki_dni} />
+                    <PasekCzasu kubelki={a.kubelki_dni} zwarty />
                   </td>
                 </tr>
               ))}

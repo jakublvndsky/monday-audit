@@ -796,18 +796,61 @@ body {
 .znacznik--zywy { background: var(--cx-lime-soft); color: var(--cx-ink); }
 .znacznik--cichy { background: var(--cx-paper); color: var(--fg-subtle); }
 
-/* Pasek czasu: cztery kubełki od najświeższego. Odpowiedź na „KIEDY" bez
- * czytania czterech liczb — osoba z pracą tylko po prawej przestała działać. */
-.pasek-czasu {
-  display: inline-flex;
-  gap: 2px;
-  width: 96px;
-  height: 14px;
-  flex: 0 0 auto;
+/* Rozkład aktywności w czasie — słupki Z LICZBAMI i podpisami osi.
+ *
+ * ZGŁOSZONE przez Kubę: pierwsza wersja to były cztery szare prostokąty bez
+ * podpisu i bez skali — „nie potrafię z tego nic wyczytać". Teraz liczba stoi
+ * NAD słupkiem, a okres POD nim, więc czyta się bez najeżdżania myszką.
+ */
+.rozklad { display: inline-flex; flex-direction: column; gap: 2px; }
+.rozklad__zdanie {
+  color: var(--fg);
+  font-size: var(--fs-small);
 }
-.pasek-czasu__kubelek { background: var(--cx-ink-40); border-radius: 2px; }
-.pasek-czasu__kubelek--pusty { background: var(--cx-cloud); }
-.pasek-czasu--puste { color: var(--fg-subtle); font-size: var(--fs-small); width: auto; }
+.rozklad--puste { color: var(--fg-subtle); font-size: var(--fs-small); }
+.rozklad__slupki {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  height: 46px;
+}
+.rozklad__kolumna {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  min-width: 30px;
+}
+.rozklad__liczba {
+  font-size: var(--fs-tiny, 0.72rem);
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+  line-height: 1.1;
+}
+.rozklad__slupek {
+  width: 100%;
+  min-height: 2px;
+  background: var(--cx-ink-40);
+  border-radius: 2px 2px 0 0;
+}
+.rozklad__slupek--pusty { background: var(--cx-cloud-2); }
+.rozklad__podpis {
+  color: var(--fg-subtle);
+  font-size: var(--fs-tiny, 0.72rem);
+  line-height: 1.4;
+  white-space: nowrap;
+}
+/* Wariant zwarty — w nagłówku wiersza i w tabelach rozwinięcia. Bez zdania,
+ * niższy, ale liczby i podpisy ZOSTAJĄ: to one były brakującą treścią. */
+.rozklad--zwarty .rozklad__slupki { height: 30px; }
+.rozklad--zwarty .rozklad__kolumna { min-width: 26px; }
+
+.osoba__kiedy {
+  margin: 0 0 var(--space-2);
+  color: var(--fg);
+  font-size: var(--fs-body);
+}
 
 .zdarzenia { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; }
 .zdarzenia code {
@@ -866,7 +909,10 @@ body {
    * nie zmieszczą się w rzędzie. Zawijamy, a pasek czasu i tytuł stanowiska
    * chowamy — jedno i drugie jest w rozwinięciu. */
   .osoba__naglowek { flex-wrap: wrap; gap: var(--space-2); }
-  .osoba__naglowek .pasek-czasu { display: none; }
+  /* Pasek ZOSTAJE na telefonie. W pierwszej wersji był ukryty, co znaczyło, że
+   * kolumna „kiedy" nie istniała na małym ekranie — czyli dokładnie ta informacja,
+   * której brak zgłosił Kuba. Zamiast ukrywać, zawijamy nagłówek. */
+  .osoba__naglowek .rozklad { order: 10; }
   .osoba__tytul { display: none; }
   .zakladki button { padding: var(--space-2) var(--space-3); }
 
