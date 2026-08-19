@@ -60,9 +60,16 @@ tym, co masz — z `pewnosc: niska` jeśli brakuje danych. Nie zgaduj.
    bo znaczy absolutną ciszę, nie wygasanie. Bez tego pola walidacja odrzuci
    finding jako niepełny i informacja o martwej tablicy przepadnie.
 
-   Zmierzone: w audycie z 2026-08-11 dziewięć findingów `BOARD_GHOST` zostało
-   odrzuconych właśnie z tego powodu — dane były poprawne, brakowało jednej
-   liczby mówiącej „zero".
+   **Nazwa pola musi być `wpisow` albo zaczynać się od `wpisow_w_oknie`.**
+   Wolno dołożyć `wpisow_od_utworzenia`, `wpisow_przed_oknem` i podobne jako
+   DODATKOWY kontekst — są cenne — ale nie zastępują licznika w oknie, bo mówią
+   o czymś innym: tablica z czterdziestoma wpisami przed oknem nie jest tablicą
+   nigdy nieużywaną.
+
+   Zmierzone dwa razy. W audycie z 2026-08-11 dziewięć findingów `BOARD_GHOST`
+   odrzucono, bo brakowało tej liczby. W pełnym runie z 2026-08-19 sześć — bo
+   liczba była, ale pod trzema różnymi nazwami (`wpisow_w_oknie`,
+   `wpisow_w_oknie_90d`, `wpisow`), a walidacja szukała jednej.
 
 2. NIE LICZ. Liczby pochodzą z inwentarza. Jeśli potrzebujesz obliczenia,
    którego tam nie ma — nie rób go, odnotuj brak.

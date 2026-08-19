@@ -33,6 +33,7 @@ from monday_audit.kontrakt import (
     REGULA_PUSTY_TEKST,
     REGULA_SLOWNIK,
     KontraktError,
+    _cisza_jest_dowodem,
     waliduj,
     zapisz_findingi,
     zapisz_hipotezy_odrzucone,
@@ -605,3 +606,59 @@ def test_run_z_wszystkimi_hipotezami_nierozstrzygnietymi_to_blad() -> None:
             "przerwany" if nierozstrzygnietych and nierozstrzygnietych == hipotez else "zakonczony"
         )
         assert status == oczekiwany, f"{nierozstrzygnietych}/{hipotez} → {status}"
+
+
+# ── licznik wpisów pod różnymi nazwami ───────────────────────────────────
+#
+# ZMIERZONE na pełnym runie `pelny-etap4-a` (2026-08-19): agent użył TRZECH nazw
+# dla tej samej liczby, choć prompt podaje jedną dosłownie. Instrukcja w prompcie
+# nie jest guardrailem — ta sama lekcja co przy `effort` w kroku 2 etapu 4.
+
+
+def test_wariant_nazwy_licznika_w_oknie_usprawiedliwia_pusty_rozklad() -> None:
+    """`wpisow_w_oknie_90d: 0` znaczy to samo co `wpisow: 0` i jest precyzyjniejsze."""
+    for nazwa in ("wpisow", "wpisow_w_oknie", "wpisow_w_oknie_90d"):
+        dowod: dict[str, Any] = {
+            "kubelki_dni": {},
+            "po_klasie": {},
+            "najnowszy_at": None,
+            nazwa: 0,
+        }
+        assert _cisza_jest_dowodem("kubelki_dni", dowod) is True, nazwa
+
+
+def test_licznik_od_utworzenia_nie_usprawiedliwia_pustego_rozkladu() -> None:
+    """`wpisow_od_utworzenia: 0` mówi o czymś INNYM niż cisza w oknie.
+
+    Gdyby ta nazwa się łapała, `wpisow_przed_oknem: 0` (tablica świeża, właśnie
+    utworzona) usprawiedliwiałoby pusty rozkład — czyli wyjątek działałby dokładnie
+    odwrotnie, niż ma. Tablica świeża nie jest martwa.
+    """
+    for nazwa in ("wpisow_od_utworzenia", "wpisow_przed_oknem", "wpisow_razem"):
+        dowod: dict[str, Any] = {"kubelki_dni": {}, nazwa: 0}
+        assert _cisza_jest_dowodem("kubelki_dni", dowod) is False, nazwa
+
+
+def test_niezerowy_licznik_nie_usprawiedliwia_niczego() -> None:
+    """Tablica z aktywnością MA rozkład — pusty znaczy, że agent go pominął."""
+    dowod = {"kubelki_dni": {}, "wpisow_w_oknie": 12}
+
+    assert _cisza_jest_dowodem("kubelki_dni", dowod) is False
+
+
+def test_dodatkowy_kontekst_obok_licznika_nie_psuje_wyjatku() -> None:
+    """Agent dołożył `wpisow_od_utworzenia: 40` OBOK `wpisow_w_oknie: 0`.
+
+    To jest zachowanie POŻĄDANE — „zero w oknie, czterdzieści przed oknem" mówi
+    więcej niż samo zero. Wyjątek nie może się na tym wywrócić.
+    """
+    dowod = {
+        "kubelki_dni": {},
+        "po_klasie": {},
+        "najnowszy_at": None,
+        "wpisow_w_oknie_90d": 0,
+        "wpisow_od_utworzenia": 40,
+        "wpisow_od_utworzenia_rozklad": {"2026-03-23": 40},
+    }
+
+    assert _cisza_jest_dowodem("kubelki_dni", dowod) is True

@@ -110,6 +110,26 @@ def _liczba(wartosc: Any) -> float | None:
 # furtką: agent mógłby pominąć `items_count` albo `nazwa` i schować się za ciszą.
 POLA_ROZKLADU = frozenset({"kubelki_dni", "po_klasie", "najnowszy_at"})
 
+# Nazwy, pod którymi agent podaje licznik wpisów W OKNIE.
+#
+# ZMIERZONE na pełnym runie `pelny-etap4-a` (2026-08-19, 80 hipotez): agent użył
+# TRZECH różnych nazw dla tej samej liczby — `wpisow_w_oknie`, `wpisow_w_oknie_90d`,
+# i (w innych findingach) `wpisow`. Prompt mówi `"wpisow": 0` DOSŁOWNIE, a mimo to
+# nazwy się rozjechały. To ta sama lekcja co w kroku 2 etapu 4: **instrukcja
+# w prompcie nie jest guardrailem.**
+#
+# Lista jest ZAMKNIĘTA i celowo NIE zawiera `wpisow_od_utworzenia` ani
+# `wpisow_przed_oknem` — one znaczą coś przeciwnego. Tablica z
+# `wpisow_od_utworzenia: 40` NIE jest cicha, tylko cicha w oknie; gdyby te nazwy
+# tu weszły, `wpisow_przed_oknem: 0` (tablica świeża) usprawiedliwiałoby pusty
+# rozkład, czyli wyjątek działałby dokładnie odwrotnie niż ma.
+#
+# Wzorzec, nie lista podnazw: dopisywanie nazwy po każdym runie to gra w kotka
+# i myszkę. Wariant musi zaczynać się od `wpisow_w_oknie` — czyli nazwa MUSI
+# jawnie mówić „w oknie", a nie „od utworzenia".
+NAZWY_LICZNIKA_WPISOW = ("wpisow", "wpisow_w_oknie")
+PREFIKS_LICZNIKA_W_OKNIE = "wpisow_w_oknie"
+
 
 def _cisza_jest_dowodem(pole: str, dowod: dict[str, Any]) -> bool:
     """Czy puste pole rozkładu jest usprawiedliwione zerową aktywnością.
@@ -135,16 +155,38 @@ def _cisza_jest_dowodem(pole: str, dowod: dict[str, Any]) -> bool:
     Dwa warunki trzymają wyjątek wąsko:
 
     1. pole musi być na zamkniętej liście `POLA_ROZKLADU`;
-    2. `wpisow` musi **być w dowodzie i wynosić 0**. Brak pola NIE jest zerem —
-       agent, który je pominie, dostaje odrzucenie jak dotąd. Inaczej „nie wiem"
-       udawałoby „nie ma".
+    2. licznik wpisów musi **być w dowodzie i wynosić 0**. Brak pola NIE jest
+       zerem — agent, który je pominie, dostaje odrzucenie jak dotąd. Inaczej
+       „nie wiem" udawałoby „nie ma".
+
+    ## Dlaczego licznik ma DWIE dopuszczalne nazwy
+
+    ZMIERZONE na pełnym runie `pelny-etap4-a` (2026-08-19, 80 hipotez): 5 z 6
+    odrzuceń walidacyjnych to `BOARD_GHOST`, w którym agent podał
+    **`wpisow_w_oknie: 0`** zamiast `wpisow: 0` — i przy okazji dołożył
+    `wpisow_przed_oknem: 40` oraz `ostatni_wpis_przed_oknem_at`.
+
+    Jego nazwa jest **precyzyjniejsza od naszej**: „zero wpisów W OKNIE, czterdzieści
+    przed oknem" mówi o tablicy więcej niż samo „zero wpisów", bo rozróżnia tablicę
+    nigdy nieużywaną od porzuconej. Wąskie dopasowanie do jednej nazwy karało go za
+    dokładność, a odrzucone findingi kosztowały ~0,35 USD na run.
+
+    Lista nazw jest ZAMKNIĘTA, tak jak `POLA_ROZKLADU` — „dowolny klucz zawierający
+    `wpisow`" byłoby furtką.
     """
     if pole not in POLA_ROZKLADU:
         return False
-    wpisow = dowod.get("wpisow")
-    # `is not None` przed porównaniem: `dowod.get` zwraca `None` dla braku pola,
-    # a `None == 0` jest fałszem — ale wolę, żeby warunek był czytelny wprost.
-    return wpisow is not None and _liczba(wpisow) == 0
+    for nazwa, wartosc in dowod.items():
+        # Dokładna nazwa ALBO wariant zaczynający się od `wpisow_w_oknie`
+        # (`wpisow_w_oknie_90d` i podobne). `wpisow_od_utworzenia` i
+        # `wpisow_przed_oknem` NIE łapią się — mówią o czymś przeciwnym.
+        if nazwa not in NAZWY_LICZNIKA_WPISOW and not nazwa.startswith(PREFIKS_LICZNIKA_W_OKNIE):
+            continue
+        # `is not None` przed porównaniem: `dowod.get` zwraca `None` dla braku pola,
+        # a `None == 0` jest fałszem — ale wolę, żeby warunek był czytelny wprost.
+        if wartosc is not None and _liczba(wartosc) == 0:
+            return True
+    return False
 
 
 def _sprawdz_finding(
