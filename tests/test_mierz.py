@@ -414,6 +414,9 @@ def _con_z_runami() -> Any:
     con.row_factory = sqlite3.Row
     con.execute("CREATE TABLE findings (run_id TEXT, klasa_id TEXT, dowod TEXT)")
     con.execute("CREATE TABLE hipotezy_odrzucone (run_id TEXT, klasa_id TEXT, obiekt_id TEXT)")
+    # Findingi ODRZUCONE PRZEZ WALIDACJĘ — miernik czyta i tę tabelę, bo agent je
+    # ORZEKŁ. Kolumna nazywa się `finding` (całość), nie `dowod`, jak w produkcji.
+    con.execute("CREATE TABLE findings_odrzucone (run_id TEXT, klasa_id TEXT, finding TEXT)")
     return con
 
 
@@ -522,3 +525,35 @@ def test_prog_powtarzalnosci_jest_stala_z_specyfikacji() -> None:
     from mierz import PROG_POWTARZALNOSCI
 
     assert PROG_POWTARZALNOSCI == 0.8
+
+
+def test_finding_odrzucony_walidacja_liczy_sie_jako_finding() -> None:
+    """Agent go ORZEKŁ — to, że kontrakt go odrzucił, nie jest niestabilnością agenta.
+
+    ZMIERZONA USTERKA (2026-08-19): pierwsza wersja czytała tylko `findings`, więc
+    finding odrzucony przez walidację wyglądał jak „brak" i liczył się jako
+    `odrzucona` — czyli NIEZGODNOŚĆ z runem, w którym ten sam finding przeszedł.
+
+    Konkretny przypadek: `BOARD_OVERCOMPLEX 5093573347` — run A zgłosił, walidacja
+    odrzuciła za nazwę licznika wpisów, run B zgłosił i przeszedł. Agent był
+    stabilny, rozjechał się kontrakt. Miara mierzyła NASZĄ walidację.
+
+    Ta usterka ZAWYŻAŁA wynik (0,808 zamiast 0,797), czyli pokazała liczbę
+    korzystną — i dlatego jest osobnym testem.
+    """
+    from mierz import zmierz_powtarzalnosc
+
+    con = _con_z_runami()
+    # Run „a": finding przeszedł walidację.
+    _finding_w(con, "a", "BOARD_GHOST", "b1")
+    # Run „b": ten sam finding, ale walidacja go odrzuciła.
+    con.execute(
+        "INSERT INTO findings_odrzucone (run_id, klasa_id, finding) VALUES "
+        "('b', 'BOARD_GHOST', '{\"dowod\": {\"board_id\": \"b1\"}}')"
+    )
+
+    w = zmierz_powtarzalnosc(con, "a", "b")
+
+    assert w.hipotez_wspolnych == 1
+    assert w.zgodnosc == 1.0, "oba runy ORZEKŁY finding"
+    assert w.rozbieznosci == ()

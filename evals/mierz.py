@@ -624,6 +624,24 @@ def zmierz_powtarzalnosc(con: sqlite3.Connection, run_a: str, run_b: str) -> Pow
     """
 
     def rozstrzygniecia(run_id: str) -> dict[tuple[str, str], str]:
+        """Co agent ORZEKŁ o każdej hipotezie: `finding` albo `odrzucona`.
+
+        ## Finding odrzucony przez WALIDACJĘ liczy się jako `finding`
+
+        ZMIERZONA USTERKA (2026-08-19, porównanie `pelny-etap4-a`/`-b`): pierwsza
+        wersja czytała tylko `findings`, więc finding zgłoszony przez agenta
+        i odrzucony przez kontrakt D8 wyglądał jak „brak" — i miernik liczył go
+        jako `odrzucona`, czyli NIEZGODNOŚĆ z runem, w którym ten sam finding
+        przeszedł.
+
+        To mierzyłoby NASZĄ WALIDACJĘ, nie stabilność agenta. Konkretny przypadek:
+        `BOARD_OVERCOMPLEX 5093573347` — run A zgłosił finding, walidacja odrzuciła
+        go za nazwę licznika wpisów, run B zgłosił i przeszedł. Agent był STABILNY,
+        rozjechał się kontrakt.
+
+        Pytanie z progu brzmi „czy agent dwa razy rozstrzyga tę samą hipotezę tak
+        samo" — więc liczy się to, co ORZEKŁ, nie to, co przeżyło walidację.
+        """
         wynik: dict[tuple[str, str], str] = {}
         for w in con.execute("SELECT klasa_id, dowod FROM findings WHERE run_id = ?", (run_id,)):
             try:
@@ -631,6 +649,17 @@ def zmierz_powtarzalnosc(con: sqlite3.Connection, run_a: str, run_b: str) -> Pow
             except json.JSONDecodeError:
                 dowod = {}
             wynik[(w["klasa_id"], _obiekt_findingu(dowod))] = "finding"
+        # Odrzucone przez walidację — treść siedzi w kolumnie `finding`, nie `dowod`.
+        for w in con.execute(
+            "SELECT klasa_id, finding FROM findings_odrzucone WHERE run_id = ?", (run_id,)
+        ):
+            try:
+                cale = json.loads(w["finding"] or "{}")
+            except json.JSONDecodeError:
+                cale = {}
+            dowod = cale.get("dowod") or {}
+            if dowod:
+                wynik[(w["klasa_id"], _obiekt_findingu(dowod))] = "finding"
         for w in con.execute(
             "SELECT klasa_id, obiekt_id FROM hipotezy_odrzucone WHERE run_id = ?", (run_id,)
         ):

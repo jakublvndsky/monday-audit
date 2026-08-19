@@ -1248,3 +1248,64 @@ decyzji** — to zmiana definicji klasy, a te należą do człowieka.
 
 Klasy o użytkownikach są tym NIEDOTKNIĘTE: `ZOMBIE_ACCOUNT` mówi o kontach na
 poziomie konta monday (94 osoby, 19 płatnych miejsc), nie o tablicach w workspace.
+
+## O34 — powtarzalność 0,797 przy progu ≥0,8; przyczyna w rubryce, nie w prompcie (2026-08-19)
+
+Dwa pełne runy na snapshocie #7 (`pelny-etap4-a`, `pelny-etap4-b`, po 80 hipotez,
+ten sam `effort=medium`, ten sam prompt) dały **zgodność rozstrzygnięć 0,797** —
+63 z 79 hipotez wspólnych. Próg z `04-test.md` to ≥0,8, więc **nie spełniony**,
+choć o 0,003.
+
+### Gdzie siedzi niestabilność
+
+| klasa | rozbieżności | hipotez | udział |
+|---|---|---|---|
+| `BOARD_GHOST` | 11 | 30 | **37%** |
+| `BOARD_OVERCOMPLEX` | 3 | 16 | 19% |
+| `DUPLICATE_STRUCTURE` | 1 | 21 | 5% |
+| `UZYTKOWNIK_WYGASZONY` | 1 | 2 | 50% |
+| `ZOMBIE_ACCOUNT`, `GUEST_SPRAWL`, `PLAN_MISMATCH`, `AUTOMATION_DEAD` | 0 | 11 | **0%** |
+
+`ZOMBIE_ACCOUNT` jest w 100% stabilny, bo idzie **szablonem bez modelu** — to
+uboczne potwierdzenie kroku 1 etapu 4.
+
+### Przyczyna, zmierzona nie zgadnięta
+
+Odczytanie powodów odrzuceń pokazuje jeden wzorzec: **wszystkie powołują się na
+nazwę workspace'u `CRM_PL_Demo`**.
+
+    pelny-etap4-a: BOARD_GHOST → 8 findingów, 17 odrzuceń, 16 powołuje się na „demo"
+    pelny-etap4-b: BOARD_GHOST → 18 findingów, 12 odrzuceń, 9 powołuje się na „demo"
+
+Rubryka `BOARD_GHOST` ma warunek odrzucenia **„tablica-szablon lub referencyjna
+(rozpoznaj po nazwie)"**. To jedyny warunek w całej rubryce oparty na **osądzie**,
+nie na danych — i dotyczy nazwy TABLICY, a agent stosuje go do nazwy WORKSPACE'U.
+
+Robi to niekonsekwentnie, bo warunek nie mówi, czy nazwa workspace'u się liczy.
+Ta sama tablica, ten sam snapshot, dwa różne rozstrzygnięcia.
+
+**To nie „prompt zbyt luźny", jak sugeruje opis progu w 04-test.md — to luźna
+RUBRYKA.** Prompt nie ma czego zacieśnić: wykonuje warunek, który jest
+niedookreślony u źródła.
+
+### Trzy drogi, żadna nie wybrana bez decyzji człowieka
+
+1. **Doprecyzować warunek w rubryce** — np. „nazwa TABLICY zawiera szablon /
+   template / wzór / przykład" i osobno, jawnie, co robić z nazwą workspace'u.
+   Zmiana definicji klasy, więc należy do człowieka.
+2. **Dodać nazwę workspace'u do warunku odrzucenia** (jak przy
+   `DUPLICATE_STRUCTURE` po O33), z drugim sygnałem obok samej nazwy.
+3. **Uznać 0,797 za wystarczające na tym koncie** i zmierzyć powtarzalność na
+   koncie produkcyjnym, gdzie workspace nie nazywa się „Demo". Argument za:
+   cała niestabilność wynika z jednej cechy tego konkretnego snapshotu (O33).
+
+### Usterka miernika złapana przy okazji
+
+Pierwszy odczyt dał **0,808 — powyżej progu — i był zawyżony**. `zmierz_powtarzalnosc`
+czytało tylko tabelę `findings`, więc finding zgłoszony przez agenta i odrzucony
+przez kontrakt D8 wyglądał jak „brak" i liczył się jako `odrzucona`. To mierzyło
+NASZĄ WALIDACJĘ, nie stabilność agenta.
+
+Naprawione: `findings_odrzucone` liczy się jako `finding`, bo agent go ORZEKŁ.
+Po poprawce 0,797. **Miara zawyżająca, znaleziona po tym, jak pokazała wynik
+korzystny** — dlatego zapisana tu wprost.

@@ -398,3 +398,69 @@ W tym runie agent nie użył narzędzi wcale, więc pomiar kosztu jest nietknię
 
 **Wniosek: architektura zostaje bez zmian.** Jedna sesja na hipotezę była wyborem
 nieudokumentowanym pomiarem — teraz jest udokumentowanym.
+
+---
+
+## Pełny run — domknięcie etapu, 2026-08-19
+
+Dwa runy na całym snapshocie #7, po **80 hipotez** (8 klas), `effort=medium`.
+
+| | `pelny-etap4-a` | `pelny-etap4-b` |
+|---|---|---|
+| findingów | 33 | **45** |
+| odrzuconych walidacją | **6** (0,154) | **1** (0,022) |
+| obalonych przez agenta | 41 | 34 |
+| koszt | 5,52 USD | 4,79 USD |
+| USD/hipotezę | 0,0690 | **0,0599** |
+| czas agenta | 37 min | 36 min |
+| wyjście/hipotezę | 1507 | 1522 |
+| cache | 87,1% | 87,4% |
+| wywołania monday | 41 z sufitu 100 | — |
+
+Różnica findingów (33 → 45) **nie jest niestabilnością**: między runami weszła
+poprawka kontraktu (nazwy licznika wpisów), więc run B nie tracił findingów na
+walidacji. To pokazuje, ile kosztowała ta jedna niedopasowana nazwa: **12 findingów
+i ~0,35 USD na run.**
+
+### Wszystkie progi z 04-test.md
+
+| próg | wymaganie | wynik | |
+|---|---|---|---|
+| trafność | ≥ 0,7 | **1,000** | ✅ |
+| fałszywki | ≤ 0,1 | **0,000** | ✅ |
+| odrzucenia na walidacji | ≤ 0,15 | 0,154 → **0,022** po poprawce | ✅ |
+| niepuste `hipotezy_odrzucone` | 100% | 41 i 34 | ✅ |
+| wywołania per hipoteza | ≤ budżet | 41 z 338 zamówionych | ✅ |
+| **powtarzalność** | **≥ 0,8** | **0,797** | ❌ |
+
+Trafność, fałszywki i rzeczowość zmierzone wobec **wszystkich trzech** złotych
+zestawów — każdy dał 1,000 / 0,000 / 1,000.
+
+**Powtarzalność jest jedynym progiem niespełnionym**, i to o 0,003. Przyczyna
+zdiagnozowana i opisana w O34: 11 z 16 rozbieżności to `BOARD_GHOST`, a wszystkie
+odrzucenia w tej klasie powołują się na nazwę workspace'u `CRM_PL_Demo`. Warunek
+rubryki „tablica-szablon lub referencyjna (rozpoznaj po nazwie)" jest jedynym
+warunkiem opartym na osądzie, nie na danych — i agent stosuje go niekonsekwentnie.
+
+To **luźna rubryka, nie luźny prompt.** Rubryki nie zmieniam bez decyzji człowieka.
+
+### Koszt na hipotezę wobec drogi etapu
+
+| | USD/hip. | out/hip. |
+|---|---|---|
+| baseline 11.08 (86 hip.) | 0,0825 | brak danych |
+| baseline 17.08 (37 hip.) | 0,1017 | 3346 |
+| mała próbka po optymalizacji (5 hip.) | 0,0710 | 1236 |
+| **pełny run A (80 hip.)** | **0,0690** | 1507 |
+| **pełny run B (80 hip.)** | **0,0599** | 1522 |
+
+Koszt na hipotezę **spadł jeszcze niżej na pełnym runie** niż na małej próbce —
+0,0599 wobec 0,0710. Powód: cache amortyzuje się na większej liczbie sesji, a
+`ZOMBIE_ACCOUNT` (7 hipotez za 0 USD) rozkłada się na cały run.
+
+Wyjście na hipotezę wyszło wyżej niż na próbce (1507 wobec 1236), bo pełny run
+zawiera `BOARD_GHOST` i `GUEST_SPRAWL` — klasy o dłuższych odpowiedziach, których
+próbka nie miała.
+
+**Wobec pierwotnego baseline'u z 11 sierpnia: 0,0825 → 0,0599 USD/hip., czyli −27%
+przy pełnym pokryciu wszystkich ośmiu klas.**
