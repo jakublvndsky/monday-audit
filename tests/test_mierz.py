@@ -401,3 +401,124 @@ def test_brak_trafionych_przy_niepustych_oczekiwanych_to_zero() -> None:
 
     assert w.trafnosc == 0.0
     assert w.rzeczowosc == 0.0
+
+
+# ── powtarzalność (próg z 04-test.md: ≥0,8) ──────────────────────────────
+
+
+def _con_z_runami() -> Any:
+    """Baza w pamięci z dwiema tabelami, których dotyka `zmierz_powtarzalnosc`."""
+    import sqlite3
+
+    con = sqlite3.connect(":memory:")
+    con.row_factory = sqlite3.Row
+    con.execute("CREATE TABLE findings (run_id TEXT, klasa_id TEXT, dowod TEXT)")
+    con.execute("CREATE TABLE hipotezy_odrzucone (run_id TEXT, klasa_id TEXT, obiekt_id TEXT)")
+    return con
+
+
+def _finding_w(con: Any, run: str, klasa: str, obiekt: str) -> None:
+    con.execute(
+        "INSERT INTO findings (run_id, klasa_id, dowod) VALUES (?, ?, ?)",
+        (run, klasa, f'{{"user_hash": "{obiekt}"}}'),
+    )
+
+
+def _odrzucona_w(con: Any, run: str, klasa: str, obiekt: str) -> None:
+    con.execute(
+        "INSERT INTO hipotezy_odrzucone (run_id, klasa_id, obiekt_id) VALUES (?, ?, ?)",
+        (run, klasa, obiekt),
+    )
+
+
+def test_identyczne_runy_daja_zgodnosc_jeden() -> None:
+    """Dwa runy orzekające to samo o każdej hipotezie."""
+    from mierz import zmierz_powtarzalnosc
+
+    con = _con_z_runami()
+    for run in ("a", "b"):
+        _finding_w(con, run, "ZOMBIE_ACCOUNT", "h1")
+        _finding_w(con, run, "ZOMBIE_ACCOUNT", "h2")
+        _odrzucona_w(con, run, "ZOMBIE_ACCOUNT", "h3")
+
+    w = zmierz_powtarzalnosc(con, "a", "b")
+
+    assert w.hipotez_wspolnych == 3
+    assert w.zgodnosc == 1.0
+    assert w.prog_spelniony is True
+    assert w.rozbieznosci == ()
+
+
+def test_rozne_rozstrzygniecie_obniza_zgodnosc() -> None:
+    """Ta sama hipoteza, raz finding, raz odrzucenie — to jest niestabilność.
+
+    Dokładnie to, o co pyta próg: „niżej = prompt zbyt luźny". Agent, który dwa
+    razy rozstrzyga tę samą hipotezę inaczej, nie ma jasnego kryterium.
+    """
+    from mierz import zmierz_powtarzalnosc
+
+    con = _con_z_runami()
+    _finding_w(con, "a", "ZOMBIE_ACCOUNT", "h1")
+    _finding_w(con, "b", "ZOMBIE_ACCOUNT", "h1")
+    _finding_w(con, "a", "ZOMBIE_ACCOUNT", "h2")
+    _odrzucona_w(con, "b", "ZOMBIE_ACCOUNT", "h2")  # ← rozbieżność
+
+    w = zmierz_powtarzalnosc(con, "a", "b")
+
+    assert w.hipotez_wspolnych == 2
+    assert w.zgodnosc == 0.5
+    assert w.prog_spelniony is False
+    assert w.rozbieznosci == (("ZOMBIE_ACCOUNT h2", "finding", "odrzucona"),)
+
+
+def test_hipoteza_tylko_w_jednym_runie_nie_liczy_sie_do_zgodnosci() -> None:
+    """Różny ZAKRES to nie różnica rozstrzygnięcia.
+
+    Run z `--na-klase 2` i run pełny mają inne zbiory hipotez. Liczenie tego jako
+    niezgodności mierzyłoby dobór próbki, nie stabilność agenta — ale trzeba to
+    RAPORTOWAĆ, bo inaczej porównanie jest o czymś innym, niż się wydaje.
+    """
+    from mierz import zmierz_powtarzalnosc
+
+    con = _con_z_runami()
+    _finding_w(con, "a", "ZOMBIE_ACCOUNT", "h1")
+    _finding_w(con, "b", "ZOMBIE_ACCOUNT", "h1")
+    _finding_w(con, "a", "ZOMBIE_ACCOUNT", "tylko-a")
+    _finding_w(con, "b", "ZOMBIE_ACCOUNT", "tylko-b")
+
+    w = zmierz_powtarzalnosc(con, "a", "b")
+
+    assert w.hipotez_wspolnych == 1
+    assert w.zgodnosc == 1.0, "wspólna hipoteza rozstrzygnięta tak samo"
+    assert w.tylko_w_a == ("ZOMBIE_ACCOUNT tylko-a",)
+    assert w.tylko_w_b == ("ZOMBIE_ACCOUNT tylko-b",)
+
+
+def test_zgodnosc_liczy_rozstrzygniecia_nie_tresc_opisow() -> None:
+    """Model nie jest deterministyczny — dwa opisy tej samej rzeczy zawsze różnią
+    się słowami.
+
+    Miara oparta na tekście mierzyłaby temperaturę próbkowania, nie stabilność
+    ROZUMOWANIA. Ten test przypina tę decyzję: findingi o różnej treści, ale tym
+    samym rozstrzygnięciu, są ZGODNE.
+    """
+    from mierz import zmierz_powtarzalnosc
+
+    con = _con_z_runami()
+    con.execute(
+        "INSERT INTO findings (run_id, klasa_id, dowod) VALUES "
+        '(\'a\', \'ZOMBIE_ACCOUNT\', \'{"user_hash": "h1", "kind": "member"}\')'
+    )
+    con.execute(
+        "INSERT INTO findings (run_id, klasa_id, dowod) VALUES "
+        '(\'b\', \'ZOMBIE_ACCOUNT\', \'{"user_hash": "h1", "kind": "member", "extra": 1}\')'
+    )
+
+    assert zmierz_powtarzalnosc(con, "a", "b").zgodnosc == 1.0
+
+
+def test_prog_powtarzalnosci_jest_stala_z_specyfikacji() -> None:
+    """0,8 z tabeli progów w `docs/etapy/04-test.md`."""
+    from mierz import PROG_POWTARZALNOSCI
+
+    assert PROG_POWTARZALNOSCI == 0.8

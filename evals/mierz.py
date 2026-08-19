@@ -564,6 +564,97 @@ def ocen(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class Powtarzalnosc:
+    """Zgodność DWÓCH runów na tym samym snapshocie. Próg z 04-test.md: ≥0,8.
+
+    ## Co dokładnie mierzymy, bo specyfikacja tego nie mówi
+
+    04-test.md wymaga „≥ 0.8 zgodności", nie definiując, czym jest zgodność.
+    Rozstrzygnięcie: **zgodność ROZSTRZYGNIĘĆ, nie treści opisów.**
+
+    Dla każdej hipotezy pytamy „czy oba runy orzekły to samo" — finding albo
+    odrzucenie. Zgodność to udział hipotez, w których się zgodziły.
+
+    Dlaczego nie porównujemy tekstów: model nie jest deterministyczny, więc dwa
+    opisy tej samej rzeczy zawsze różnią się słowami. Miara oparta na tekście
+    mierzyłaby temperaturę próbkowania, nie stabilność ROZUMOWANIA. A pytanie
+    z progu brzmi „czy prompt jest zbyt luźny" — czyli czy agent dwa razy
+    rozstrzyga tę samą hipotezę tak samo.
+
+    ## Czego ta miara NIE wychwyci
+
+    Dwa runy mogą zgodzić się co do rozstrzygnięcia i podać sprzeczne dowody.
+    Dlatego obok zgodności liczymy `rozbieznosci` z identyfikatorami — żeby dało
+    się je przeczytać, a nie tylko policzyć.
+    """
+
+    run_a: str
+    run_b: str
+    hipotez_wspolnych: int
+    zgodnych: int
+    # Hipotezy, w których runy orzekły INACZEJ. Para (obiekt, co_a, co_b).
+    rozbieznosci: tuple[tuple[str, str, str], ...] = ()
+    # Hipotezy obecne tylko w jednym runie — nie liczą się do zgodności, bo to
+    # różnica ZAKRESU, nie rozstrzygnięcia. Raportowane, bo różny zakres znaczy,
+    # że porównanie jest o czymś innym, niż się wydaje.
+    tylko_w_a: tuple[str, ...] = ()
+    tylko_w_b: tuple[str, ...] = ()
+
+    @property
+    def zgodnosc(self) -> float:
+        return self.zgodnych / self.hipotez_wspolnych if self.hipotez_wspolnych else 0.0
+
+    @property
+    def prog_spelniony(self) -> bool:
+        return self.zgodnosc >= PROG_POWTARZALNOSCI
+
+
+# Próg z `docs/etapy/04-test.md`, tabela progów: „Powtarzalność (2 runy, ten sam
+# snapshot) — ≥ 0.8 zgodności; niżej = prompt zbyt luźny".
+PROG_POWTARZALNOSCI = 0.8
+
+
+def zmierz_powtarzalnosc(con: sqlite3.Connection, run_a: str, run_b: str) -> Powtarzalnosc:
+    """Porównuje ROZSTRZYGNIĘCIA dwóch runów hipoteza po hipotezie.
+
+    Rozstrzygnięcie bierzemy z dwóch tabel: `findings` (agent zgłosił) i
+    `hipotezy_odrzucone` (agent obalił). Hipoteza nieobecna w żadnej to błąd runu —
+    oznaczamy ją jako `blad`, żeby nie zliczyła się jako zgodna z drugim błędem.
+    """
+
+    def rozstrzygniecia(run_id: str) -> dict[tuple[str, str], str]:
+        wynik: dict[tuple[str, str], str] = {}
+        for w in con.execute("SELECT klasa_id, dowod FROM findings WHERE run_id = ?", (run_id,)):
+            try:
+                dowod = json.loads(w["dowod"] or "{}")
+            except json.JSONDecodeError:
+                dowod = {}
+            wynik[(w["klasa_id"], _obiekt_findingu(dowod))] = "finding"
+        for w in con.execute(
+            "SELECT klasa_id, obiekt_id FROM hipotezy_odrzucone WHERE run_id = ?", (run_id,)
+        ):
+            wynik.setdefault((w["klasa_id"], str(w["obiekt_id"])), "odrzucona")
+        return wynik
+
+    a, b = rozstrzygniecia(run_a), rozstrzygniecia(run_b)
+    wspolne = sorted(set(a) & set(b))
+    rozbieznosci = tuple(
+        (f"{klasa} {obiekt}", a[(klasa, obiekt)], b[(klasa, obiekt)])
+        for klasa, obiekt in wspolne
+        if a[(klasa, obiekt)] != b[(klasa, obiekt)]
+    )
+    return Powtarzalnosc(
+        run_a=run_a,
+        run_b=run_b,
+        hipotez_wspolnych=len(wspolne),
+        zgodnych=len(wspolne) - len(rozbieznosci),
+        rozbieznosci=rozbieznosci,
+        tylko_w_a=tuple(f"{k} {o}" for k, o in sorted(set(a) - set(b))),
+        tylko_w_b=tuple(f"{k} {o}" for k, o in sorted(set(b) - set(a))),
+    )
+
+
 def zmierz(baza: Path, run_id: str, zestaw: Path) -> Wynik:
     """Wejście dla CLI i dla raportu HTML."""
     from monday_audit.baza import polacz
@@ -589,11 +680,44 @@ def _main() -> int:
     p.add_argument("--run", required=True, help="run_id agenta")
     p.add_argument("--zestaw", type=Path, required=True)
     p.add_argument("--json", action="store_true", help="wypisz surowy JSON")
+    p.add_argument(
+        "--wobec-runu",
+        default=None,
+        metavar="RUN_ID",
+        help="drugi run na TYM SAMYM snapshocie — liczy powtarzalność (próg ≥0,8). "
+        "Mierzy zgodność ROZSTRZYGNIĘĆ, nie treści opisów: model nie jest "
+        "deterministyczny, więc porównanie tekstów mierzyłoby temperaturę "
+        "próbkowania, nie stabilność rozumowania",
+    )
     a = p.parse_args()
 
     wynik = zmierz(a.baza, a.run, a.zestaw)
+
+    powt = None
+    if a.wobec_runu:
+        from monday_audit.baza import polacz
+
+        con = polacz(a.baza)
+        try:
+            powt = zmierz_powtarzalnosc(con, a.run, a.wobec_runu)
+        finally:
+            con.close()
+
     if a.json:
-        print(json.dumps(wynik.do_slownika(), ensure_ascii=False, indent=2))
+        surowy = wynik.do_slownika()
+        if powt is not None:
+            surowy["powtarzalnosc"] = {
+                "run_a": powt.run_a,
+                "run_b": powt.run_b,
+                "hipotez_wspolnych": powt.hipotez_wspolnych,
+                "zgodnych": powt.zgodnych,
+                "zgodnosc": round(powt.zgodnosc, 3),
+                "prog_spelniony": powt.prog_spelniony,
+                "rozbieznosci": [list(r) for r in powt.rozbieznosci],
+                "tylko_w_a": list(powt.tylko_w_a),
+                "tylko_w_b": list(powt.tylko_w_b),
+            }
+        print(json.dumps(surowy, ensure_ascii=False, indent=2))
         return 0
 
     print(f"\n  run {wynik.run_id} wobec {wynik.zestaw}\n")
@@ -637,6 +761,23 @@ def _main() -> int:
                 print(f"      brak: {f}")
             for z in poz.przeciekle:
                 print(f"      PRZECIEK: {z}")
+
+    if powt is not None:
+        znak = "OK " if powt.prog_spelniony else "PONIŻEJ PROGU"
+        print(f"\n  POWTARZALNOŚĆ wobec {powt.run_b}:")
+        print(
+            f"    zgodność {powt.zgodnosc:.3f}   (próg ≥ {PROG_POWTARZALNOSCI})  {znak}"
+            f"   — {powt.zgodnych} z {powt.hipotez_wspolnych} hipotez wspólnych"
+        )
+        if powt.rozbieznosci:
+            print("    rozstrzygnięcia ROZBIEŻNE:")
+            for gdzie, ca, cb in powt.rozbieznosci:
+                print(f"      {gdzie}: {ca} / {cb}")
+        # Różny ZAKRES to nie różnica rozstrzygnięcia, ale trzeba to widzieć —
+        # inaczej porównanie jest o czymś innym, niż się wydaje.
+        if powt.tylko_w_a or powt.tylko_w_b:
+            print(f"    tylko w {powt.run_a}: {len(powt.tylko_w_a)}")
+            print(f"    tylko w {powt.run_b}: {len(powt.tylko_w_b)}")
 
     nieznalezione = [p for p in wynik.pozycje if not p.znalezione]
     if nieznalezione:
