@@ -307,3 +307,132 @@ Dwie usterki panelu złapane przy okazji:
 Jedna granica została **zaostrzona**: `DUPLICATE_STRUCTURE` dostało dwa warunki
 odrzucenia i wymóg `aktywnosc_stron` w dowodzie, co wycięło 16 z 21 hipotez tej
 klasy jako par martwych po obu stronach.
+
+---
+
+## Część 3 — pełna ewaluacja i progi
+
+### Dwa runy na całym snapshocie
+
+Dotąd wszystko mierzyliśmy na próbkach 2–37 hipotez. Pełny zakres to **80 hipotez,
+8 klas** — i to jest jedyny run, na którym progi z `04-test.md` mają sens.
+
+| | run A | run B |
+|---|---|---|
+| findingów | 33 | 45 |
+| odrzuconych walidacją | 6 (0,154) | 1 (0,022) |
+| koszt | 5,52 USD | **4,79 USD** |
+| USD/hipotezę | 0,0690 | **0,0599** |
+| czas agenta | 37 min | 36 min |
+
+Różnicy findingów **nie należy czytać jako niestabilności**: między runami weszła
+poprawka kontraktu. Pokazuje ona, ile kosztowała jedna niedopasowana nazwa pola —
+**12 findingów i ~0,35 USD na run.**
+
+**Koszt na hipotezę wyszedł lepiej na pełnym runie niż na próbce** (0,0599 wobec
+0,0710), bo cache amortyzuje się na większej liczbie sesji, a `ZOMBIE_ACCOUNT`
+(7 hipotez za 0 USD) rozkłada się na cały run. Wobec pierwotnego baseline'u:
+**0,0825 → 0,0599 USD/hip., −27% przy pełnym pokryciu.**
+
+### Piąta usterka narzędzia, tym razem po stronie kontraktu
+
+Run A odrzucił 6 findingów = **0,154 wobec progu ≤0,15**. Wszystkie sześć to ta
+sama przyczyna, którą `_cisza_jest_dowodem` **miał już obsługiwać**: wyjątek szukał
+klucza `wpisow`, a agent podał `wpisow_w_oknie` i `wpisow_w_oknie_90d` — trzy nazwy
+dla tej samej liczby.
+
+Jego nazwy są **precyzyjniejsze od naszej**. Dowód odrzuconego findingu:
+
+    wpisow_w_oknie_90d: 0
+    wpisow_od_utworzenia: 40
+    wpisow_od_utworzenia_rozklad: {"2026-03-23": 40}
+    wpisow_od_utworzenia_autorzy: {"a1c7cbc7…": 40}
+
+„Zero w oknie, czterdzieści przed oknem, wszystkie jednego dnia od jednej osoby"
+rozróżnia tablicę **nigdy nieużywaną** od **porzuconej po jednorazowym
+rozstawieniu**. Wąskie dopasowanie karało agenta za dokładność.
+
+Istotne: **prompt mówi `"wpisow": 0` dosłownie** i to nie wystarczyło. Ta sama
+lekcja co przy `effort` — instrukcja w prompcie nie jest guardrailem. Poprawka
+poszła w obie warstwy, a wyjątek uznaje **wzorzec** (`wpisow_w_oknie*`), nie listę
+nazw. `wpisow_od_utworzenia` celowo się nie łapie: gdyby się łapało,
+`wpisow_przed_oknem: 0` (tablica świeża) usprawiedliwiałoby pusty rozkład, czyli
+wyjątek działałby odwrotnie.
+
+Odrzucenia: **0,154 → 0,022.**
+
+### Powtarzalność — jedyny próg niespełniony
+
+**0,797 wobec ≥0,8.** Miara zdefiniowana od zera, bo `04-test.md` mówi „0.8
+zgodności" bez definicji: **zgodność rozstrzygnięć, nie treści opisów.** Model nie
+jest deterministyczny, więc porównanie tekstów mierzyłoby temperaturę próbkowania,
+nie stabilność rozumowania.
+
+Niestabilność jest **skoncentrowana**, nie rozlana:
+
+| klasa | rozbieżności / hipotez |
+|---|---|
+| `BOARD_GHOST` | 11 / 30 (**37%**) |
+| `BOARD_OVERCOMPLEX` | 3 / 16 |
+| `DUPLICATE_STRUCTURE` | 1 / 21 |
+| `ZOMBIE_ACCOUNT`, `GUEST_SPRAWL`, `PLAN_MISMATCH`, `AUTOMATION_DEAD` | **0 / 11** |
+
+`ZOMBIE_ACCOUNT` jest w 100% stabilny, bo idzie szablonem bez modelu — uboczne
+potwierdzenie kroku 1.
+
+**Przyczyna jest w rubryce, nie w prompcie** (O34). Wszystkie odrzucenia
+`BOARD_GHOST` powołują się na nazwę workspace'u `CRM_PL_Demo`, a warunek rubryki
+„tablica-szablon lub referencyjna (**rozpoznaj po nazwie**)" jest jedynym warunkiem
+w całej rubryce opartym na **osądzie**, nie na danych — i dotyczy nazwy TABLICY,
+podczas gdy agent stosuje go do nazwy WORKSPACE'U.
+
+Opis progu mówi „niżej = prompt zbyt luźny", ale prompt nie ma czego zacieśnić:
+wykonuje warunek niedookreślony u źródła. **Rubryki nie zmieniam bez decyzji
+człowieka** — trzy drogi wypisane w O34.
+
+### Szósta usterka: miernik zawyżał powtarzalność
+
+Pierwszy odczyt dał **0,808, czyli powyżej progu**. `zmierz_powtarzalnosc` czytało
+tylko tabelę `findings`, więc finding zgłoszony przez agenta i odrzucony przez
+kontrakt wyglądał jak „brak" i liczył się jako `odrzucona` — mierzyło **naszą
+walidację**, nie stabilność agenta.
+
+Po naprawie 0,797. Zapisane wprost, bo usterkę znalazłem **po** tym, jak pokazała
+liczbę korzystną. To jest najtrudniejszy rodzaj usterki do zauważenia i dlatego ma
+osobny test.
+
+---
+
+## Stan progów na zamknięcie etapu
+
+| próg | wymaganie | wynik | |
+|---|---|---|---|
+| trafność | ≥ 0,7 | 1,000 | ✅ |
+| fałszywki | ≤ 0,1 | 0,000 | ✅ |
+| odrzucenia na walidacji | ≤ 0,15 | 0,022 | ✅ |
+| niepuste `hipotezy_odrzucone` | 100% | 41 i 34 | ✅ |
+| wywołania per hipoteza | ≤ budżet | 41 z 338 | ✅ |
+| powtarzalność | ≥ 0,8 | **0,797** | ❌ |
+| sekcje `pominiete` w zestawach | wypełnione | **puste** | ⬜ człowiek |
+
+Dwie pozycje otwarte, obie wymagają decyzji człowieka, nie pracy kodu:
+
+* **powtarzalność 0,797** — przyczyna zdiagnozowana (O34), naprawa to zmiana
+  definicji klasy w rubryce;
+* **sekcje `pominiete`** — jedyna część złotego zestawu, której nie da się wyliczyć
+  z danych. Dopóki puste, trafność 1,000 znaczy „zgodność z danymi snapshotu", nie
+  „z rzeczywistością konta". Warto rozważyć zrobienie tego na pierwszym koncie
+  produkcyjnym, bo obecny workspace to w całości `CRM_PL_Demo` (O33).
+
+## Ile kosztował cały etap
+
+| | USD |
+|---|---|
+| kroki 0–4 (optymalizacja) | 3,58 |
+| pełny run A | 5,52 |
+| pełny run B (powtarzalność) | 4,79 |
+| **razem** | **13,89** |
+
+Dla porównania: jeden audyt przed etapem kosztował 7,09 USD. Etap zwrócił się
+w momencie, w którym koszt na hipotezę spadł z 0,0825 do 0,0599 — przy pełnym
+audycie 80 hipotez to oszczędność ~1,8 USD na każdym kolejnym runie.
