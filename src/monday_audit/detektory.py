@@ -319,6 +319,13 @@ tablice AS (
         json_extract(t.value, '$.created_at')      AS created_at,
         json_extract(t.value, '$.updated_at')      AS updated_at,
         json_extract(t.value, '$.workspace_id')    AS workspace_id,
+        -- Nazwa workspace'u, nie tylko id. Warunek odrzucenia `BOARD_GHOST`
+        -- („nazwa WORKSPACE'U wskazuje na środowisko nieprodukcyjne") wymaga jej
+        -- w faktach hipotezy — bez tego agent bierze ją z inwentarza i stosuje
+        -- warunek NIEKONSEKWENTNIE. ZMIERZONE (O34): 11 z 30 hipotez tej klasy
+        -- rozstrzygnięto różnie w dwóch runach, wszystkie odrzucenia powoływały
+        -- się na nazwę workspace'u, której hipoteza nie zawierała.
+        json_extract(t.value, '$.workspace_nazwa')  AS workspace_nazwa,
         json_array_length(COALESCE(json_extract(t.value, '$.kolumny'), '[]')) AS kolumn,
         json_extract(t.value, '$.owners')          AS owners,
         t.value                                     AS surowa
@@ -352,7 +359,7 @@ WITH snap AS (SELECT payload FROM snapshots WHERE id = :snapshot_id),
 {_AKTYWNOSC}
 SELECT
     tablice.board_id, tablice.nazwa, tablice.typ, tablice.items_count,
-    tablice.created_at, tablice.updated_at,
+    tablice.created_at, tablice.updated_at, tablice.workspace_nazwa,
     aktywnosc.wpisow, aktywnosc.najnowszy_at,
     aktywnosc.po_klasie, aktywnosc.kubelki_dni
 FROM tablice
@@ -370,6 +377,94 @@ ORDER BY tablice.board_id
 """
 
 
+# Słowa w nazwie TABLICY, które znaczą „to wzorzec, nie proces". Zamknięta lista,
+# bo „rozpoznaj po nazwie" bez listy to zaproszenie do zgadywania — i dokładnie to
+# rozwaliło powtarzalność (O34).
+SLOWA_WZORCA_W_NAZWIE = (
+    "szablon",
+    "template",
+    "wzór",
+    "wzor",
+    "przykład",
+    "przyklad",
+    "sample",
+    "demo",
+    "test",
+    "sandbox",
+    "kopia",
+    "copy",
+    "backup",
+    "archiw",
+    "archive",
+)
+
+# Słowa w nazwie WORKSPACE'U wskazujące środowisko nieprodukcyjne. Osobna, krótsza
+# lista: nazwa workspace'u jest sygnałem SŁABSZYM (klient może trzymać produkcję
+# w workspace „Demo" po nieudanym pilocie), więc wymaga drugiego warunku.
+SLOWA_NIEPRODUKCYJNE_WS = ("demo", "test", "sandbox", "szkolen", "training", "poc", "pilot")
+
+# Ile czasu między `created_at` i `updated_at` znaczy „utworzona i nigdy nieruszona".
+# Doba, nie sekundy: rozstawianie workspace'u z szablonu potrafi zająć godziny.
+SEKUND_NIERUSZONEJ = 86_400
+
+
+def _nieruszona_od_utworzenia(created_at: Any, updated_at: Any) -> bool:
+    """Czy tablicę utworzono i nigdy nie zmieniono.
+
+    Zastępuje warunek „ani jednego wpisu od utworzenia", którego NIE DA SIĘ
+    sprawdzić: snapshot ma logi tylko z okna 90 dni, więc liczby wpisów sprzed
+    okna nie mamy. Wymaganie danych, których nie ma, to ten sam błąd co przy
+    `GUEST_SPRAWL` i `tablice_dostepne[]` (O31).
+
+    `created_at` i `updated_at` MAMY dla każdej tablicy, i ich różnica odpowiada
+    na to samo pytanie: tablica rozstawiona z szablonu i porzucona ma je równe
+    z dokładnością do godzin.
+    """
+    try:
+        c = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+        u = datetime.fromisoformat(str(updated_at).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        # Brak którejkolwiek daty → NIE twierdzimy, że nieruszona. „Nie wiem"
+        # nie może udawać „nie ruszano".
+        return False
+    return abs((u - c).total_seconds()) < SEKUND_NIERUSZONEJ
+
+
+def _wzorzec_nie_proces(
+    nazwa: Any, workspace_nazwa: Any, created_at: Any, updated_at: Any
+) -> str | None:
+    """Czy tablica jest wzorcem, nie procesem. Zwraca POWÓD albo `None`.
+
+    ## Dlaczego to jest w DETEKTORZE, nie w rubryce
+
+    Warunki są w pełni deterministyczne — lista słów i różnica dwóch dat. Zasada
+    D1 mówi, że takich rozstrzygnięć nie oddajemy modelowi: płaciłby rozumowaniem
+    za coś, co jest arytmetyką.
+
+    ZMIERZONE (O34): warunek „rozpoznaj po nazwie" zostawiony agentowi dał
+    powtarzalność **0,797** wobec progu ≥0,8 — 11 z 30 hipotez `BOARD_GHOST`
+    rozstrzygniętych różnie w dwóch runach tego samego snapshotu, bo wszystkie
+    odrzucenia powoływały się na nazwę workspace'u, której hipoteza nie zawierała.
+
+    ZMIERZONE (koszt): warunek stosowany przez agenta to 30 sesji, z których 27
+    kończy się odrzuceniem — 1,76 USD na run wydane na dowiadywanie się, że
+    hipoteza nie powinna była powstać. W detektorze to zero.
+    """
+    tekst = str(nazwa or "").lower()
+    if any(s in tekst for s in SLOWA_WZORCA_W_NAZWIE):
+        return f"nazwa tablicy wskazuje na wzorzec, nie proces: {nazwa!r}"
+
+    ws = str(workspace_nazwa or "").lower()
+    if any(s in ws for s in SLOWA_NIEPRODUKCYJNE_WS) and _nieruszona_od_utworzenia(
+        created_at, updated_at
+    ):
+        return (
+            f"workspace {workspace_nazwa!r} jest nieprodukcyjny, a tablica nie była "
+            f"zmieniana od utworzenia ({created_at})"
+        )
+    return None
+
+
 def board_ghost(con: sqlite3.Connection, snapshot_id: int, budzet: int) -> list[Hipoteza]:
     """Aktywna tablica z itemami, na której nikt nic nie zmienił w oknie.
 
@@ -381,6 +476,28 @@ def board_ghost(con: sqlite3.Connection, snapshot_id: int, budzet: int) -> list[
     """
     meta = _meta(con, snapshot_id)
     parametry = {"snapshot_id": snapshot_id, "okno_od": meta["okno_od"]}
+
+    # Filtr PRZED zbudowaniem hipotezy: warunki odrzucenia z rubryki, które da się
+    # sprawdzić deterministycznie, nie mają prawa kosztować sesji modelu (D1).
+    wiersze = list(con.execute(_BOARD_GHOST, parametry))
+    pominiete_jako_wzorzec: list[str] = []
+    kandydaci = []
+    for w in wiersze:
+        powod = _wzorzec_nie_proces(
+            w["nazwa"], w["workspace_nazwa"], w["created_at"], w["updated_at"]
+        )
+        if powod:
+            pominiete_jako_wzorzec.append(f"{w['board_id']}: {powod}")
+            continue
+        kandydaci.append(w)
+
+    if pominiete_jako_wzorzec:
+        # Logujemy, nie ukrywamy: „nie ma hipotez" i „odsialiśmy 27" to dwie różne
+        # rzeczy, a druga musi być widoczna w raporcie detektorów.
+        logger.info(
+            "BOARD_GHOST: %d tablic pominiętych jako wzorzec/nieprodukcyjne, nie idą do agenta",
+            len(pominiete_jako_wzorzec),
+        )
 
     hipotezy = [
         Hipoteza(
@@ -401,10 +518,14 @@ def board_ghost(con: sqlite3.Connection, snapshot_id: int, budzet: int) -> list[
                 "created_at": w["created_at"],
                 "wpisow_w_oknie": w["wpisow"],
                 "okno_od": meta["okno_od"],
+                # Nazwa workspace'u W FAKTACH, nie tylko w inwentarzu — patrz
+                # komentarz w `_TABLICE`. Warunek odrzucenia jej wymaga, więc
+                # agent musi ją mieć w tej samej strukturze co resztę dowodu.
+                "workspace_nazwa": w["workspace_nazwa"],
             },
             budzet_wywolan=budzet,
         )
-        for w in con.execute(_BOARD_GHOST, parametry)
+        for w in kandydaci
     ]
 
     # „Nie próbkowano" i „brak aktywności" to dwie różne rzeczy. Liczba idzie

@@ -33,7 +33,7 @@
 # To są decyzje biznesowe z etapu 1 i pomiary techniczne nie mają do nich nic
 # do powiedzenia.
 
-wersja: "0.3"
+wersja: "0.4"
 odbiorca_domyslny: wewnetrzny
 
 # ──────────────────────────────────────────────────────────────
@@ -285,7 +285,31 @@ klasy:
       Nagłe ucichnięcie jednej osoby to inna historia niż wygaszanie zespołem.
     budzet_wywolan: 4
     warunki_odrzucenia:
-      - tablica-szablon lub referencyjna (rozpoznaj po nazwie)
+      # DOPRECYZOWANE 2026-08-19 (O34). Poprzednie brzmienie: „tablica-szablon
+      # lub referencyjna (rozpoznaj po nazwie)" — jedyny warunek w całej rubryce
+      # oparty na OSĄDZIE, nie na danych.
+      #
+      # ZMIERZONE na dwóch pełnych runach tego samego snapshotu: 11 z 30 hipotez
+      # BOARD_GHOST rozstrzygnięto RÓŻNIE, i wszystkie odrzucenia powoływały się
+      # na nazwę WORKSPACE'U („CRM_PL_Demo"), a nie tablicy. Warunek nie mówił,
+      # czyja nazwa się liczy, więc agent decydował sesja po sesji. Powtarzalność
+      # 0,797 wobec progu ≥0,8 — jedyny niespełniony próg etapu 4.
+      #
+      # Teraz dwa OSOBNE warunki, oba z wypisanymi słowami. Lista jest zamknięta:
+      # „rozpoznaj po nazwie" bez listy to zaproszenie do zgadywania.
+      - >-
+        nazwa TABLICY zawiera słowo wskazujące na wzorzec, nie na proces:
+        szablon, template, wzór, wzorzec, przykład, sample, demo, test,
+        sandbox, kopia, copy, backup, archiwum, archive
+      # Nazwa workspace'u to SŁABSZY sygnał niż nazwa tablicy: klient może trzymać
+      # produkcję w workspace nazwanym „Demo" po nieudanym pilocie. Dlatego wymaga
+      # DRUGIEGO sygnału — tak samo jak przy DUPLICATE_STRUCTURE po O33.
+      - >-
+        nazwa WORKSPACE'U wskazuje na środowisko nieprodukcyjne (demo, test,
+        sandbox, szkolenie, training, POC, pilot) ORAZ `updated_at` różni się od
+        `created_at` o mniej niż dobę — czyli tablicę utworzono i nigdy nie
+        ruszono. Sama nazwa workspace'u NIE wystarcza: produkcja po nieudanym
+        pilocie też bywa w workspace „Demo", a wtedy `updated_at` jest późniejszy
       - type != board — podelementy i dokumenty nie są kandydatami
       - nazwa wskazuje na zamknięty rok lub okres
       - created_at nowsze niż 90 dni — tablica świeża, nie porzucona

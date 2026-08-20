@@ -373,8 +373,9 @@ def test_raport_wymienia_klasy_bez_detektora(con: sqlite3.Connection) -> None:
     zbudowane = set(DETEKTORY)
     wszystkie = {k.id for k in wczytaj_rubryke().do_detekcji()}
     assert set(raport["klasy_bez_detektora"]) == wszystkie - zbudowane
-    # Podniesione do 0.3 przy dodaniu UZYTKOWNIK_WYGASZONY (etap 4).
-    assert raport["rubric_version"] == "0.3"
+    # 0.3 przy dodaniu UZYTKOWNIK_WYGASZONY, 0.4 przy doprecyzowaniu warunku
+    # odrzucenia BOARD_GHOST (O34) — oba w etapie 4.
+    assert raport["rubric_version"] == "0.4"
 
 
 def test_budzet_bierze_sie_z_rubryki(con: sqlite3.Connection) -> None:
@@ -934,3 +935,105 @@ def test_zbior_wygaszonych_jest_rozlaczny_z_zombie(con: sqlite3.Connection) -> N
     assert wygaszeni == {"h1"}
     assert zombie == {"h2"}
     assert not (wygaszeni & zombie)
+
+
+# ── BOARD_GHOST: warunki wzorca sprawdzane w DETEKTORZE ──────────────────
+#
+# ZMIERZONE (O34): warunek „rozpoznaj po nazwie" zostawiony agentowi dał
+# powtarzalność 0,797 wobec progu ≥0,8 — 11 z 30 hipotez rozstrzygniętych
+# różnie w dwóch runach TEGO SAMEGO snapshotu. Deterministyczne warunki nie
+# mają prawa kosztować sesji modelu (D1).
+
+
+def payload_z_tablicami(tablice: list[dict[str, Any]]) -> dict[str, Any]:
+    """`payload()` nie ma sekcji `tablice` — detektory tablic potrzebują jej jawnie."""
+    dane = payload()
+    dane["tablice"] = {"tablice": tablice, "podsumowanie": {"razem": len(tablice)}}
+    dane["aktywnosc"]["aktywnosc_tablic"] = [
+        {"board_id": str(t["board_id"]), "wpisow": 0, "autorzy": []} for t in tablice
+    ]
+    return dane
+
+
+def tablica_testowa(**nadpisz: Any) -> dict[str, Any]:
+    baza: dict[str, Any] = {
+        "board_id": "1",
+        "nazwa": "Proces",
+        "typ": "board",
+        "state": "active",
+        "items_count": 5,
+        "created_at": "2026-01-01T10:00:00Z",
+        "updated_at": "2026-04-01T10:00:00Z",
+        "workspace_id": "9",
+        "workspace_nazwa": "Produkcja",
+        "kolumny": [],
+    }
+    baza.update(nadpisz)
+    return baza
+
+
+def test_nazwa_tablicy_ze_slowem_wzorca_nie_daje_hipotezy(con: sqlite3.Connection) -> None:
+    """Lista słów jest zamknięta — „rozpoznaj po nazwie" bez listy to zgadywanie."""
+    snapshot_id = zapisz(
+        con, payload_z_tablicami([tablica_testowa(nazwa="Szablon procesu sprzedaży")])
+    )
+
+    assert board_ghost(con, snapshot_id, 4) == []
+
+
+def test_workspace_demo_wymaga_drugiego_sygnalu(con: sqlite3.Connection) -> None:
+    """Sama nazwa workspace'u NIE wystarcza.
+
+    Klient może trzymać produkcję w workspace nazwanym „Demo" po nieudanym
+    pilocie — wtedy `updated_at` jest późniejszy od `created_at` i tablica JEST
+    kandydatem. Ta sama zasada co przy `DUPLICATE_STRUCTURE` po O33.
+    """
+    snapshot_id = zapisz(
+        con,
+        payload_z_tablicami(
+            [
+                # utworzona i nigdy nieruszona → odrzucenie
+                tablica_testowa(
+                    board_id="1",
+                    workspace_nazwa="CRM_PL_Demo",
+                    created_at="2026-03-18T11:13:28Z",
+                    updated_at="2026-03-18T11:13:30Z",
+                ),
+                # ruszana po utworzeniu → ZOSTAJE, mimo workspace „Demo"
+                tablica_testowa(
+                    board_id="2",
+                    workspace_nazwa="CRM_PL_Demo",
+                    created_at="2026-01-15T10:00:00Z",
+                    updated_at="2026-04-02T09:00:00Z",
+                ),
+            ]
+        ),
+    )
+
+    assert [h.obiekt_id for h in board_ghost(con, snapshot_id, 4)] == ["2"]
+
+
+def test_brak_daty_nie_znaczy_nieruszona(con: sqlite3.Connection) -> None:
+    """„Nie wiem" nie może udawać „nie ruszano".
+
+    Tablica bez `updated_at` w workspace „Sandbox" ZOSTAJE kandydatem — inaczej
+    brak danych usprawiedliwiałby odrzucenie, a to najcichszy rodzaj usterki.
+    """
+    snapshot_id = zapisz(
+        con,
+        payload_z_tablicami([tablica_testowa(workspace_nazwa="Sandbox", updated_at=None)]),
+    )
+
+    assert [h.obiekt_id for h in board_ghost(con, snapshot_id, 4)] == ["1"]
+
+
+def test_nazwa_workspace_jest_w_faktach_hipotezy(con: sqlite3.Connection) -> None:
+    """Bez tego agent bierze ją z inwentarza i stosuje warunek niekonsekwentnie.
+
+    To była bezpośrednia przyczyna rozjazdu powtarzalności (O34): wszystkie
+    odrzucenia powoływały się na nazwę workspace'u, której hipoteza NIE ZAWIERAŁA.
+    """
+    snapshot_id = zapisz(con, payload_z_tablicami([tablica_testowa(workspace_nazwa="Operacje")]))
+
+    fakty = board_ghost(con, snapshot_id, 4)[0].fakty
+    assert fakty["workspace_nazwa"] == "Operacje"

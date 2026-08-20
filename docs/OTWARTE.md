@@ -1309,3 +1309,101 @@ NASZĄ WALIDACJĘ, nie stabilność agenta.
 Naprawione: `findings_odrzucone` liczy się jako `finding`, bo agent go ORZEKŁ.
 Po poprawce 0,797. **Miara zawyżająca, znaleziona po tym, jak pokazała wynik
 korzystny** — dlatego zapisana tu wprost.
+
+## O35 — koszt rośnie liniowo z liczbą workspace'ów; 4 workspace'y ≈ 17 USD (2026-08-19)
+
+Pytanie Kuby: „co jeżeli admin ma 3–4 workspace'y i na każdym jest od cholery
+tego? Obstawiam, że nawet ~30 dolarów i to się nie będzie opłacało".
+
+**Obawa uzasadniona.** Rozbicie na to, co skaluje się z workspace'ami, a co nie:
+
+| klasa | hipotez/ws | skaluje się? |
+|---|---|---|
+| `BOARD_GHOST` | 30 | tak — tablice są per workspace |
+| `DUPLICATE_STRUCTURE` | 21 | tak |
+| `BOARD_OVERCOMPLEX` | 16 | tak |
+| `ZOMBIE_ACCOUNT` | 7 | **nie** — użytkownicy są na poziomie KONTA |
+| `GUEST_SPRAWL`, `PLAN_MISMATCH` | 1 + 1 | **nie** |
+| `UZYTKOWNIK_WYGASZONY` | 2 | **nie** |
+
+Szacunek na stawkach z `pelny-etap4-b` (0,0526–0,0718 USD/hip. zależnie od klasy),
+**przed** filtrem z tej samej daty:
+
+| workspace'ów | hipotez | USD | min |
+|---|---|---|---|
+| 1 | 80 | 4,79 | 36 |
+| 2 | 147 | 9,00 | 66 |
+| 3 | 214 | 13,21 | 96 |
+| 4 | 281 | **17,41** | 126 |
+| 6 | 415 | **25,83** | 187 |
+| 10 | 683 | 42,67 | 307 |
+
+### Jedna dobra wiadomość: `DUPLICATE_STRUCTURE` nie rośnie kwadratowo
+
+Klasa porównuje PARY tablic, więc 4 workspace'y (496 tablic) dałyby 122 760
+możliwych par. Detektor ma jednak `a.workspace_id IS b.workspace_id`, czyli
+porównuje tylko w obrębie jednego workspace'u — pary rosną **liniowo** z ich
+liczbą, nie kwadratowo z liczbą tablic.
+
+### Co obniża ten rachunek
+
+1. **Filtr wzorców w detektorze** (ta sama data, opisany niżej) — na snapshocie #7
+   wyciął 27 z 30 hipotez `BOARD_GHOST`, czyli 1,76 USD z 4,79. Ale to konto jest
+   w całości `CRM_PL_Demo` (O33), więc na produkcji wyciąłby znacznie mniej.
+2. **Więcej klas na szablonach** — `ZOMBIE_ACCOUNT` kosztuje 0 USD od kroku 1
+   etapu 4. Kandydaci: każda klasa z `rola_agenta: brak`.
+3. **Zawężenie zakresu przy zamówieniu** — audyt jednego workspace'u zamiast
+   całego konta. Wymaga rozmowy z klientem, nie zmiany kodu.
+
+**Do rozstrzygnięcia przy wycenie usługi, nie w kodzie:** przy jakiej liczbie
+workspace'ów audyt przestaje się opłacać, i czy wtedy zawężamy zakres, czy
+podnosimy cenę. To decyzja handlowa.
+
+## O34 (uzupełnienie) — warunek doprecyzowany i przeniesiony do detektora
+
+Warunek „tablica-szablon lub referencyjna (rozpoznaj po nazwie)" rozbity na dwa,
+oba z **zamkniętą listą słów** (rubryka 0.4):
+
+* **nazwa TABLICY** zawiera: szablon, template, wzór, przykład, sample, demo,
+  test, sandbox, kopia, copy, backup, archiwum — odrzucenie natychmiast;
+* **nazwa WORKSPACE'U** wskazuje środowisko nieprodukcyjne (demo, test, sandbox,
+  szkolenie, training, POC, pilot) **ORAZ** `updated_at` różni się od `created_at`
+  o mniej niż dobę — czyli tablicę utworzono i nigdy nie ruszono.
+
+Drugi warunek wymaga **dwóch** sygnałów, bo sama nazwa workspace'u to heurystyka:
+produkcja po nieudanym pilocie też bywa w workspace „Demo", a wtedy `updated_at`
+jest późniejszy.
+
+### Pierwsza wersja warunku wymagała danych, których NIE MA
+
+Napisałem najpierw „ani jednego wpisu w logu od utworzenia". Snapshot ma logi
+**tylko z okna 90 dni**, więc liczby wpisów sprzed okna nie mamy — to ten sam błąd
+co przy `GUEST_SPRAWL` i `tablice_dostepne[]` (O31). Zastąpione różnicą
+`created_at`/`updated_at`, którą mamy dla każdej tablicy.
+
+### Warunek sprawdza DETEKTOR, nie agent
+
+Jest w pełni deterministyczny (lista słów, różnica dwóch dat), więc zasada D1 mówi,
+że nie oddajemy go modelowi.
+
+    warunek w rubryce, agent go stosuje: 30 sesji → 27 odrzuceń → 1,96 USD
+    warunek w detektorze:                 3 sesje              → 0,20 USD
+
+**Oszczędność 1,76 USD na run, czyli 37% rachunku** — i powtarzalność przestaje
+zależeć od osądu modelu.
+
+Dodane też `workspace_nazwa` do faktów hipotezy. Bez tego agent brał nazwę
+z inwentarza, co było **bezpośrednią przyczyną** rozjazdu: wszystkie odrzucenia
+powoływały się na pole, którego hipoteza nie zawierała.
+
+### Skutek na snapshocie #7: 80 → 53 hipotezy
+
+Wycięte 27 to tablice z `created_at == updated_at` w workspace `CRM_PL_Demo` —
+rozstawione z szablonu 18 marca i nigdy nietknięte. Z 18 findingów `BOARD_GHOST`
+runu B filtr przeżyłyby 2.
+
+**Zastrzeżenie:** to konto jest w całości demonstracyjne, więc filtr wycina tu
+wyjątkowo dużo. Na koncie produkcyjnym drugi warunek prawie nie zadziała (nazwa
+workspace'u nie będzie zawierać „demo"), a pierwszy tylko dla tablic jawnie
+nazwanych szablonami. **Powtarzalność trzeba zmierzyć ponownie po tej zmianie** —
+poprzedni pomiar 0,797 dotyczy stanu przed filtrem.
