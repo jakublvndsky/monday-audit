@@ -428,18 +428,25 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
                 {pulpit.koszt_usd != null && (
                   <KafelDuzy
                     podpis={
-                      pulpit.rozliczenie === "subskrypcja" ? "Koszt (szacunek)" : "Koszt audytu"
+                      pulpit.rozliczenie === "subskrypcja"
+                        ? "Koszt (szacunek)"
+                        : pulpit.rozliczenie === "klucz_klienta"
+                          ? "Koszt (rachunek klienta)"
+                          : "Koszt audytu"
                     }
                     wartosc={pulpit.koszt_usd.toFixed(2)}
-                    /* Ta sama liczba znaczy dwie różne rzeczy zależnie od trybu
-                       rozliczenia: wydatek albo wycenę. Bez tego podpisu wyceniałoby
-                       się usługę po kwocie, za którą nikt nie zapłacił. */
+                    /* Ta sama liczba znaczy TRZY różne rzeczy zależnie od trybu
+                       rozliczenia: nasz wydatek, wycenę teoretyczną, albo wydatek
+                       KLIENTA. Bez tego podpisu wyceniałoby się usługę po kwocie,
+                       za którą nikt nie zapłacił — albo zapłacił ktoś inny. */
                     pod={
                       pulpit.rozliczenie === "subskrypcja"
                         ? "USD — run szedł z subskrypcji, to nie faktura"
-                        : pulpit.rozliczenie === "klucz"
-                          ? "USD za analizę, z klucza API"
-                          : "USD za analizę"
+                        : pulpit.rozliczenie === "klucz_klienta"
+                          ? "USD — run szedł z klucza KLIENTA, nie obciąża CXLABS"
+                          : pulpit.rozliczenie === "klucz"
+                            ? "USD za analizę, z klucza API"
+                            : "USD za analizę"
                     }
                   />
                 )}

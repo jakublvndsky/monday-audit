@@ -19,6 +19,8 @@ const ODPYTUJ_MS = 2000;
 
 export function Audyt({ klient, poZakonczeniu }: { klient?: string; poZakonczeniu: () => void }) {
   const [kluczApi, ustawKlucz] = useState("");
+  // Klucz Anthropic KLIENTA. Puste = koszt idzie na rachunek CXLABS.
+  const [kluczModelu, ustawKluczModelu] = useState("");
   const [zakres, ustawZakres] = useState("cale_konto");
   const [workspaceId, ustawWorkspace] = useState("");
   const [zadanieId, ustawZadanie] = useState<string | null>(null);
@@ -63,10 +65,12 @@ export function Audyt({ klient, poZakonczeniu }: { klient?: string; poZakonczeni
         zakres,
         zakres === "workspace" ? workspaceId.trim() || null : null,
         klient,
+        kluczModelu,
       );
       // Czyścimy pole natychmiast po wysłaniu. Klucz nie ma po co siedzieć
       // w stanie komponentu ani w DOM-ie dłużej, niż trwało żądanie.
       ustawKlucz("");
+      ustawKluczModelu("");
       ustawZadanie(zadanie_id);
     } catch (e) {
       ustawBlad(e instanceof BladApi ? e.message : "nie udało się uruchomić audytu");
@@ -141,6 +145,24 @@ export function Audyt({ klient, poZakonczeniu }: { klient?: string; poZakonczeni
                 placeholder="wklej klucz API"
               />
 
+              {/* Klucz modelu jest OPCJONALNY i to musi być widoczne z etykiety,
+                  nie z gwiazdki w przypisie. Puste pole to poprawny wybór:
+                  koszt idzie wtedy na CXLABS. */}
+              <label htmlFor="klucz-modelu">
+                Klucz API Anthropic{" "}
+                <span className="meta">opcjonalnie — koszt analizy na Twoim rachunku</span>
+              </label>
+              <input
+                id="klucz-modelu"
+                type="password"
+                value={kluczModelu}
+                onChange={(e) => ustawKluczModelu(e.target.value)}
+                autoComplete="off"
+                spellCheck={false}
+                minLength={20}
+                placeholder="puste = rozliczamy my"
+              />
+
               <label htmlFor="zakres">Zakres</label>
               <select id="zakres" value={zakres} onChange={(e) => ustawZakres(e.target.value)}>
                 <option value="cale_konto">całe konto</option>
@@ -191,6 +213,23 @@ export function Audyt({ klient, poZakonczeniu }: { klient?: string; poZakonczeni
               </p>
               <p className="meta">
                 Możesz go unieważnić w monday zaraz po audycie — to dobra praktyka.
+              </p>
+            </div>
+
+            {/* Osobny blok, nie akapit w poprzednim: to inny klucz, inne konto
+                i inna konsekwencja. Zlanie ich sugerowałoby, że oba są wymagane. */}
+            <div className="uwaga uwaga--model">
+              <p>
+                <strong>Klucz Anthropic jest opcjonalny.</strong> Analizę wykonuje
+                model Claude i to jest jedyny płatny element audytu — jeśli podasz
+                swój klucz, koszt trafi na Twój rachunek u Anthropic. Puste pole
+                znaczy, że rozliczamy to my.
+              </p>
+              <p className="meta">
+                Klucz zdobędziesz na <code>console.anthropic.com</code> → API keys;
+                konto wymaga doładowania środków. Traktujemy go tak samo jak klucz
+                monday: żyje w pamięci przez czas audytu i nie jest nigdzie
+                zapisywany. Raport zaznaczy, na czyim rachunku szedł run.
               </p>
             </div>
           </form>

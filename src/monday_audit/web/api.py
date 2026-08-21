@@ -212,6 +212,20 @@ class DaneAudytu(BaseModel):
     """
 
     klucz_api: str = Field(min_length=20, max_length=4000)
+    # Klucz Anthropic KLIENTA — opcjonalny, jednorazowy, nigdzie nie zapisywany.
+    #
+    # Po co: koszt modelu idzie wtedy na rachunek klienta, nie nasz. Przy koncie
+    # z czterema workspace'ami audyt to ~17 USD (O35), więc to nie jest szczegół
+    # księgowy, a warunek opłacalności usługi.
+    #
+    # Jedzie DOKŁADNIE tą samą drogą co `klucz_api` do monday: ciało żądania →
+    # argument zadania → `env` podprocesu. Nie ma go w bazie (migracja 006
+    # świadomie nie ma kolumny na token), w logu ani w argv (D12).
+    #
+    # `None` znaczy „użyj naszego" — a nie „pusty klucz", bo pusta zmienna
+    # w środowisku podprocesu jest GORSZA niż jej brak: SDK zobaczyłby ją i nie
+    # spadł na nasz klucz, więc run wywróciłby się na uwierzytelnianiu.
+    klucz_anthropic: str | None = Field(default=None, min_length=20, max_length=4000)
     zakres: str = Field(default="cale_konto", pattern="^(cale_konto|workspace)$")
     workspace_id: str | None = Field(default=None, max_length=50)
 
@@ -656,6 +670,7 @@ def zbuduj_aplikacje(
             dane.klucz_api,
             dane.zakres,
             dane.workspace_id,
+            dane.klucz_anthropic,
         )
         logger.info("audyt %s wystartował dla %s", zadanie_id, cel)
         return {"zadanie_id": zadanie_id}

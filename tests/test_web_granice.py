@@ -919,3 +919,117 @@ def test_lista_klientow_niesie_stan_dostepu(klient_http: TestClient) -> None:
 
     assert pozycje["cxlabs"]["ma_konto"] is True, "klient z kontem oznaczony jako bez"
     assert pozycje["inny-klient"]["ma_konto"] is False, "brak konta nieoznaczony"
+
+
+# ── klucz Anthropic KLIENTA (one-shot) ───────────────────────────────────
+#
+# Po co: koszt modelu idzie na rachunek klienta, nie CXLABS. Przy koncie
+# z czterema workspace'ami audyt to ~17 USD (O35), więc to warunek opłacalności
+# usługi. Klucz jedzie tą samą drogą co klucz monday i obowiązują go te same
+# granice — te testy to sprawdzają.
+
+ATRAPA_KLUCZA_MODELU = "sk-ant-PODSTAWIONY-KLUCZ-MODELU-" + "z" * 20
+
+
+def test_klucz_anthropic_klienta_nie_wchodzi_do_bazy(
+    klient_http: TestClient, baza: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ta sama granica co przy kluczu monday (D11), drugi klucz.
+
+    Szukamy w CAŁEJ bazie, nie w wybranych kolumnach: kolumna, której dziś nie ma,
+    może dojść za pół roku.
+    """
+    monkeypatch.setattr("monday_audit.web.api.uruchom_audyt_w_tle", lambda *a: None)
+    _zaloguj_klienta(klient_http)
+
+    odp = klient_http.post(
+        "/api/audyt",
+        json={
+            "klucz_api": ATRAPA_KLUCZA,
+            "klucz_anthropic": ATRAPA_KLUCZA_MODELU,
+            "zakres": "cale_konto",
+        },
+    )
+    assert odp.status_code == 200
+
+    con = polacz(baza)
+    trafienia = []
+    for tabela in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'"):
+        nazwa = str(tabela["name"])
+        for wiersz in con.execute(f"SELECT * FROM {nazwa}"):  # noqa: S608 — z sqlite_master
+            for wartosc in tuple(wiersz):
+                if isinstance(wartosc, str) and "PODSTAWIONY-KLUCZ-MODELU" in wartosc:
+                    trafienia.append(nazwa)
+    con.close()
+
+    assert trafienia == [], f"klucz modelu wyciekł do tabel: {trafienia}"
+
+
+def test_klucz_anthropic_dochodzi_do_zadania(
+    klient_http: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Klucz musi DOJŚĆ do funkcji runu — inaczej pole byłoby ozdobą.
+
+    To lekcja z dwóch usterek tej klasy: `can_use_tool`, który nigdy nie był
+    wołany, i klucza API, który nie dochodził do podprocesu. Oba przeszły testy
+    sprawdzające samą funkcję, a nie jej PODŁĄCZENIE.
+    """
+    przekazane: dict[str, object] = {}
+
+    def atrapa(*argumenty: object) -> None:
+        przekazane["argumenty"] = argumenty
+
+    monkeypatch.setattr("monday_audit.web.api.uruchom_audyt_w_tle", atrapa)
+    _zaloguj_klienta(klient_http)
+
+    odp = klient_http.post(
+        "/api/audyt",
+        json={
+            "klucz_api": ATRAPA_KLUCZA,
+            "klucz_anthropic": ATRAPA_KLUCZA_MODELU,
+            "zakres": "cale_konto",
+        },
+    )
+    assert odp.status_code == 200
+    assert ATRAPA_KLUCZA_MODELU in przekazane["argumenty"]  # type: ignore[operator]
+
+
+def test_brak_klucza_anthropic_to_none_a_nie_pusty_napis(
+    klient_http: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Puste pole MUSI dojść jako `None`, nigdy jako `""`.
+
+    Pusty napis w środowisku podprocesu jest GORSZY niż brak zmiennej: SDK
+    zobaczyłby ją i nie spadłby na klucz CXLABS, więc run wywróciłby się na
+    uwierzytelnianiu. Ta sama pułapka, którą `klucz_anthropic()` opisuje
+    w docstringu dla trybu subskrypcyjnego.
+    """
+    przekazane: dict[str, object] = {}
+    monkeypatch.setattr(
+        "monday_audit.web.api.uruchom_audyt_w_tle",
+        lambda *a: przekazane.__setitem__("argumenty", a),
+    )
+    _zaloguj_klienta(klient_http)
+
+    odp = klient_http.post("/api/audyt", json={"klucz_api": ATRAPA_KLUCZA, "zakres": "cale_konto"})
+    assert odp.status_code == 200
+
+    argumenty = przekazane["argumenty"]
+    assert argumenty[-1] is None, f"ostatni argument ma być None, jest {argumenty[-1]!r}"  # type: ignore[index]
+
+
+def test_za_krotki_klucz_anthropic_jest_odrzucany(klient_http: TestClient) -> None:
+    """`min_length` odsiewa pomyłkę wklejenia, nie sprawdza formatu.
+
+    Formatu nie walidujemy — Anthropic może zmienić postać tokenu, a my nie
+    chcemy odrzucać poprawnego klucza, bo nasz wzorzec się zestarzał. Ta sama
+    zasada co przy kluczu monday.
+    """
+    _zaloguj_klienta(klient_http)
+
+    odp = klient_http.post(
+        "/api/audyt",
+        json={"klucz_api": ATRAPA_KLUCZA, "klucz_anthropic": "krotki", "zakres": "cale_konto"},
+    )
+
+    assert odp.status_code == 422

@@ -52,6 +52,20 @@ DOMYSLNA_BAZA = Path("monday_audit.db")
 #                 usługi po liczbie, za którą nikt nie zapłacił.
 ROZLICZENIE_KLUCZ = "klucz"
 ROZLICZENIE_SUBSKRYPCJA = "subskrypcja"
+
+# Klucz podany JEDNORAZOWO przez klienta w formularzu audytu. Koszt idzie na JEGO
+# rachunek u Anthropic, więc `koszt_usd` przestaje być naszą fakturą — i dlatego
+# jest to trzecia wartość, nie odmiana `klucz`.
+#
+# Bez tego rozróżnienia panel sumowałby kwoty z dwóch różnych rachunków w jedną
+# liczbę, a po fakcie nie dałoby się powiedzieć, który run coś NAS kosztował.
+# Ta sama zasada co przy `subskrypcja`: tam kwota jest wyceną teoretyczną, tu
+# jest fakturą, tylko cudzą.
+ROZLICZENIE_KLUCZ_KLIENTA = "klucz_klienta"
+
+# `ROZLICZENIA` to wartości dopuszczalne w KONFIGURACJI procesu (`AGENT_ROZLICZENIE`).
+# `klucz_klienta` tam NIE WCHODZI: nie jest trybem pracy narzędzia, a cechą
+# jednego runu. Wpisanie go do `.env` nie miałoby sensu — nie ma tam klucza klienta.
 ROZLICZENIA = (ROZLICZENIE_KLUCZ, ROZLICZENIE_SUBSKRYPCJA)
 
 

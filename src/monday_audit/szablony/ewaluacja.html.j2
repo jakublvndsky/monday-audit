@@ -33,7 +33,12 @@
     {{ z.hipotez }} hipotez · {{ z.findingow }} znalezisk
     {%- if z.model %} · model {{ z.model }}{% endif %}
     {%- if z.rozliczenie %} · rozliczenie: {{ z.rozliczenie }}
-      {%- if z.rozliczenie != "klucz" %} (koszt to wycena, nie faktura){% endif %}
+      {#- Trzy tryby, trzy znaczenia tej samej kwoty. `klucz_klienta` to FAKTURA,
+          tylko nie nasza — nazwanie jej „wyceną" byłoby nieprawdą, a nazwanie
+          naszym wydatkiem gorszą nieprawdą. #}
+      {%- if z.rozliczenie == "subskrypcja" %} (koszt to wycena, nie faktura)
+      {%- elif z.rozliczenie == "klucz_klienta" %} (koszt na rachunku KLIENTA, nie CXLABS)
+      {%- endif %}
     {%- endif %}
   </p>
 

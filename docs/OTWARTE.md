@@ -1407,3 +1407,49 @@ wyjątkowo dużo. Na koncie produkcyjnym drugi warunek prawie nie zadziała (naz
 workspace'u nie będzie zawierać „demo"), a pierwszy tylko dla tablic jawnie
 nazwanych szablonami. **Powtarzalność trzeba zmierzyć ponownie po tej zmianie** —
 poprzedni pomiar 0,797 dotyczy stanu przed filtrem.
+
+## O36 — klucz Anthropic klienta, jednorazowy (2026-08-19)
+
+Decyzja Kuby: „na początek przenosimy koszta na klienta, a nie na nas". Powód
+z O35: konto z czterema workspace'ami to ~17 USD za audyt, sześcioma ~26 USD —
+przy usłudze jednorazowej per klient to zjada marżę.
+
+### Jak to działa
+
+Opcjonalne pole `klucz_anthropic` w formularzu audytu. Jedzie **dokładnie tą samą
+drogą** co klucz monday: ciało żądania → argument zadania → `env` podprocesu SDK.
+Nie ma go w bazie, w logu ani w argv (D11, D12).
+
+Klucz klienta ma **pierwszeństwo** nad naszym i nie przechodzi przez
+`klucz_anthropic()` — tamta funkcja czyta konfigurację PROCESU i w trybie
+`subskrypcja` zwraca pusty napis. Tutaj mamy konkretną wartość z żądania i ona
+rozstrzyga niezależnie od `AGENT_ROZLICZENIE`.
+
+### Trzecia wartość `runy.rozliczenie`
+
+`klucz_klienta` obok `klucz` i `subskrypcja`. Bez tego rozróżnienia panel sumowałby
+kwoty z **dwóch różnych rachunków** w jedną liczbę, a po fakcie nie dałoby się
+powiedzieć, który run coś NAS kosztował.
+
+Ta sama zasada co przy `subskrypcja`: tam kwota jest wyceną teoretyczną, tu jest
+fakturą — tylko cudzą. Panel i raport ewaluacji nazywają to wprost („run szedł
+z klucza KLIENTA, nie obciąża CXLABS").
+
+`ROZLICZENIA` (dopuszczalne w `.env`) zostaje przy dwóch wartościach:
+`klucz_klienta` nie jest trybem pracy narzędzia, a cechą jednego runu — w `.env`
+nie ma klucza klienta.
+
+### Czego to NIE rozwiązuje
+
+**Bariera wejścia.** Klient musi mieć konto na `console.anthropic.com` i doładować
+środki. Większość klientów monday.com go nie ma i nie będzie chciała zakładać.
+Pole jest opcjonalne właśnie dlatego — puste znaczy „rozliczamy my", i to zostaje
+domyślną ścieżką.
+
+**Koszt sam w sobie.** 17 USD na rachunku klienta to nadal 17 USD, tylko widoczne
+w innym miejscu. Przenosi to problem z marży na cenę usługi, ale go nie usuwa.
+
+**Do rozstrzygnięcia osobno:** czy oferować wariant „my kupujemy klucz na jego
+rachunek" (wtedy zespół wkleja klucz w panelu przy kliencie, jak stawkę licencji).
+Odrzucone na teraz jako trzecia ścieżka do przetestowania i trzecie miejsce, gdzie
+klucz może wyciec.

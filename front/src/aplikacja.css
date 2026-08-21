@@ -150,6 +150,19 @@ select:focus {
   font-size: var(--fs-small);
   line-height: 1.5;
 }
+
+/* Klucz Anthropic — OSOBNY blok, bo to inny klucz, inne konto i inna
+ * konsekwencja. Zlanie go z ostrzeżeniem o kluczu monday sugerowałoby, że oba
+ * są wymagane, a ten jest opcjonalny. Lewa krawędź limonkowa, nie ostrzegawcza:
+ * podanie klucza jest korzyścią dla klienta (koszt u niego, nie u nas), nie
+ * ryzykiem jak przy kluczu admina monday. */
+.uwaga--model {
+  margin: 0;
+  padding-left: var(--space-3);
+  border-left: 2px solid var(--cx-lime);
+  font-size: var(--fs-small);
+  line-height: 1.5;
+}
 .uwaga--klucz p + p {
   margin-top: var(--space-3);
 }

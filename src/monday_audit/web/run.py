@@ -40,7 +40,12 @@ from monday_audit.cennik import stawki_dla, wersja_uzytych
 from monday_audit.cli import zbuduj_zakres
 from monday_audit.detektory import uruchom_detektory
 from monday_audit.klient import MondayClient
-from monday_audit.konfiguracja import klucz_anthropic, sol_z_ustawien, wczytaj
+from monday_audit.konfiguracja import (
+    ROZLICZENIE_KLUCZ_KLIENTA,
+    klucz_anthropic,
+    sol_z_ustawien,
+    wczytaj,
+)
 from monday_audit.kontrakt import (
     waliduj,
     zapisz_findingi,
@@ -68,10 +73,21 @@ def uruchom_audyt_w_tle(
     klucz_api: str,
     zakres_typ: str,
     workspace_id: str | None,
+    klucz_modelu_klienta: str | None = None,
 ) -> None:
     """Wejście dla executora. Synchroniczne, bo `run_in_executor` tak woła."""
     try:
-        asyncio.run(_audyt(baza, zadanie_id, client_id, klucz_api, zakres_typ, workspace_id))
+        asyncio.run(
+            _audyt(
+                baza,
+                zadanie_id,
+                client_id,
+                klucz_api,
+                zakres_typ,
+                workspace_id,
+                klucz_modelu_klienta,
+            )
+        )
     except Exception as blad:
         # Komunikat idzie przez `_bez_sekretow` w `zapisz_stan`. Typ wyjątku
         # zostawiamy, bo pomaga w diagnozie i nie niesie treści.
@@ -96,11 +112,29 @@ async def _audyt(
     klucz_api: str,
     zakres_typ: str,
     workspace_id: str | None,
+    klucz_modelu_klienta: str | None = None,
 ) -> None:
     ustawienia = wczytaj()
+    # ── KTÓRY KLUCZ MODELU ────────────────────────────────────────
+    #
+    # Klucz KLIENTA ma pierwszeństwo: gdy go podał, koszt idzie na jego rachunek,
+    # a nie nasz. Przy koncie z czterema workspace'ami to ~17 USD (O35), więc to
+    # warunek opłacalności usługi, nie szczegół księgowy.
+    #
+    # Klucz klienta NIE PRZECHODZI przez `klucz_anthropic()` — tamta funkcja czyta
+    # konfigurację PROCESU i w trybie `subskrypcja` zwraca pusty napis. Tutaj mamy
+    # konkretny klucz z żądania i on rozstrzyga niezależnie od `AGENT_ROZLICZENIE`.
+    #
     # Brak klucza Anthropic przerywa PRZED wywołaniami monday — nie chcemy
     # zużyć limitu klienta na dane, których nie zdążymy przeanalizować.
-    klucz_modelu = klucz_anthropic(ustawienia)
+    if klucz_modelu_klienta:
+        klucz_modelu = klucz_modelu_klienta
+        rozliczenie = ROZLICZENIE_KLUCZ_KLIENTA
+        # Bez prefiksu, bez długości — prefiks tokenu też jest informacją (D11).
+        logger.info("run %s idzie na kluczu KLIENTA — koszt nie obciąża CXLABS", zadanie_id)
+    else:
+        klucz_modelu = klucz_anthropic(ustawienia)
+        rozliczenie = ustawienia.agent_rozliczenie
     sol = sol_z_ustawien(ustawienia)
     rubryka = wczytaj_rubryke()
 
@@ -225,7 +259,7 @@ async def _audyt(
                 len(wynik.odrzucone),
                 len(hipotezy),
                 len(wynik.hipotezy_odrzucone),
-                ustawienia.agent_rozliczenie,
+                rozliczenie,
                 run_agenta,
             ),
         )

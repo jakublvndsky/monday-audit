@@ -80,13 +80,23 @@ export const api = {
 
   // Klucz API w CIELE żądania, nigdy w URL-u: adresy trafiają do logów serwera
   // i do historii przeglądarki.
-  odpalAudyt: (kluczApi: string, zakres: string, workspaceId: string | null, klient?: string) =>
+  odpalAudyt: (
+    kluczApi: string,
+    zakres: string,
+    workspaceId: string | null,
+    klient?: string,
+    // Klucz Anthropic klienta — OPCJONALNY. Puste pole wysyłamy jako `null`,
+    // nie jako `""`: pusty napis w środowisku podprocesu jest gorszy niż brak
+    // klucza, bo SDK zobaczyłby zmienną i nie spadł na klucz CXLABS.
+    kluczAnthropic?: string,
+  ) =>
     pobierz<{ zadanie_id: string }>(
       klient ? `/api/audyt?klient=${encodeURIComponent(klient)}` : "/api/audyt",
       {
         method: "POST",
         body: JSON.stringify({
           klucz_api: kluczApi,
+          klucz_anthropic: kluczAnthropic?.trim() ? kluczAnthropic.trim() : null,
           zakres,
           workspace_id: workspaceId,
         }),
