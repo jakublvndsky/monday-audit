@@ -645,10 +645,33 @@ def zbuduj_aplikacje(
         w_tle: BackgroundTasks,
         klient: str | None = None,
     ) -> dict[str, str]:
-        """Startuje audyt. Klucz API idzie do zadania i **nie jest zapisywany**."""
+        """Startuje audyt. Klucze API idą do zadania i **nie są zapisywane**."""
         cel = sesja.client_id if sesja.to_klient else (klient or _pierwszy_klient(con))
         if not cel or not sesja.widzi_klienta(cel):
             raise HTTPException(status_code=404, detail="nie znaleziono")
+
+        # Klucz Anthropic WYMAGANY, dopóki tak mówi konfiguracja (O36).
+        #
+        # Sprawdzenie jest TUTAJ, nie w `DaneAudytu`: pydantic waliduje kształt
+        # żądania, a to jest reguła BIZNESOWA zależna od ustawień procesu. Wpisanie
+        # jej w model dałoby 422 „Field required" niezależnie od konfiguracji, więc
+        # przełącznik przestałby cokolwiek przełączać.
+        #
+        # 400, nie 422: dane są poprawne, brakuje warunku uruchomienia. Front pokazuje
+        # `detail` wprost, więc komunikat musi mówić, CO ZROBIĆ, nie co jest źle.
+        if (
+            getattr(ustawienia_aplikacji, "klucz_modelu_od_klienta_wymagany", False)
+            and not (dane.klucz_anthropic or "").strip()
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Audyt wymaga klucza API Anthropic — analizę wykonuje model Claude "
+                    "i koszt trafia na Twój rachunek. Klucz zdobędziesz na "
+                    "console.anthropic.com w sekcji API keys; konto wymaga doładowania "
+                    "środków. Klucza nie zapisujemy: żyje w pamięci przez czas audytu."
+                ),
+            )
         try:
             zadanie_id = utworz_zadanie(con, client_id=cel, konto_id=sesja.konto_id)
         except ZadanieError as blad:

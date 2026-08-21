@@ -154,6 +154,20 @@ class Ustawienia(UstawieniaPoczty):
     # `subskrypcja` = SDK spada na login w `~/.claude`. Wtedy `total_cost_usd`
     # z SDK jest wyceną teoretyczną, nie fakturą — dlatego `runy.rozliczenie`
     # zapisuje, którym trybem run poszedł (migracja 009).
+    # Czy klucz Anthropic KLIENTA jest wymagany w formularzu audytu.
+    #
+    # `True` (domyślnie, decyzja Kuby 2026-08-19): koszt modelu idzie CAŁKOWICIE
+    # na klienta. Powód z O35: konto z czterema workspace'ami to ~17 USD za audyt,
+    # a przy usłudze jednorazowej per klient to zjada marżę.
+    #
+    # `False` przywraca wariant opcjonalny — puste pole znaczy „rozliczamy my".
+    # To ścieżka na później, „jak będziemy przechodzili na produkt": wtedy klucz
+    # przestanie być barierą wejścia, bo koszt wejdzie w cenę subskrypcji.
+    #
+    # Przełącznik, nie usunięty kod: wariant opcjonalny jest ZBUDOWANY I PRZETESTOWANY,
+    # więc przejście na produkt to zmiana jednej zmiennej, nie kolejna implementacja.
+    klucz_modelu_od_klienta_wymagany: bool = True
+
     agent_rozliczenie: str = ROZLICZENIE_KLUCZ
 
     @field_validator(

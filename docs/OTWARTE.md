@@ -1443,8 +1443,21 @@ nie ma klucza klienta.
 
 **Bariera wejścia.** Klient musi mieć konto na `console.anthropic.com` i doładować
 środki. Większość klientów monday.com go nie ma i nie będzie chciała zakładać.
-Pole jest opcjonalne właśnie dlatego — puste znaczy „rozliczamy my", i to zostaje
-domyślną ścieżką.
+
+**AKTUALIZACJA tego samego dnia — klucz jest WYMAGANY, nie opcjonalny.** Decyzja
+Kuby: „na teraz ma być totalnie po stronie klienta". Bariera wejścia jest świadomie
+zaakceptowana, bo audyt jest usługą jednorazową sprzedawaną per klient, nie
+produktem samoobsługowym — klient i tak przechodzi przez rozmowę z nami.
+
+Wariant opcjonalny **zostaje w kodzie i jest przetestowany**, pod przełącznikiem
+`KLUCZ_MODELU_OD_KLIENTA_WYMAGANY=false`. To ścieżka na przejście na produkt: wtedy
+koszt wejdzie w cenę subskrypcji i klucz przestanie być barierą. Przejście to zmiana
+jednej zmiennej, nie kolejna implementacja.
+
+Sprawdzenie jest w ENDPOINCIE, nie w modelu pydantica: pydantic waliduje kształt
+żądania, a to reguła biznesowa zależna od konfiguracji. W modelu dałoby 422
+niezależnie od ustawień, więc przełącznik przestałby przełączać. Kod odpowiedzi to
+**400, nie 422** — dane są poprawne, brakuje warunku uruchomienia.
 
 **Koszt sam w sobie.** 17 USD na rachunku klienta to nadal 17 USD, tylko widoczne
 w innym miejscu. Przenosi to problem z marży na cenę usługi, ale go nie usuwa.

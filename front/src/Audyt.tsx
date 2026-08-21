@@ -113,7 +113,8 @@ export function Audyt({ klient, poZakonczeniu }: { klient?: string; poZakonczeni
   return (
     <details className="sekcja" open>
       <summary>
-        Wygeneruj audyt <span className="opis">potrzebny klucz API monday</span>
+        Wygeneruj audyt{" "}
+        <span className="opis">potrzebne dwa klucze: monday i Anthropic</span>
       </summary>
       <div className="sekcja__ciało">
         {mozliwosc && !mozliwosc.wolno ? (
@@ -145,12 +146,16 @@ export function Audyt({ klient, poZakonczeniu }: { klient?: string; poZakonczeni
                 placeholder="wklej klucz API"
               />
 
-              {/* Klucz modelu jest OPCJONALNY i to musi być widoczne z etykiety,
-                  nie z gwiazdki w przypisie. Puste pole to poprawny wybór:
-                  koszt idzie wtedy na CXLABS. */}
+              {/* Klucz modelu jest WYMAGANY (O36) — koszt analizy idzie w całości
+                  na rachunek klienta. Backend też tego pilnuje: `required` w HTML
+                  jest wygodą, nie granicą, bo żądanie da się wysłać bez formularza.
+
+                  Wariant opcjonalny jest zbudowany i zostaje pod przełącznikiem
+                  `KLUCZ_MODELU_OD_KLIENTA_WYMAGANY=false` — na czas przejścia
+                  na produkt, gdy koszt wejdzie w cenę subskrypcji. */}
               <label htmlFor="klucz-modelu">
                 Klucz API Anthropic{" "}
-                <span className="meta">opcjonalnie — koszt analizy na Twoim rachunku</span>
+                <span className="meta">console.anthropic.com → API keys</span>
               </label>
               <input
                 id="klucz-modelu"
@@ -159,8 +164,9 @@ export function Audyt({ klient, poZakonczeniu }: { klient?: string; poZakonczeni
                 onChange={(e) => ustawKluczModelu(e.target.value)}
                 autoComplete="off"
                 spellCheck={false}
+                required
                 minLength={20}
-                placeholder="puste = rozliczamy my"
+                placeholder="wklej klucz Anthropic"
               />
 
               <label htmlFor="zakres">Zakres</label>
@@ -220,10 +226,10 @@ export function Audyt({ klient, poZakonczeniu }: { klient?: string; poZakonczeni
                 i inna konsekwencja. Zlanie ich sugerowałoby, że oba są wymagane. */}
             <div className="uwaga uwaga--model">
               <p>
-                <strong>Klucz Anthropic jest opcjonalny.</strong> Analizę wykonuje
-                model Claude i to jest jedyny płatny element audytu — jeśli podasz
-                swój klucz, koszt trafi na Twój rachunek u Anthropic. Puste pole
-                znaczy, że rozliczamy to my.
+                <strong>Dlaczego dwa klucze.</strong> Pierwszy czyta Twoje konto
+                monday. Drugi opłaca analizę: wykonuje ją model Claude i to jedyny
+                płatny element audytu, więc koszt trafia na Twój rachunek
+                u&nbsp;Anthropic — nie doliczamy go do ceny usługi.
               </p>
               <p className="meta">
                 Klucz zdobędziesz na <code>console.anthropic.com</code> → API keys;

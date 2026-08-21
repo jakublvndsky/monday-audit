@@ -32,6 +32,7 @@ from fastapi.testclient import TestClient
 from monday_audit.baza import polacz, zastosuj_migracje
 from monday_audit.deanonimizacja import WZORZEC_HASHA
 from monday_audit.dostep import ROLA_KLIENT, ROLA_ZESPOL, utworz_konto
+from monday_audit.konfiguracja import UstawieniaPoczty
 from monday_audit.pulpit import KLUCZE_WEWNETRZNE
 from monday_audit.rubryka import wczytaj_rubryke
 from monday_audit.web.api import zbuduj_aplikacje
@@ -1033,3 +1034,91 @@ def test_za_krotki_klucz_anthropic_jest_odrzucany(klient_http: TestClient) -> No
     )
 
     assert odp.status_code == 422
+
+
+# ── klucz Anthropic WYMAGANY (przełącznik z O36) ─────────────────────────
+
+
+class _UstawieniaZWymogiem(UstawieniaPoczty):
+    """Ustawienia z włączonym wymogiem klucza klienta.
+
+    `UstawieniaPoczty` NIE MA tego pola — endpoint czyta je przez `getattr`
+    z domyślnym `False`, więc bez tej klasy wymóg w testach MILCZAŁBY, a testy
+    zieleniłyby się bez sprawdzenia niczego. Zmierzone: 55 testów przeszło po
+    dodaniu wymogu, bo fikstur nie ma pełnej konfiguracji.
+    """
+
+    klucz_modelu_od_klienta_wymagany: bool = True
+
+
+@pytest.fixture
+def klient_z_wymogiem(baza: Path) -> Iterator[TestClient]:
+    aplikacja = zbuduj_aplikacje(baza=baza, ustawienia=_UstawieniaZWymogiem())
+    with TestClient(aplikacja, base_url="https://test") as c:
+        yield c
+
+
+def test_bez_klucza_anthropic_audyt_nie_startuje(klient_z_wymogiem: TestClient) -> None:
+    """Decyzja Kuby 2026-08-19: koszt CAŁKOWICIE po stronie klienta.
+
+    400, nie 422: dane są poprawne, brakuje warunku uruchomienia. Komunikat musi
+    mówić, CO ZROBIĆ — front pokazuje `detail` wprost.
+    """
+    _zaloguj_klienta(klient_z_wymogiem)
+
+    odp = klient_z_wymogiem.post(
+        "/api/audyt", json={"klucz_api": ATRAPA_KLUCZA, "zakres": "cale_konto"}
+    )
+
+    assert odp.status_code == 400
+    tresc = odp.json()["detail"]
+    assert "console.anthropic.com" in tresc, "komunikat musi mówić, skąd wziąć klucz"
+    assert "nie zapisujemy" in tresc, "i co robimy z kluczem"
+
+
+def test_pusty_klucz_anthropic_tez_nie_startuje(klient_z_wymogiem: TestClient) -> None:
+    """Spacje to nie klucz. `min_length` pydantica by tego nie złapało przy 20 spacjach."""
+    _zaloguj_klienta(klient_z_wymogiem)
+
+    odp = klient_z_wymogiem.post(
+        "/api/audyt",
+        json={"klucz_api": ATRAPA_KLUCZA, "klucz_anthropic": " " * 25, "zakres": "cale_konto"},
+    )
+
+    assert odp.status_code == 400
+
+
+def test_z_kluczem_anthropic_audyt_startuje(
+    klient_z_wymogiem: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Wymóg nie może blokować poprawnego żądania."""
+    monkeypatch.setattr("monday_audit.web.api.uruchom_audyt_w_tle", lambda *a: None)
+    _zaloguj_klienta(klient_z_wymogiem)
+
+    odp = klient_z_wymogiem.post(
+        "/api/audyt",
+        json={
+            "klucz_api": ATRAPA_KLUCZA,
+            "klucz_anthropic": ATRAPA_KLUCZA_MODELU,
+            "zakres": "cale_konto",
+        },
+    )
+
+    assert odp.status_code == 200
+
+
+def test_wylaczony_wymog_przywraca_wariant_opcjonalny(
+    klient_http: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Przełącznik musi PRZEŁĄCZAĆ — inaczej jest ozdobą w konfiguracji.
+
+    `klient_http` używa `UstawieniaPoczty` bez tego pola, czyli stanu „wymóg
+    wyłączony". To ta sama ścieżka, którą włączymy przy przejściu na produkt:
+    koszt wejdzie w cenę subskrypcji i klucz przestanie być barierą wejścia.
+    """
+    monkeypatch.setattr("monday_audit.web.api.uruchom_audyt_w_tle", lambda *a: None)
+    _zaloguj_klienta(klient_http)
+
+    odp = klient_http.post("/api/audyt", json={"klucz_api": ATRAPA_KLUCZA, "zakres": "cale_konto"})
+
+    assert odp.status_code == 200, "bez wymogu audyt ma startować bez klucza modelu"
