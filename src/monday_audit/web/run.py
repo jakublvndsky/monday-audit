@@ -31,8 +31,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sqlite3
+from collections.abc import Coroutine
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from monday_audit.agent import zbadaj_hipotezy
 from monday_audit.baza import RejestrWywolan, polacz
@@ -55,15 +58,57 @@ from monday_audit.kontrakt import (
 from monday_audit.narzedzia import Narzedzia
 from monday_audit.przebieg import wykonaj_run, zapisz_zuzycie
 from monday_audit.rubryka import wczytaj_rubryke
+from monday_audit.wybor_zakresu import (
+    identyfikatory_tablic,
+    klasy_milczace,
+    odsiej_hipotezy,
+    wczytaj_payload,
+    zapisz_pominiete,
+)
 from monday_audit.zadania import (
     STAN_ANALIZUJE,
     STAN_BLAD,
     STAN_GOTOWE,
     PostepDoBazy,
+    czekaj_na_zgode,
+    wczytaj_stan,
     zapisz_stan,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _odmiana_sygnalow(ile: int) -> str:
+    """Polska odmiana dla licznika sygnałów w tekście postępu.
+
+    Bez tego pasek pokazywał „analizuję 24 sygnał" albo „1 sygnałów" — drobiazg,
+    który podważa zaufanie do liczb obok.
+    """
+    if ile == 1:
+        return "sygnał"
+    if ile % 10 in (2, 3, 4) and ile % 100 not in (12, 13, 14):
+        return "sygnały"
+    return "sygnałów"
+
+
+class RunError(RuntimeError):
+    """Audyt nie da się dokończyć — brakuje stanu, którego wymaga faza druga."""
+
+
+def _run_collectora(con: sqlite3.Connection, snapshot_id: int) -> str:
+    """`run_id` collectora, który zapisał ten snapshot.
+
+    Faza druga zaczyna się w innym wywołaniu niż pierwsza, więc nazwy runu
+    nie da się przekazać w pamięci — ale w `runy` już jest.
+    """
+    wiersz = con.execute(
+        "SELECT run_id FROM runy WHERE snapshot_id = ? AND run_id NOT LIKE '%-agent' "
+        "ORDER BY started_at DESC LIMIT 1",
+        (snapshot_id,),
+    ).fetchone()
+    if wiersz is None:
+        raise RunError(f"snapshot {snapshot_id} nie ma runu collectora")
+    return str(wiersz["run_id"])
 
 
 def uruchom_audyt_w_tle(
@@ -74,20 +119,60 @@ def uruchom_audyt_w_tle(
     zakres_typ: str,
     workspace_id: str | None,
     klucz_modelu_klienta: str | None = None,
+    board_ids: list[str] | None = None,
 ) -> None:
-    """Wejście dla executora. Synchroniczne, bo `run_in_executor` tak woła."""
+    """Wejście dla executora. Synchroniczne, bo `run_in_executor` tak woła.
+
+    FAZA PIERWSZA: zbiera dane w ZAWĘŻONYM zakresie i zatrzymuje się na
+    potwierdzeniu kosztu. Agent rusza dopiero z `uruchom_analize_w_tle`.
+
+    Zakres przychodzi z ekranu podglądu, który klient widział PRZED kliknięciem
+    „Zbierz dane" — więc zbieranie jest już zawężone i nie trwa trzech minut.
+    """
+    _w_tle(
+        baza,
+        zadanie_id,
+        _zbierz(
+            baza,
+            zadanie_id,
+            client_id,
+            klucz_api,
+            zakres_typ,
+            workspace_id,
+            klucz_modelu_klienta,
+            board_ids or [],
+        ),
+    )
+
+
+def uruchom_analize_w_tle(
+    baza: Path,
+    zadanie_id: str,
+    client_id: str,
+    klucz_api: str,
+    klucz_modelu_klienta: str | None,
+    board_ids: frozenset[str] | None,
+) -> None:
+    """FAZA DRUGA: agent na hipotezach, które przeszły wybór zakresu.
+
+    Klucze przychodzą argumentem ponownie, bo faza pierwsza ich nie zapisała
+    i nie zapisze — token klienta nie ma kolumny w bazie (D12).
+    """
+    _w_tle(
+        baza,
+        zadanie_id,
+        _analizuj(baza, zadanie_id, client_id, klucz_api, klucz_modelu_klienta, board_ids),
+    )
+
+
+def _w_tle(baza: Path, zadanie_id: str, praca: Coroutine[Any, Any, None]) -> None:
+    """Odpala korutynę i zamienia każdy wyjątek na stan `blad` w bazie.
+
+    Wspólne dla obu faz: zadanie, które padło bez zapisania stanu, blokowałoby
+    klienta do wygaśnięcia reapera.
+    """
     try:
-        asyncio.run(
-            _audyt(
-                baza,
-                zadanie_id,
-                client_id,
-                klucz_api,
-                zakres_typ,
-                workspace_id,
-                klucz_modelu_klienta,
-            )
-        )
+        asyncio.run(praca)
     except Exception as blad:
         # Komunikat idzie przez `_bez_sekretow` w `zapisz_stan`. Typ wyjątku
         # zostawiamy, bo pomaga w diagnozie i nie niesie treści.
@@ -105,7 +190,7 @@ def uruchom_audyt_w_tle(
         logger.exception("zadanie %s padło", zadanie_id)
 
 
-async def _audyt(
+async def _zbierz(
     baza: Path,
     zadanie_id: str,
     client_id: str,
@@ -113,35 +198,53 @@ async def _audyt(
     zakres_typ: str,
     workspace_id: str | None,
     klucz_modelu_klienta: str | None = None,
+    board_ids: list[str] | None = None,
 ) -> None:
+    """Collector i detektory. Kończy się na `czeka_na_zgode`, nie na agencie.
+
+    ## Zakres jest ZAWĘŻONY już tutaj, i to jest zmiana z 2026-08-25
+
+    Wcześniej collector zbierał całe konto, a zawężenie działało tylko na
+    hipotezach — z rozumowaniem, że snapshot ma być kompletny. Rozumowanie było
+    poprawne, ale kolejność zła: klient musiał czekać trzy minuty, ŻEBY MÓC
+    wskazać workspace. Teraz wskazuje go na ekranie podglądu (6 s), więc
+    zbieranie startuje już zawężone i jest krótsze.
+
+    Cena tej decyzji, zapisana jawnie: snapshot zawężony do jednego workspace'u
+    NIE zawiera pozostałych, więc `DUPLICATE_STRUCTURE` nie porówna tablicy
+    z tablicą z innego workspace'u. To znika z audytu i raport musi to napisać —
+    `_uwagi_o_zakresie` w `przebieg.py` produkuje takie zastrzeżenia dla każdego
+    zawężonego zakresu.
+    """
     ustawienia = wczytaj()
-    # ── KTÓRY KLUCZ MODELU ────────────────────────────────────────
+    # ── KLUCZA MODELU TU JUŻ NIE SPRAWDZAMY ────────────────────────
     #
-    # Klucz KLIENTA ma pierwszeństwo: gdy go podał, koszt idzie na jego rachunek,
-    # a nie nasz. Przy koncie z czterema workspace'ami to ~17 USD (O35), więc to
-    # warunek opłacalności usługi, nie szczegół księgowy.
+    # Do 2026-08-25 brak klucza Anthropic przerywał PRZED wywołaniami monday,
+    # z dobrym uzasadnieniem: nie zużywać limitu klienta na dane, których nie
+    # ma czym przeanalizować.
     #
-    # Klucz klienta NIE PRZECHODZI przez `klucz_anthropic()` — tamta funkcja czyta
-    # konfigurację PROCESU i w trybie `subskrypcja` zwraca pusty napis. Tutaj mamy
-    # konkretny klucz z żądania i on rozstrzyga niezależnie od `AGENT_ROZLICZENIE`.
-    #
-    # Brak klucza Anthropic przerywa PRZED wywołaniami monday — nie chcemy
-    # zużyć limitu klienta na dane, których nie zdążymy przeanalizować.
+    # Ale kolejność ekranów się zmieniła i to uzasadnienie przestało pasować:
+    # klucz modelu klient podaje DOPIERO przy zatwierdzaniu zakresu, gdy widzi
+    # dokładne widełki. Sprawdzanie go tutaj przerywałoby zbieranie, na które
+    # się właśnie zgodził — a bramka (O36) stoi teraz w `POST /zgoda`, przed
+    # jedynym krokiem, który faktycznie woła model.
     if klucz_modelu_klienta:
-        klucz_modelu = klucz_modelu_klienta
-        rozliczenie = ROZLICZENIE_KLUCZ_KLIENTA
         # Bez prefiksu, bez długości — prefiks tokenu też jest informacją (D11).
-        logger.info("run %s idzie na kluczu KLIENTA — koszt nie obciąża CXLABS", zadanie_id)
-    else:
-        klucz_modelu = klucz_anthropic(ustawienia)
-        rozliczenie = ustawienia.agent_rozliczenie
+        logger.info("run %s ma już klucz KLIENTA — koszt nie obciąży CXLABS", zadanie_id)
     sol = sol_z_ustawien(ustawienia)
     rubryka = wczytaj_rubryke()
 
     con = polacz(baza)
     try:
         licznik = PostepDoBazy(con, zadanie_id)
-        zakres = zbuduj_zakres(zakres_typ, [workspace_id] if workspace_id else [])
+        # Tryb `tablice` jest NAJWĘŻSZY i wygrywa, gdy klient wskazał tablice.
+        # `Zakres.__post_init__` odrzuca podanie obu list naraz, więc wybór musi
+        # być jednoznaczny już tutaj — nie w collectorze.
+        if zakres_typ == "tablice" and board_ids:
+            zakres = zbuduj_zakres("tablice", list(board_ids))
+        else:
+            zakres = zbuduj_zakres(zakres_typ, [workspace_id] if workspace_id else [])
+        logger.info("zbieranie %s w zakresie: %s", zadanie_id, zakres.opis())
 
         # ── collector ────────────────────────────────────────────────
         zapisz_stan(con, zadanie_id, stan="zbieram", etap="rozpoznaję konto", postep=1)
@@ -157,12 +260,15 @@ async def _audyt(
             con,
             zadanie_id,
             stan=STAN_ANALIZUJE,
-            etap=f"zebrano {raport_runu.wywolan} wywołań, szukam anomalii",
+            # Bez liczby wywołań API: klient nie wie, co to jest, a „zebrano 132
+            # wywołań" czyta się jak usterka. ZGŁOSZONE (Kuba, 2026-08-25):
+            # „jakieś były liczby niestworzone".
+            etap="szukam nieprawidłowości w zebranych danych",
             postep=60,
             run_id=raport_runu.run_id,
         )
 
-        # ── detektory i agent ────────────────────────────────────────
+        # ── detektory ────────────────────────────────────────────────
         hipotezy, _ = uruchom_detektory(con, raport_runu.snapshot_id, rubryka)
         if not hipotezy:
             zapisz_stan(
@@ -174,14 +280,96 @@ async def _audyt(
             )
             return
 
-        run_agenta = f"{raport_runu.run_id}-agent"
+        # ── PAUZA: wybór zakresu i zgoda na koszt ────────────────────
+        #
+        # Tu kończy się faza pierwsza. Agent nie ruszy, dopóki człowiek nie
+        # zatwierdzi zakresu — bo od tego zależy rachunek, a rachunek idzie
+        # na klucz klienta.
+        #
+        # `snapshot_id` zapisujemy do zadania, bo faza druga musi wiedzieć,
+        # KTÓRY snapshot został zatwierdzony. Bez tego szłaby po „ostatnim
+        # snapshocie klienta", a ten mógł w międzyczasie powstać z innego
+        # zbierania.
+        czekaj_na_zgode(
+            con,
+            zadanie_id,
+            snapshot_id=raport_runu.snapshot_id,
+            hipotez=len(hipotezy),
+        )
+        logger.info(
+            "zadanie %s czeka na zgodę — %d hipotez ze snapshotu %d",
+            zadanie_id,
+            len(hipotezy),
+            raport_runu.snapshot_id,
+        )
+    finally:
+        con.close()
+
+
+async def _analizuj(
+    baza: Path,
+    zadanie_id: str,
+    client_id: str,
+    klucz_api: str,
+    klucz_modelu_klienta: str | None,
+    board_ids: frozenset[str] | None,
+) -> None:
+    """Agent na hipotezach po odsianiu, walidacja, zapis. Faza druga.
+
+    `board_ids is None` znaczy „bez zawężenia" — klient zatwierdził całe
+    konto. Pusty zbiór znaczyłby „nie wybrano ani jednej tablicy" i wtedy
+    zostają wyłącznie hipotezy o koncie.
+    """
+    ustawienia = wczytaj()
+    if klucz_modelu_klienta:
+        klucz_modelu = klucz_modelu_klienta
+        rozliczenie = ROZLICZENIE_KLUCZ_KLIENTA
+        logger.info("analiza %s idzie na kluczu KLIENTA", zadanie_id)
+    else:
+        klucz_modelu = klucz_anthropic(ustawienia)
+        rozliczenie = ustawienia.agent_rozliczenie
+    sol = sol_z_ustawien(ustawienia)
+    rubryka = wczytaj_rubryke()
+
+    con = polacz(baza)
+    try:
+        stan = wczytaj_stan(con, zadanie_id)
+        if stan is None or stan.snapshot_id is None:
+            raise RunError(f"zadanie {zadanie_id} nie ma zatwierdzonego snapshotu")
+        snapshot_id = stan.snapshot_id
+
+        # Detektory lecą PONOWNIE, a nie z zapisanej listy. Są deterministyczne
+        # i czytają zamrożony snapshot (D7), więc dają ten sam wynik — a nie
+        # musimy serializować hipotez do bazy tylko po to, żeby je odczytać.
+        wszystkie, _ = uruchom_detektory(con, snapshot_id, rubryka)
+        payload = wczytaj_payload(con, snapshot_id)
+        hipotezy, pominiete = odsiej_hipotezy(
+            wszystkie,
+            board_ids=board_ids,
+            znane_tablice=identyfikatory_tablic(payload),
+        )
+        if not hipotezy:
+            zapisz_stan(
+                con,
+                zadanie_id,
+                stan=STAN_GOTOWE,
+                etap="wybrany zakres nie zawiera nic do zbadania",
+                postep=100,
+            )
+            return
+
+        # `run_id` collectora bierzemy z bazy, a nie z pamięci: faza pierwsza
+        # skończyła się w innym procesie roboczym i nic po niej nie zostało
+        # poza wierszami w SQLite.
+        run_collectora = _run_collectora(con, snapshot_id)
+        run_agenta = f"{run_collectora}-agent"
         con.execute(
             "INSERT INTO runy (run_id, client_id, snapshot_id, status, started_at, model, "
             "rubric_ver) VALUES (?, ?, ?, 'w_toku', ?, ?, ?)",
             (
                 run_agenta,
                 client_id,
-                raport_runu.snapshot_id,
+                snapshot_id,
                 # DRUGA instancja tej samej usterki co przy `finished_at`:
                 # `started_at` dostawało `raport_runu.run_id`, czyli identyfikator
                 # zamiast daty. Kolumna jest `TEXT`, więc nic nie protestowało,
@@ -195,6 +383,18 @@ async def _audyt(
                 rubryka.wersja,
             ),
         )
+        # Ślad po hipotezach, których wybór nie objął — w tabeli, którą panel
+        # już pokazuje jako „czego nie widać". Zapis MUSI iść po `INSERT INTO
+        # runy`, bo `hipotezy_odrzucone.run_id` ma klucz obcy.
+        zapisz_pominiete(con, run_id=run_agenta, pominiete=pominiete)
+        if pominiete:
+            milczace = klasy_milczace(pominiete, rubryka)
+            logger.info(
+                "zadanie %s: wybór odsiał %d hipotez, klasy milczące: %s",
+                zadanie_id,
+                len(pominiete),
+                ", ".join(milczace) or "brak",
+            )
         con.commit()
 
         potrzebne = {z for h in hipotezy for z in rubryka.po_id[h.klasa_id].zmienne_od_klienta}
@@ -209,7 +409,7 @@ async def _audyt(
         async with MondayClient(klucz_api, RejestrWywolan(con, run_agenta)) as klient:
             zestaw = Narzedzia(
                 con=con,
-                snapshot_id=raport_runu.snapshot_id,
+                snapshot_id=snapshot_id,
                 client_id=client_id,
                 sol=sol,
                 klient=klient,
@@ -217,9 +417,27 @@ async def _audyt(
             zapisz_stan(
                 con,
                 zadanie_id,
-                etap=f"badam {len(hipotezy)} anomalii",
+                etap=f"analizuję {len(hipotezy)} {_odmiana_sygnalow(len(hipotezy))}",
                 postep=62,
             )
+
+            # Postęp PO KAŻDEJ hipotezie, nie raz na całą analizę.
+            #
+            # ZGŁOSZONE (Kuba, 2026-08-25): „patrzysz w to i nie wiesz, kiedy co
+            # się stanie, za ile się stanie". Wcześniej był jeden zapis stanu na
+            # dziewięć minut, więc ekran nie odróżniał pracy od zawieszenia.
+            #
+            # Skala 62→94: 95 zajmuje walidacja, 100 gotowe. Dolne 62 zostaje
+            # z chwili startu analizy, żeby pasek nie cofał się po zebraniu.
+            def melduj(zbadanych: int, wszystkich: int, klasa_id: str) -> None:
+                udzial = zbadanych / wszystkich if wszystkich else 0
+                zapisz_stan(
+                    con,
+                    zadanie_id,
+                    etap=f"zbadano {zbadanych} z {wszystkich} sygnałów",
+                    postep=62 + int(udzial * 32),
+                )
+
             odpowiedz = await zbadaj_hipotezy(
                 hipotezy,
                 zestaw=zestaw,
@@ -227,6 +445,7 @@ async def _audyt(
                 run_id=run_agenta,
                 klucz_api=klucz_modelu,
                 stawki=stawki,
+                postep=melduj,
             )
 
         # ── walidacja ────────────────────────────────────────────────
@@ -236,12 +455,10 @@ async def _audyt(
             con,
             wynik.przyjete,
             run_id=run_agenta,
-            snapshot_id=raport_runu.snapshot_id,
+            snapshot_id=snapshot_id,
             rubryka=rubryka,
         )
-        zapisz_odrzucone(
-            con, wynik.odrzucone, run_id=run_agenta, snapshot_id=raport_runu.snapshot_id
-        )
+        zapisz_odrzucone(con, wynik.odrzucone, run_id=run_agenta, snapshot_id=snapshot_id)
         zapisz_hipotezy_odrzucone(con, wynik.hipotezy_odrzucone, run_id=run_agenta)
         con.execute(
             "UPDATE runy SET status = 'zakonczony', finished_at = ?, findingow = ?, "

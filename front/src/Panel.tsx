@@ -80,7 +80,13 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
   // Trzy widoki: panel główny „Klienci", audyt jednego klienta, „Moje konto".
   // Zespół startuje na PANELU GŁÓWNYM — wcześniej wchodził od razu w pierwszego
   // klienta, co przy kilku klientach jest zgadywaniem.
-  const [widok, ustawWidok] = useState<"klienci" | "audyt" | "konto">(
+  // „nowy" to OSOBNY widok, nie sekcja w widoku audytu.
+  //
+  // ZGŁOSZONE (Kuba, 2026-08-25): „nie możemy plątać starych audytów
+  // z wyszukaniem nowego, trzeba na to osobny panel". Kreator renderowany nad
+  // kaflami poprzedniego audytu mieszał dwie różne rzeczy: przegląd wyniku
+  // i zamawianie nowego.
+  const [widok, ustawWidok] = useState<"klienci" | "audyt" | "nowy" | "konto">(
     ja.rola === "zespol" ? "klienci" : "audyt",
   );
   const [blad, ustawBlad] = useState<string | null>(null);
@@ -192,6 +198,19 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
               >
                 Klienci<span className="sidebar__licznik">{klienci.length}</span>
               </a>
+              {/* Stałe miejsce, z którego zaczyna się nowy audyt. Wcześniej
+                  kreator siedział NAD wynikiem poprzedniego audytu, więc nie
+                  było jasne, czy patrzysz na stary, czy zamawiasz nowy. */}
+              <a
+                href="#"
+                className={`poz ${widok === "nowy" ? "aktywny" : ""}`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  ustawWidok("nowy");
+                }}
+              >
+                + Nowy audyt
+              </a>
               {klienci.map((k) => {
                 const aktywny =
                   widok === "audyt" && k.client_id === (wybrany ?? pulpit?.client_id);
@@ -221,8 +240,27 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
             </>
           ) : (
             <>
-              <span className="poz aktywny-poz">Twój audyt</span>
-              <PodnawigacjaSekcji pulpit={pulpit} />
+              <a
+                href="#"
+                className={`poz ${widok === "audyt" ? "aktywny" : ""}`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  ustawWidok("audyt");
+                }}
+              >
+                Twój audyt
+              </a>
+              {widok === "audyt" && <PodnawigacjaSekcji pulpit={pulpit} />}
+              <a
+                href="#"
+                className={`poz ${widok === "nowy" ? "aktywny" : ""}`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  ustawWidok("nowy");
+                }}
+              >
+                + Nowy audyt
+              </a>
             </>
           )}
         </nav>
@@ -268,6 +306,19 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
           />
         ) : widok === "konto" ? (
           <MojeKonto email={ja.email ?? ""} />
+        ) : widok === "nowy" ? (
+          /* Czysty ekran kreatora. Bez kafli, bez znalezisk, bez drop-downu
+             wersji — te należą do PRZEGLĄDANIA audytu, nie do zamawiania. */
+          <div className="strona strona--kreator">
+            <p className="eyebrow">Audyt konta monday.com</p>
+            <Audyt
+              klient={ja.rola === "zespol" ? wybrany : undefined}
+              poZakonczeniu={() => {
+                poAudycie();
+                ustawWidok("audyt");
+              }}
+            />
+          </div>
         ) : (
         <>
         <div className="pasek">
@@ -344,11 +395,6 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
             </p>
           )}
 
-          <Audyt
-            klient={ja.rola === "zespol" ? wybrany : undefined}
-            poZakonczeniu={poAudycie}
-          />
-
           {/* ZAKŁADKI. „Ludzie" odpowiada na pytanie, na które znaleziska nie
               odpowiadają: kto z czego korzysta, jak i kiedy. Dane z collectora,
               więc zakładka istnieje nawet gdy agent nic nie znalazł — ale bez
@@ -386,10 +432,19 @@ export function Panel({ ja, poWylogowaniu }: { ja: Ja; poWylogowaniu: () => void
                 <strong>Ten klient nie ma jeszcze audytu.</strong> Ma dostęp do
                 panelu, ale nikt jeszcze nie uruchomił zbierania danych.
               </p>
+              {/* „zrób to wyżej" wskazywało na formularz, który przeniósł się
+                  do osobnego widoku — martwa instrukcja jest gorsza niż żadna. */}
               <p className="meta">
-                Poproś go, żeby wszedł na swój panel i wklejił klucz API monday,
-                albo zrób to wyżej jego kluczem.
+                Poproś go, żeby wszedł na swój panel i wkleił klucz API monday,
+                albo zamów audyt jego kluczem.
               </p>
+              <button
+                type="button"
+                className="cx-btn"
+                onClick={() => ustawWidok("nowy")}
+              >
+                + Nowy audyt
+              </button>
             </div>
           )}
 

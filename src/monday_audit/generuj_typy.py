@@ -28,6 +28,7 @@ import types
 import typing
 from pathlib import Path
 
+from monday_audit.podglad_zakresu import PodgladKonta, TablicaDoWyboru, WorkspaceDoWyboru
 from monday_audit.pulpit import (
     KLUCZE_WEWNETRZNE,
     Ludzie,
@@ -42,6 +43,12 @@ from monday_audit.pulpit import (
     UdzialWTablicy,
 )
 from monday_audit.raport import Finding
+from monday_audit.wybor_zakresu import (
+    PozycjaTablicy,
+    PozycjaWorkspace,
+    Widelki,
+    WyborZakresu,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +72,20 @@ KLASY = (
     Ludzie,
     Pulpit,
     PozycjaKlienta,
+    # Ekran wyboru zakresu — z `wybor_zakresu.py`, przez `wybor_do_json()`.
+    # Ten sam powód, co przy pulpicie: front musi znać kształt, a ręczne typy
+    # rozjechałyby się cicho. `WyborZakresu` na końcu, bo odwołuje się do trzech
+    # poprzednich.
+    PozycjaWorkspace,
+    PozycjaTablicy,
+    Widelki,
+    WyborZakresu,
+    # Szybki podgląd PRZED zbieraniem — z `podglad_zakresu.py`. Osobne typy od
+    # `PozycjaTablicy`, bo podgląd WIE MNIEJ: bez logów nie zna wpisów ani ciszy.
+    # Wspólny typ zmuszałby front do pól, które w jednym trybie zawsze są puste.
+    WorkspaceDoWyboru,
+    TablicaDoWyboru,
+    PodgladKonta,
 )
 
 NAGLOWEK = """// PLIK GENEROWANY — nie edytuj ręcznie.
@@ -171,6 +192,37 @@ def zbuduj_tresc() -> str:
                 "\n  // z `@property` — udział wyliczony, `null` gdy brak mianownika\n"
                 "  udzial: number | null;\n}"
             )
+        if klasa is PozycjaTablicy:
+            tekst = tekst.rstrip("}\n").rstrip() + (
+                "\n  // z `@property` — czy tablica ma choć jedną etykietę.\n"
+                '  // Front NIE liczy tego sam: przycisk „odznacz oflagowane"\n'
+                "  // musi działać na tym samym kryterium, co widoczne etykiety.\n"
+                "  oflagowana: boolean;\n}"
+            )
+        if klasa is Widelki:
+            tekst = tekst.rstrip("}\n").rstrip() + (
+                "\n  // z `@property` — true, gdy któraś klasa nie ma historii kosztu\n"
+                "  // i weszła z wartości zapasowej. Ekran musi to powiedzieć, bo\n"
+                "  // widełki są wtedy słabszą obietnicą.\n"
+                "  oszacowane_z_zapasu: boolean;\n}"
+            )
+        if klasa is TablicaDoWyboru:
+            tekst = tekst.rstrip("}\n").rstrip() + (
+                "\n  // z `@property` — czy tablica ma choć jedną etykietę\n"
+                "  oflagowana: boolean;\n}"
+            )
+        if klasa is PodgladKonta:
+            tekst = tekst.rstrip("}\n").rstrip() + (
+                "\n  // dokładane przez endpoint: ile wywołań monday zużył podgląd\n"
+                "  wywolan: number;\n}"
+            )
+        if klasa is WyborZakresu:
+            tekst = tekst.rstrip("}\n").rstrip() + (
+                "\n  // dokładane przez endpoint `/api/audyt/{id}/wybor`, nie przez\n"
+                "  // `wybor_do_json()` — termin ważności zgody żyje w zadaniu,\n"
+                "  // nie w snapshocie.\n"
+                "  zgoda_do: string | null;\n}"
+            )
         czesci.append(tekst)
 
     czesci.append(
@@ -189,10 +241,22 @@ def zbuduj_tresc() -> str:
         "  run_id: string | null;\n"
         "  blad: string | null;\n"
         "  trwa: boolean;\n"
+        "  // `trwa: false` ma DWA znaczenia: skończone albo czekające na decyzję\n"
+        "  // o zakresie. Bez tego pola front zatrzymywałby odpytywanie i nie\n"
+        "  // wiedział, że ma pokazać ekran wyboru.\n"
+        "  czeka_na_zgode: boolean;\n"
         "}"
     )
     czesci.append(
-        "export interface Mozliwosc {\n  wolno: boolean;\n  powod: string;\n  client_id: string;\n}"
+        "export interface Mozliwosc {\n"
+        "  wolno: boolean;\n"
+        "  powod: string;\n"
+        "  client_id: string;\n"
+        "  // Zadanie czekające na wybór zakresu, jeśli takie jest. Front wraca\n"
+        "  // po nim po odświeżeniu strony — bez tego zebrane dane byłyby\n"
+        "  // nieosiągalne, a limit monday już zużyty.\n"
+        "  zadanie_czekajace: string | null;\n"
+        "}"
     )
     return "\n\n".join(czesci) + "\n"
 

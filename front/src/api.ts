@@ -140,6 +140,86 @@ export interface PozycjaKlienta {
   ma_konto: boolean;
 }
 
+export interface PozycjaWorkspace {
+  workspace_id: string;
+  nazwa: string;
+  tablic: number;
+  hipotez: number;
+}
+
+export interface PozycjaTablicy {
+  board_id: string;
+  nazwa: string;
+  workspace_id: string;
+  workspace_nazwa: string;
+  kolumn: number;
+  kolumn_automatycznych: number;
+  items_count: number;
+  wpisow: number | null;
+  flagi: string[];
+  hipotez: number;
+  // z `@property` — czy tablica ma choć jedną etykietę.
+  // Front NIE liczy tego sam: przycisk „odznacz oflagowane"
+  // musi działać na tym samym kryterium, co widoczne etykiety.
+  oflagowana: boolean;
+}
+
+export interface Widelki {
+  dolna_usd: number;
+  srodek_usd: number;
+  gorna_usd: number;
+  podloga_usd: number;
+  hipotez: number;
+  hipotez_o_koncie: number;
+  klasy_bez_historii: string[];
+  // z `@property` — true, gdy któraś klasa nie ma historii kosztu
+  // i weszła z wartości zapasowej. Ekran musi to powiedzieć, bo
+  // widełki są wtedy słabszą obietnicą.
+  oszacowane_z_zapasu: boolean;
+}
+
+export interface WyborZakresu {
+  workspace_y: PozycjaWorkspace[];
+  tablice: PozycjaTablicy[];
+  widelki: Widelki;
+  pominietych_pomocniczych: number;
+  tablic_bez_logow: number;
+  uwagi_o_zakresie: string[];
+  // dokładane przez endpoint `/api/audyt/{id}/wybor`, nie przez
+  // `wybor_do_json()` — termin ważności zgody żyje w zadaniu,
+  // nie w snapshocie.
+  zgoda_do: string | null;
+}
+
+export interface WorkspaceDoWyboru {
+  workspace_id: string;
+  nazwa: string;
+}
+
+export interface TablicaDoWyboru {
+  board_id: string;
+  nazwa: string;
+  workspace_id: string;
+  workspace_nazwa: string;
+  kolumn: number;
+  kolumn_automatycznych: number;
+  items_count: number;
+  flagi: string[];
+  // z `@property` — czy tablica ma choć jedną etykietę
+  oflagowana: boolean;
+}
+
+export interface PodgladKonta {
+  workspace_y: WorkspaceDoWyboru[];
+  tablice: TablicaDoWyboru[];
+  pominietych_pomocniczych: number;
+  urwano_na_stronach: boolean;
+  zgrubnie_od_usd: number;
+  zgrubnie_do_usd: number;
+  // dokładane przez endpoint: ile wywołań monday zużył podgląd
+  wywolan: number;
+}
+
 export interface Ja {
   rola: "klient" | "zespol";
   client_id: string | null;
@@ -154,10 +234,18 @@ export interface StanAudytu {
   run_id: string | null;
   blad: string | null;
   trwa: boolean;
+  // `trwa: false` ma DWA znaczenia: skończone albo czekające na decyzję
+  // o zakresie. Bez tego pola front zatrzymywałby odpytywanie i nie
+  // wiedział, że ma pokazać ekran wyboru.
+  czeka_na_zgode: boolean;
 }
 
 export interface Mozliwosc {
   wolno: boolean;
   powod: string;
   client_id: string;
+  // Zadanie czekające na wybór zakresu, jeśli takie jest. Front wraca
+  // po nim po odświeżeniu strony — bez tego zebrane dane byłyby
+  // nieosiągalne, a limit monday już zużyty.
+  zadanie_czekajace: string | null;
 }

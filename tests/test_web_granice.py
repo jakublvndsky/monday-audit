@@ -442,6 +442,82 @@ def test_osierocone_zadanie_nie_blokuje_na_zawsze(klient_http: TestClient, baza:
     con.close()
 
 
+def test_zadanie_czekajace_na_zgode_nie_jest_osierocone(
+    klient_http: TestClient, baza: Path
+) -> None:
+    """Zgoda ważna dwanaście godzin nie może padać po czterdziestu minutach.
+
+    Reaper porównuje `zaczeto` — moment założenia zadania — a nie ostatni
+    zgłoszony postęp. Zadanie czekające na decyzję klienta nie zgłasza postępu
+    Z DEFINICJI, więc bez wyłączenia go z listy osieroconych dostałoby stan
+    `blad` po czterdziestu minutach, a klient wracałby do audytu, którego już
+    nie ma.
+
+    Test podmienia `zaczeto` w bazie, bo tylko to sprawdza mechanizm. Odczyt
+    kodu potwierdziłby jedynie, że dobrze go przeczytałem.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from monday_audit.zadania import (
+        GODZIN_WAZNOSCI_ZGODY,
+        MINUT_NA_OSIEROCENIE,
+        STAN_CZEKA_NA_ZGODE,
+        wolno_odpalic,
+    )
+
+    teraz = datetime.now(tz=UTC)
+    dawno = (teraz - timedelta(minutes=MINUT_NA_OSIEROCENIE + 5)).isoformat()
+    wazna_do = (teraz + timedelta(hours=GODZIN_WAZNOSCI_ZGODY)).isoformat()
+    con = polacz(baza)
+    con.execute(
+        "INSERT INTO zadania (id, client_id, konto_id, stan, etap, postep, zaczeto, zgoda_do) "
+        "VALUES ('czeka', 'cxlabs', 1, ?, 'czekam na wybór zakresu', 60, ?, ?)",
+        (STAN_CZEKA_NA_ZGODE, dawno, wazna_do),
+    )
+    con.commit()
+
+    wolno_odpalic(con, "cxlabs")
+
+    stan = con.execute("SELECT stan FROM zadania WHERE id = 'czeka'").fetchone()
+    assert stan["stan"] == STAN_CZEKA_NA_ZGODE, (
+        "zadanie czekające na zgodę zostało uznane za osierocone — zgoda "
+        "ważna dwanaście godzin jest wtedy fikcją"
+    )
+    con.close()
+
+
+def test_zgoda_po_terminie_jest_wygaszana(klient_http: TestClient, baza: Path) -> None:
+    """Komplement poprzedniego: wyłączenie z reapera nie znaczy „nigdy nie wygasa".
+
+    Bez tego zadanie czekające na zgodę zostawałoby w bazie na zawsze i liczyło
+    się do sufitu audytów, blokując klienta — dokładnie ta usterka, którą
+    reaper miał naprawiać.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from monday_audit.zadania import STAN_CZEKA_NA_ZGODE, wolno_odpalic
+
+    teraz = datetime.now(tz=UTC)
+    con = polacz(baza)
+    con.execute(
+        "INSERT INTO zadania (id, client_id, konto_id, stan, etap, postep, zaczeto, zgoda_do) "
+        "VALUES ('przedawniona', 'cxlabs', 1, ?, 'czekam', 60, ?, ?)",
+        (
+            STAN_CZEKA_NA_ZGODE,
+            (teraz - timedelta(hours=20)).isoformat(),
+            (teraz - timedelta(hours=1)).isoformat(),
+        ),
+    )
+    con.commit()
+
+    wolno_odpalic(con, "cxlabs")
+
+    stan = con.execute("SELECT stan, blad FROM zadania WHERE id = 'przedawniona'").fetchone()
+    assert stan["stan"] == "blad"
+    assert "zestarzały" in stan["blad"]
+    con.close()
+
+
 def test_swieze_zadanie_nadal_blokuje(klient_http: TestClient, baza: Path) -> None:
     """Komplement — inaczej poprzednia poprawka zniosłaby hamulec zupełnie."""
     from monday_audit.zadania import utworz_zadanie, wolno_odpalic
@@ -1015,8 +1091,14 @@ def test_brak_klucza_anthropic_to_none_a_nie_pusty_napis(
     odp = klient_http.post("/api/audyt", json={"klucz_api": ATRAPA_KLUCZA, "zakres": "cale_konto"})
     assert odp.status_code == 200
 
+    # Szukamy klucza po WARTOŚCI, nie po pozycji: `argumenty[-1]` wiązało test
+    # z kolejnością parametrów `uruchom_audyt_w_tle`, więc dodanie `board_ids`
+    # na końcu wywracało go, choć zachowanie było poprawne. Test ma pilnować
+    # reguły („puste pole → None"), nie sygnatury funkcji.
     argumenty = przekazane["argumenty"]
-    assert argumenty[-1] is None, f"ostatni argument ma być None, jest {argumenty[-1]!r}"  # type: ignore[index]
+    assert isinstance(argumenty, tuple)
+    assert "" not in argumenty, f"pusty napis poszedł jako klucz: {argumenty!r}"
+    assert None in argumenty, f"brak `None` w argumentach zadania: {argumenty!r}"
 
 
 def test_za_krotki_klucz_anthropic_jest_odrzucany(klient_http: TestClient) -> None:
@@ -1058,16 +1140,66 @@ def klient_z_wymogiem(baza: Path) -> Iterator[TestClient]:
         yield c
 
 
-def test_bez_klucza_anthropic_audyt_nie_startuje(klient_z_wymogiem: TestClient) -> None:
+def _zadanie_na_zgodzie(baza: Path) -> str:
+    """Zadanie w stanie `czeka_na_zgode` — tam stoi bramka klucza modelu."""
+    from datetime import UTC, datetime, timedelta
+
+    from monday_audit.zadania import (
+        GODZIN_WAZNOSCI_ZGODY,
+        STAN_CZEKA_NA_ZGODE,
+        utworz_zadanie,
+        zapisz_stan,
+    )
+
+    con = polacz(baza)
+    try:
+        zadanie_id = utworz_zadanie(con, client_id="cxlabs", konto_id=1)
+        zapisz_stan(
+            con,
+            zadanie_id,
+            stan=STAN_CZEKA_NA_ZGODE,
+            snapshot_id=5,
+            zgoda_do=(datetime.now(tz=UTC) + timedelta(hours=GODZIN_WAZNOSCI_ZGODY)).isoformat(),
+        )
+        con.commit()
+        return zadanie_id
+    finally:
+        con.close()
+
+
+def test_zbieranie_startuje_bez_klucza_anthropic(
+    klient_z_wymogiem: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bramka klucza modelu PRZENIOSŁA SIĘ na `/zgoda` (2026-08-25).
+
+    Zbieranie danych nie woła modelu, więc żądanie klucza na tym etapie było
+    pytaniem o pieniądze, zanim ktokolwiek wiedział, ile ich będzie. Decyzja
+    z 2026-08-19 („koszt całkowicie po stronie klienta") obowiązuje nadal —
+    pilnuje jej test niżej, na endpoincie, który faktycznie uruchamia model.
+    """
+    monkeypatch.setattr("monday_audit.web.api.uruchom_audyt_w_tle", lambda *a: None)
+    _zaloguj_klienta(klient_z_wymogiem)
+
+    odp = klient_z_wymogiem.post(
+        "/api/audyt", json={"klucz_api": ATRAPA_KLUCZA, "zakres": "cale_konto"}
+    )
+
+    assert odp.status_code == 200, odp.text
+
+
+def test_bez_klucza_anthropic_analiza_nie_startuje(
+    klient_z_wymogiem: TestClient, baza: Path
+) -> None:
     """Decyzja Kuby 2026-08-19: koszt CAŁKOWICIE po stronie klienta.
 
     400, nie 422: dane są poprawne, brakuje warunku uruchomienia. Komunikat musi
     mówić, CO ZROBIĆ — front pokazuje `detail` wprost.
     """
     _zaloguj_klienta(klient_z_wymogiem)
+    zadanie_id = _zadanie_na_zgodzie(baza)
 
     odp = klient_z_wymogiem.post(
-        "/api/audyt", json={"klucz_api": ATRAPA_KLUCZA, "zakres": "cale_konto"}
+        f"/api/audyt/{zadanie_id}/zgoda", json={"klucz_api": ATRAPA_KLUCZA}
     )
 
     assert odp.status_code == 400
@@ -1076,13 +1208,14 @@ def test_bez_klucza_anthropic_audyt_nie_startuje(klient_z_wymogiem: TestClient) 
     assert "nie zapisujemy" in tresc, "i co robimy z kluczem"
 
 
-def test_pusty_klucz_anthropic_tez_nie_startuje(klient_z_wymogiem: TestClient) -> None:
+def test_pusty_klucz_anthropic_tez_nie_startuje(klient_z_wymogiem: TestClient, baza: Path) -> None:
     """Spacje to nie klucz. `min_length` pydantica by tego nie złapało przy 20 spacjach."""
     _zaloguj_klienta(klient_z_wymogiem)
+    zadanie_id = _zadanie_na_zgodzie(baza)
 
     odp = klient_z_wymogiem.post(
-        "/api/audyt",
-        json={"klucz_api": ATRAPA_KLUCZA, "klucz_anthropic": " " * 25, "zakres": "cale_konto"},
+        f"/api/audyt/{zadanie_id}/zgoda",
+        json={"klucz_api": ATRAPA_KLUCZA, "klucz_anthropic": " " * 25},
     )
 
     assert odp.status_code == 400

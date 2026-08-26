@@ -234,11 +234,23 @@ def _uwagi_o_zakresie(zakres: Zakres) -> tuple[str, ...]:
     """
     if not zakres.zawezony:
         return ()
+    # Język KLIENTA, nie nasz.
+    #
+    # ZGŁOSZONE (Kuba, 2026-08-25): te zdania trafiają na ekran wyboru i do
+    # raportu, a niosły `users`, `board_id`, „Int32" i „OTWARTE.md O12" — nazwy
+    # z API monday i odnośnik do NASZEGO pliku wewnętrznego. Właściciel konta
+    # nie ma z czym tego skojarzyć, a odnośnik do dokumentu, którego nie
+    # dostanie, wygląda na przeciek z warsztatu.
+    #
+    # Powód techniczny (zepsuty filtr `board_id`, typ Int32) zostaje
+    # w `docs/OTWARTE.md` jako O12 — tam jest dla nas. Tu zostaje skutek,
+    # bo tylko on dotyczy czytającego.
     return (
-        "lista użytkowników jest z natury na poziomie konta — `users` nie ma "
-        "filtra po workspace ani po tablicy",
-        "statystyki uruchomień automatyzacji są na poziomie konta — filtr "
-        "`board_id` w API jest zepsuty (Int32, OTWARTE.md O12)",
+        "Lista osób obejmuje całe konto, nie tylko wybrany zakres — monday nie "
+        "pozwala jej zawęzić. Liczby o ludziach czytaj jako „na koncie”, "
+        "nie „w tym workspace”.",
+        "Statystyki uruchomień automatyzacji też są z całego konta — filtrowanie "
+        "ich po tablicy nie działa po stronie monday.",
     )
 
 
@@ -271,10 +283,14 @@ def _uwaga_o_probce_logow(
     zbadanych = int(logi.podsumowanie().get("tablic_zbadanych") or 0)
     if not razem or zbadanych >= razem:
         return ()
+    # Bez „activity logs" i bez `--wszystkie-logi`: pierwsze to nazwa z API,
+    # drugie flaga wiersza poleceń, której klient nie ma jak użyć. Zostaje
+    # LICZBA i skutek — czyli to, co zmienia czytanie raportu.
     return (
-        f"activity logs pobrano dla {zbadanych} z {razem} tablic (próbka: "
-        f"{top_logow or 0} największych + {z_ogona or 0} z ogona) — o pozostałych "
-        f"{razem - zbadanych} nie orzekamy; pełne pokrycie daje `--wszystkie-logi`",
+        f"Dziennik aktywności sprawdziliśmy dla {zbadanych} z {razem} tablic — "
+        f"wybraliśmy {top_logow or 0} największych i {z_ogona or 0} najmniejszych. "
+        f"O pozostałych {razem - zbadanych} nie wypowiadamy się: brak wpisu "
+        f"w próbce nie znaczy, że tablica jest nieużywana.",
     )
 
 

@@ -150,6 +150,69 @@ function odmianaAkcji(n: number): string {
   return "akcji";
 }
 
+/* Nazwy zdarzeń monday po polsku.
+ *
+ * ZGŁOSZONE (Kuba, 2026-08-25): „żeby nie było takiego update_column_value,
+ * tylko normalnie po polsku, żeby to było czytelne dla klienta bez żadnego
+ * takiego z API".
+ *
+ * Klient widział surowe identyfikatory z API — `update_column_value`,
+ * `board_workspace_id_changed`, `batch_delete_pulses`. To nazwy techniczne
+ * pisane dla programisty, nie dla właściciela konta.
+ *
+ * Słownik jest JAWNY, nie generowany z zamiany podkreśleń na spacje: `pulse`
+ * znaczy „element" (monday tak nazywa wiersze wewnętrznie), a mechaniczne
+ * tłumaczenie dałoby „archiwizacja pulsu". Nieznane zdarzenie pokazujemy
+ * surowo — lepsze niż zgadywanie, i widać wtedy, co dopisać. */
+const NAZWY_ZDARZEN: Record<string, string> = {
+  create_pulse: "dodanie elementu",
+  update_column_value: "wypełnienie kolumny",
+  update_name: "zmiana nazwy elementu",
+  create_group: "dodanie grupy",
+  update_board_name: "zmiana nazwy tablicy",
+  update_board_nickname: "zmiana nazwy tablicy",
+  board_workspace_id_changed: "przeniesienie tablicy",
+  change_column_settings: "zmiana ustawień kolumny",
+  update_column_name: "zmiana nazwy kolumny",
+  delete_column: "usunięcie kolumny",
+  create_column: "dodanie kolumny",
+  archive_pulse: "archiwizacja elementu",
+  delete_pulse: "usunięcie elementu",
+  batch_delete_pulses: "usunięcie wielu elementów",
+  archive_group: "archiwizacja grupy",
+  delete_group: "usunięcie grupy",
+  update_group_name: "zmiana nazwy grupy",
+  archive_group_pulse: "archiwizacja elementów grupy",
+  delete_group_pulse: "usunięcie elementów grupy",
+  move_pulse_from_group: "przeniesienie elementu",
+  move_pulse_into_group: "przeniesienie elementu",
+  subscribe: "dołączenie do tablicy",
+  unsubscribe: "opuszczenie tablicy",
+  board_view_added: "dodanie widoku",
+  board_view_enabled: "włączenie widoku",
+  board_view_deleted: "usunięcie widoku",
+  create_board: "utworzenie tablicy",
+  duplicate_board: "duplikowanie tablicy",
+  add_file: "dodanie pliku",
+  delete_file: "usunięcie pliku",
+  create_update: "komentarz",
+  delete_update: "usunięcie komentarza",
+  board_view_changed: "zmiana widoku",
+  set_entity_board_role: "zmiana uprawnień",
+  // NASZE kategorie z `logi.py`, nie zdarzenia monday — `po_klasie` grupuje nimi
+  // aktywność tablicy. Trafiają w to samo miejsce na ekranie, więc bez nich
+  // klient widziałby „operacyjne 113" obok „dodanie elementu 88" i nie wiedział,
+  // że to dwa różne poziomy opisu.
+  operacyjne: "praca na danych",
+  strukturalne: "zmiany w strukturze",
+  uprawnienia: "zmiany uprawnień",
+  inne: "pozostałe",
+};
+
+function nazwaZdarzenia(surowa: string): string {
+  return NAZWY_ZDARZEN[surowa] ?? surowa;
+}
+
 /** Najczęstsze zdarzenia — odpowiedź na „CO robił".
  *
  * Trzy pierwsze, bo `po_event` ma czasem szesnaście kluczy i pełna lista zasłania
@@ -162,11 +225,16 @@ function Zdarzenia({ po_event }: { po_event: Record<string, number> }) {
   const reszta = wszystkie.slice(3);
 
   return (
-    <span className="zdarzenia" title={wszystkie.map(([k, v]) => `${k}: ${v}`).join("\n")}>
+    <span
+      className="zdarzenia"
+      title={wszystkie.map(([k, v]) => `${nazwaZdarzenia(k)}: ${v}`).join("\n")}
+    >
       {widoczne.map(([nazwa, ile]) => (
-        <code key={nazwa}>
-          {nazwa} <b>{ile}</b>
-        </code>
+        // `<span>`, nie `<code>`: czcionka o stałej szerokości sugerowała, że to
+        // identyfikator techniczny — a teraz to zwykły polski opis.
+        <span key={nazwa} className="zdarzenie">
+          {nazwaZdarzenia(nazwa)} <b>{ile}</b>
+        </span>
       ))}
       {reszta.length > 0 && <small>+{reszta.length} innych</small>}
     </span>

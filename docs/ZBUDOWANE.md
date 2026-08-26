@@ -483,6 +483,43 @@ nietrafione, bo zgadywałem, który element jest wąski, zamiast to zmierzyć �
 winowajcą był `#korzen`, div bez ani jednej reguły CSS, zwężony jako element
 flex. Komentarz w `aplikacja.css` o tym mówi.
 
+## Wybór zakresu audytu — dwie bramki przed kosztem
+
+Zbudowane 2026-08-25. **Pełny opis: `docs/WYBOR_ZAKRESU.md`** — tu tylko to,
+co trzeba wiedzieć, zanim się coś w tym ruszy.
+
+Klient wybiera zakres **przed** zbieraniem danych, nie po. Kolejność wymuszona
+pomiarem: lista workspace'ów to 0,5 s i jedno wywołanie, tablice jednego
+workspace'u 4,5 s i dwa — razem **~5 s i 0 USD**, bo model w tym nie
+uczestniczy. Pełne zbieranie to 167 s, więc wybór po nim był wyborem, na który
+trzeba czekać trzy minuty.
+
+```
+klucz monday → workspace → tablice → [Zbierz dane] → widełki + klucz Claude → [Zatwierdź]
+     0,5 s        4,5 s     opcja        ~1 min          dokładna kwota           ~11 min
+```
+
+**Dwie bramki, obie świadome.** Pierwsza pokazuje zgrubny szacunek z liczby
+tablic, druga — dokładne widełki z liczby sygnałów. Klucz Anthropic podaje się
+dopiero w drugiej, czyli gdy kwota jest znana.
+
+**Stan `czeka_na_zgode`** (migracja 012) to pauza między fazami. Zadanie stoi
+w nim do 12 godzin; reaper 40-minutowy go **nie** dotyczy (osobny warunek na
+`zgoda_do`) — pilnuje tego test podmieniający `zaczeto` w bazie.
+
+**Agenta i detektorów nie tknięto.** Filtr `odsiej_hipotezy` stoi między nimi
+jako czysta funkcja. `uruchom_detektory` nie ma parametru zawężającego
+i mieć nie będzie.
+
+**Podłoga kosztu ≈ 0,87 USD.** ZMIERZONE: 22 z 24 sygnałów w typowym runie
+dotyczy KONTA (martwe konta, automatyzacje, wygaszeni użytkownicy, goście,
+plan), nie tablic. Żaden wybór tablic ich nie usuwa, więc ekran mówi to wprost —
+bez tego zdania odznaczanie tablic wygląda na zepsute.
+
+**Czego wybór NIE obejmuje:** metryki i sekcja „Ludzie" liczą się z całego
+snapshotu, więc pokazują wszystkie tablice niezależnie od zaznaczenia. To
+**O38** — otwarte, z dwiema drogami wyjścia i ceną każdej.
+
 ## Czego jeszcze nie ma
 
 | Brak | Gdzie opisany |
@@ -490,7 +527,8 @@ flex. Komentarz w `aplikacja.css` o tym mówi.
 | **wdrożenie pod publicznym URL-em** | etap 5 — Caddy, TLS, backupy. Aplikacja z D16 działa lokalnie; hasła i sesje już są, ryzyko danych osobowych pod URL-em: O23 |
 | **OAuth zamiast klucza wklejanego przez klienta** | warunek przed wystawieniem poza relację doradczą — aneks do D11, granice pamięci: O25 |
 | **SSO na domenę `@cxlabs.digital`** | dziś hasło per osoba; O24 |
-| interaktywność panelu (filtry, sortowanie, wykresy) | czeka na front w JS — D15 |
+| wybór wielu workspace'ów naraz | backend potrafi, interfejs oferuje jeden — O37 |
+| metryki i „Ludzie" zawężone do wybranych tablic | dziś z całego snapshotu — O38 |
 | podział znalezisk po workspace'ach | tylko 2 z 11 znalezisk niesie `board_id`; wraca przy audycie całego konta |
 | zużycie kredytów AI | API tego nie oddaje w żadnej sprawdzonej wersji — O2, O20 |
 | liczba uruchomień automatyzacji per tablica | filtr `board_id` zepsuty w API — O12 |
@@ -563,7 +601,7 @@ w Finderze i nieodtwarzalne.
 
 ## Testy
 
-**618 testów, 19 odznaczonych** (integracyjne, uderzają w prawdziwe monday —
+**803 testy, 19 odznaczonych** (integracyjne, uderzają w prawdziwe monday —
 `-m integracyjny` je włącza). `make sprawdz` to ruff + mypy + pytest.
 
 Warstwy: jednostkowe na danych syntetycznych, integracyjne na koncie CXLABS,

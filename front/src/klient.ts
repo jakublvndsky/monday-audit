@@ -8,7 +8,15 @@
 // klienta.** Serwer bierze go z sesji i ignoruje parametr — patrz D16. Gdyby
 // front go tu przekazywał, ktoś kiedyś uznałby, że to on decyduje.
 
-import type { Ja, Mozliwosc, PozycjaKlienta, Pulpit, StanAudytu } from "./api";
+import type {
+  Ja,
+  Mozliwosc,
+  PodgladKonta,
+  PozycjaKlienta,
+  Pulpit,
+  StanAudytu,
+  WyborZakresu,
+} from "./api";
 
 export class BladApi extends Error {
   readonly status: number;
@@ -80,10 +88,38 @@ export const api = {
 
   // Klucz API w CIELE żądania, nigdy w URL-u: adresy trafiają do logów serwera
   // i do historii przeglądarki.
+  // PODGLĄD konta — przed zbieraniem, ~6 s i 3 wywołania, 0 USD.
+  //
+  // POST, nie GET, bo niesie klucz monday: adresy trafiają do logów serwera
+  // i do historii przeglądarki.
+  //
+  // Bez `workspaceId` zwraca listę workspace'ów (~0,5 s), z nim — tablice tego
+  // workspace'u (~4,5 s). Dwa wywołania, bo tablice wszystkich workspace'ów
+  // naraz to ZMIERZONE 17 s.
+  podgladZakresu: (kluczApi: string, workspaceId?: string, klient?: string) =>
+    pobierz<PodgladKonta>(
+      klient
+        ? `/api/audyt/podglad?klient=${encodeURIComponent(klient)}`
+        : "/api/audyt/podglad",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          klucz_api: kluczApi,
+          workspace_id: workspaceId ?? null,
+        }),
+      },
+    ),
+
+  // FAZA PIERWSZA: zbiera dane w zakresie WYBRANYM NA PODGLĄDZIE.
+  //
+  // `zakres` i `workspaceId` wracają tu z powrotem, ale znaczą coś innego niż
+  // przed 2026-08-25: nie są wpisywane z pamięci przed poznaniem konta, tylko
+  // wybrane na ekranie, który pokazał nazwy workspace'ów i tablic.
   odpalAudyt: (
     kluczApi: string,
     zakres: string,
     workspaceId: string | null,
+    boardIds: string[],
     klient?: string,
     // Klucz Anthropic klienta — OPCJONALNY. Puste pole wysyłamy jako `null`,
     // nie jako `""`: pusty napis w środowisku podprocesu jest gorszy niż brak
@@ -99,11 +135,49 @@ export const api = {
           klucz_anthropic: kluczAnthropic?.trim() ? kluczAnthropic.trim() : null,
           zakres,
           workspace_id: workspaceId,
+          board_ids: boardIds,
         }),
       },
     ),
 
   stanAudytu: (id: string) => pobierz<StanAudytu>(`/api/audyt/${encodeURIComponent(id)}`),
+
+  // Co da się wybrać i ile to będzie kosztować. Liczone z zamrożonego
+  // snapshotu, więc ten ekran nie podbija rachunku, który pokazuje.
+  pobierzWybor: (id: string) =>
+    pobierz<WyborZakresu>(`/api/audyt/${encodeURIComponent(id)}/wybor`),
+
+  // Rezygnacja z zebranych danych — „zbierz nowe dane" na ekranie wyboru.
+  //
+  // Zadanie idzie w stan `blad`, więc NIE liczy się do limitu audytów. Bez tego
+  // trzy zmiany zdania wypaliłyby `SUFIT_AUDYTOW` i zablokowały klienta
+  // na tydzień (`ODSTEP_DNI`).
+  porzucAudyt: (id: string) =>
+    pobierz<{ zadanie_id: string }>(`/api/audyt/${encodeURIComponent(id)}/porzuc`, {
+      method: "POST",
+    }),
+
+  // FAZA DRUGA: zgoda na zakres i koszt. Klucze idą PONOWNIE, bo faza pierwsza
+  // ich nie zapisała i nie zapisze — token nie ma kolumny w bazie (D11/D12).
+  //
+  // Puste listy znaczą „całe konto". Wysłanie pustej listy tablic razem
+  // z wybranymi workspace'ami zawęża do tablic tych workspace'ów.
+  zatwierdzZakres: (
+    id: string,
+    kluczApi: string,
+    kluczAnthropic: string | undefined,
+    workspaceIds: string[],
+    boardIds: string[],
+  ) =>
+    pobierz<{ zadanie_id: string }>(`/api/audyt/${encodeURIComponent(id)}/zgoda`, {
+      method: "POST",
+      body: JSON.stringify({
+        klucz_api: kluczApi,
+        klucz_anthropic: kluczAnthropic?.trim() ? kluczAnthropic.trim() : null,
+        workspace_ids: workspaceIds,
+        board_ids: boardIds,
+      }),
+    }),
 
   // Reset haseł. Nowe hasło wraca w ODPOWIEDZI i widać je raz — nigdzie go nie
   // zapisujemy, tak samo jak klucza API. Klient nie ma tu żadnego wywołania,

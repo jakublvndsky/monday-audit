@@ -50,6 +50,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from monday_audit.baza import polacz, zastosuj_migracje
+from monday_audit.detektory import uruchom_detektory
 from monday_audit.dostep import (
     GODZIN_SESJI,
     MINUT_TOKENU_RESETU,
@@ -67,13 +68,39 @@ from monday_audit.dostep import (
     zresetuj_haslo,
     zuzyj_token_resetu,
 )
+from monday_audit.klient import MondayClient
 from monday_audit.konfiguracja import Ustawienia, UstawieniaPoczty, wczytaj
 from monday_audit.poczta import PocztaError, wyslij_link_resetu
+from monday_audit.podglad_zakresu import (
+    PodgladError,
+    RejestrPodgladu,
+    podglad_do_json,
+    zbuduj_podglad,
+)
 from monday_audit.pulpit import do_json, run_nalezy_do, zbuduj_liste_klientow, zbuduj_pulpit
 from monday_audit.raport import ODBIORCA_KLIENT, ODBIORCA_WEWNETRZNY, RaportError
 from monday_audit.rubryka import Rubryka, wczytaj_rubryke
-from monday_audit.web.run import uruchom_audyt_w_tle
-from monday_audit.zadania import ZadanieError, utworz_zadanie, wczytaj_stan, wolno_odpalic
+from monday_audit.web.run import uruchom_analize_w_tle, uruchom_audyt_w_tle
+from monday_audit.wybor_zakresu import (
+    TYP_TABLICY,
+    WyborError,
+    sprawdz_wybor,
+    wczytaj_payload,
+    wybor_do_json,
+    zbuduj_wybor,
+)
+from monday_audit.zadania import (
+    STAN_ANALIZUJE,
+    STAN_CZEKA_NA_ZGODE,
+    ZadanieError,
+    porzuc_zadanie,
+    utworz_zadanie,
+    wczytaj_stan,
+    wolno_odpalic,
+    zapisz_stan,
+    zapisz_wybor,
+    zgoda_wazna,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -226,7 +253,50 @@ class DaneAudytu(BaseModel):
     # w środowisku podprocesu jest GORSZA niż jej brak: SDK zobaczyłby ją i nie
     # spadł na nasz klucz, więc run wywróciłby się na uwierzytelnianiu.
     klucz_anthropic: str | None = Field(default=None, min_length=20, max_length=4000)
-    zakres: str = Field(default="cale_konto", pattern="^(cale_konto|workspace)$")
+    # Zakres wybrany na EKRANIE PODGLĄDU, przed zbieraniem. `Zakres` w
+    # `konto.py` zna trzy tryby i wszystkie trzy są tu wystawione — do
+    # 2026-08-25 API znało tylko dwa, więc tryb `tablice` (najwęższy, dodany
+    # „na wyraźne życzenie") istniał w kodzie, a nie dało się go użyć z panelu.
+    zakres: str = Field(default="cale_konto", pattern="^(cale_konto|workspace|tablice)$")
+    workspace_id: str | None = Field(default=None, max_length=50)
+    # Zawężenie do konkretnych tablic. Im węższe zbieranie, tym mniej wywołań
+    # z dziennego limitu klienta ORAZ tym tańsza analiza — obie oszczędności
+    # z jednego wyboru.
+    board_ids: list[str] = Field(default_factory=list, max_length=2000)
+
+
+class DaneZgody(BaseModel):
+    """Zatwierdzenie zakresu i kosztu — druga faza audytu.
+
+    Klucze przychodzą PONOWNIE, bo faza pierwsza ich nie zapisała i nie zapisze:
+    token monday nie ma kolumny w bazie (migracja 006, D11/D12), a trzymanie go
+    w pamięci procesu między żądaniami tworzyłoby stan, którego nikt nie widzi
+    i który ginie przy restarcie.
+
+    Puste listy znaczą „całe konto" — czyli zgodę na pełny audyt bez zawężenia.
+    """
+
+    klucz_api: str = Field(min_length=20, max_length=4000)
+    klucz_anthropic: str | None = Field(default=None, min_length=20, max_length=4000)
+    # Sufity są tu, żeby żądanie z tysiącem identyfikatorów nie zamieniło się
+    # w tysiąc parametrów zapytania SQL. Konto z 59 tablicami mieści się z zapasem.
+    workspace_ids: list[str] = Field(default_factory=list, max_length=200)
+    board_ids: list[str] = Field(default_factory=list, max_length=2000)
+
+
+class DanePodgladu(BaseModel):
+    """Szybki podgląd konta PRZED zbieraniem — workspace'y i tablice.
+
+    POST, nie GET, bo niesie klucz monday. URL-e lądują w logach serwera
+    i w historii przeglądarki, więc klucz nie może być parametrem zapytania —
+    ta sama reguła co przy `POST /api/audyt`.
+
+    Bez `workspace_id` zwraca listę workspace'ów (0,84 s). Z nim — tablice tego
+    workspace'u (5,66 s). Dwa kroki, bo tablice wszystkich workspace'ów naraz
+    to na koncie 27690228 siedemnaście sekund (ZMIERZONE).
+    """
+
+    klucz_api: str = Field(min_length=20, max_length=4000)
     workspace_id: str | None = Field(default=None, max_length=50)
 
 
@@ -635,7 +705,71 @@ def zbuduj_aplikacje(
         if not cel:
             raise HTTPException(status_code=404, detail="brak klienta")
         wolno, powod = wolno_odpalic(con, cel)
-        return {"wolno": wolno, "powod": powod, "client_id": cel}
+        # Identyfikator zadania czekającego na zgodę — żeby ODŚWIEŻENIE STRONY
+        # nie gubiło audytu.
+        #
+        # Front trzyma `zadanie_id` w stanie komponentu, więc po przeładowaniu
+        # karty nie miał jak wrócić do wyboru zakresu: dane zebrane, limit monday
+        # zużyty, a klient widzi znowu formularz na klucz. Zgoda ważna dwanaście
+        # godzin byłaby wtedy ważna do pierwszego F5.
+        #
+        # `wolno_odpalic` woła już reapera, więc zadanie po terminie jest tu
+        # oznaczone jako błąd i nie wróci.
+        czeka = con.execute(
+            "SELECT id FROM zadania WHERE client_id = ? AND stan = ? ORDER BY zaczeto DESC LIMIT 1",
+            (cel, STAN_CZEKA_NA_ZGODE),
+        ).fetchone()
+        return {
+            "wolno": wolno,
+            "powod": powod,
+            "client_id": cel,
+            "zadanie_czekajace": str(czeka["id"]) if czeka else None,
+        }
+
+    @aplikacja.post("/api/audyt/podglad")
+    async def podglad_zakresu(
+        dane: DanePodgladu,
+        sesja: ZSesji,
+        con: Polaczenie,
+        klient: str | None = None,
+    ) -> dict[str, Any]:
+        """Workspace'y i tablice PRZED zbieraniem danych. ~6 s, 3 wywołania, 0 USD.
+
+        Wybór zakresu musi być dostępny od razu po podaniu klucza — czekanie
+        trzech minut na możliwość wskazania workspace'u nie ma sensu (Kuba,
+        2026-08-25). ZMIERZONE: `workspaces` 0,84 s, tablice jednego workspace'u
+        5,66 s. Model w tym nie uczestniczy, więc rachunek to zero.
+
+        Endpoint jest `async`, bo woła `MondayClient`. Nie zakłada wiersza
+        w `runy`: podgląd nie jest runem, a puste runy już raz zepsuły listę
+        audytów w panelu.
+        """
+        cel = sesja.client_id if sesja.to_klient else (klient or _pierwszy_klient(con))
+        if not cel or not sesja.widzi_klienta(cel):
+            raise HTTPException(status_code=404, detail="nie znaleziono")
+
+        rejestr = RejestrPodgladu()
+        try:
+            async with MondayClient(dane.klucz_api, rejestr) as monday:
+                podglad = await zbuduj_podglad(monday, workspace_id=dane.workspace_id)
+        except PodgladError as blad:
+            raise HTTPException(status_code=400, detail=str(blad)) from None
+        except Exception as blad:
+            # Komunikat może nieść fragment odpowiedzi API, więc NIE wkładamy go
+            # do odpowiedzi wprost — ta sama droga wycieku, którą zamyka
+            # `_bez_sekretow` przy zapisie do `zadania.blad`.
+            logger.warning("podgląd dla %s nie wyszedł: %s", cel, type(blad).__name__)
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Nie udało się odczytać konta tym kluczem. Sprawdź, czy klucz "
+                    "jest poprawny i czy ma dostęp do konta monday."
+                ),
+            ) from None
+
+        dokument = podglad_do_json(podglad)
+        dokument["wywolan"] = rejestr.wywolan
+        return dokument
 
     @aplikacja.post("/api/audyt")
     def odpal_audyt(
@@ -650,28 +784,17 @@ def zbuduj_aplikacje(
         if not cel or not sesja.widzi_klienta(cel):
             raise HTTPException(status_code=404, detail="nie znaleziono")
 
-        # Klucz Anthropic WYMAGANY, dopóki tak mówi konfiguracja (O36).
+        # Klucza Anthropic TU JUŻ NIE WYMAGAMY — i to jest zmiana z 2026-08-25.
         #
-        # Sprawdzenie jest TUTAJ, nie w `DaneAudytu`: pydantic waliduje kształt
-        # żądania, a to jest reguła BIZNESOWA zależna od ustawień procesu. Wpisanie
-        # jej w model dałoby 422 „Field required" niezależnie od konfiguracji, więc
-        # przełącznik przestałby cokolwiek przełączać.
+        # Zbieranie danych nie woła modelu, więc żądanie klucza na tym etapie było
+        # pytaniem o pieniądze, zanim ktokolwiek wiedział, ile ich będzie. Klient
+        # podaje go dopiero przy `POST /zgoda`, gdy widzi DOKŁADNE widełki
+        # policzone z liczby sygnałów — tam bramka (O36) nadal stoi.
         #
-        # 400, nie 422: dane są poprawne, brakuje warunku uruchomienia. Front pokazuje
-        # `detail` wprost, więc komunikat musi mówić, CO ZROBIĆ, nie co jest źle.
-        if (
-            getattr(ustawienia_aplikacji, "klucz_modelu_od_klienta_wymagany", False)
-            and not (dane.klucz_anthropic or "").strip()
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Audyt wymaga klucza API Anthropic — analizę wykonuje model Claude "
-                    "i koszt trafia na Twój rachunek. Klucz zdobędziesz na "
-                    "console.anthropic.com w sekcji API keys; konto wymaga doładowania "
-                    "środków. Klucza nie zapisujemy: żyje w pamięci przez czas audytu."
-                ),
-            )
+        # Cena tej decyzji, zapisana jawnie: zbieranie może się skończyć na koncie,
+        # dla którego klient nie ma jeszcze klucza modelu. Wtedy zużyliśmy jego
+        # limit monday, a audytu nie dokończymy — ale zgoda wygasa po 12 h,
+        # a zebrane dane zostają w snapshocie i panel je pokazuje.
         try:
             zadanie_id = utworz_zadanie(con, client_id=cel, konto_id=sesja.konto_id)
         except ZadanieError as blad:
@@ -694,8 +817,9 @@ def zbuduj_aplikacje(
             dane.zakres,
             dane.workspace_id,
             dane.klucz_anthropic,
+            dane.board_ids,
         )
-        logger.info("audyt %s wystartował dla %s", zadanie_id, cel)
+        logger.info("zbieranie %s wystartowało dla %s (zakres: %s)", zadanie_id, cel, dane.zakres)
         return {"zadanie_id": zadanie_id}
 
     @aplikacja.get("/api/audyt/{zadanie_id}")
@@ -713,7 +837,129 @@ def zbuduj_aplikacje(
             "run_id": stan.run_id,
             "blad": stan.blad,
             "trwa": stan.trwa,
+            # Front przestaje odpytywać, gdy `trwa` jest fałszem, więc musi
+            # umieć odróżnić „skończone" od „czeka na twoją decyzję".
+            "czeka_na_zgode": stan.czeka_na_zgode,
         }
+
+    @aplikacja.get("/api/audyt/{zadanie_id}/wybor")
+    def wybor_zakresu(zadanie_id: str, sesja: ZSesji, con: Polaczenie) -> dict[str, Any]:
+        """Co da się wybrać i ile to będzie kosztować. Zero wywołań API i modelu.
+
+        Wszystko liczy się z zamrożonego snapshotu, więc ekran, który pokazuje
+        klientowi rachunek, sam go nie podbija.
+        """
+        stan = wczytaj_stan(con, zadanie_id)
+        if stan is None or not sesja.widzi_klienta(stan.client_id):
+            raise HTTPException(status_code=404, detail="nie znaleziono")
+        if stan.snapshot_id is None:
+            raise HTTPException(
+                status_code=409,
+                detail="dane tego audytu nie są jeszcze zebrane",
+            )
+        if not zgoda_wazna(stan):
+            raise HTTPException(status_code=409, detail=_POWOD_PRZEDAWNIENIA)
+
+        rubryka = wczytaj_rubryke()
+        hipotezy, _ = uruchom_detektory(con, stan.snapshot_id, rubryka)
+        payload = wczytaj_payload(con, stan.snapshot_id)
+        dokument = wybor_do_json(zbuduj_wybor(payload, hipotezy, con, rubryka=rubryka))
+        dokument["zgoda_do"] = stan.zgoda_do
+        return dokument
+
+    @aplikacja.post("/api/audyt/{zadanie_id}/zgoda")
+    def zatwierdz_zakres(
+        zadanie_id: str,
+        dane: DaneZgody,
+        sesja: ZSesji,
+        con: Polaczenie,
+        w_tle: BackgroundTasks,
+    ) -> dict[str, str]:
+        """Przyjmuje zgodę na zakres i odpala agenta. Faza druga."""
+        stan = wczytaj_stan(con, zadanie_id)
+        if stan is None or not sesja.widzi_klienta(stan.client_id):
+            raise HTTPException(status_code=404, detail="nie znaleziono")
+        # 409, nie 400: żądanie jest poprawne, tylko zadanie nie jest w stanie,
+        # w którym zgoda ma sens. Bez tego drugie kliknięcie „zatwierdź"
+        # odpalałoby agenta po raz drugi na tym samym zadaniu.
+        if not stan.czeka_na_zgode:
+            raise HTTPException(
+                status_code=409,
+                detail=f"ten audyt nie czeka na zgodę (stan: {stan.stan})",
+            )
+        if not zgoda_wazna(stan):
+            raise HTTPException(status_code=409, detail=_POWOD_PRZEDAWNIENIA)
+        if stan.snapshot_id is None:
+            raise HTTPException(status_code=409, detail="dane tego audytu nie są zebrane")
+
+        if (
+            getattr(ustawienia_aplikacji, "klucz_modelu_od_klienta_wymagany", False)
+            and not (dane.klucz_anthropic or "").strip()
+        ):
+            raise HTTPException(status_code=400, detail=_POWOD_BRAKU_KLUCZA)
+
+        payload = wczytaj_payload(con, stan.snapshot_id)
+        try:
+            wybrane = _wybrane_tablice(payload, dane)
+        except WyborError as blad:
+            # 400: identyfikatory nie pasują do tego snapshotu. Cicha tolerancja
+            # pozwoliłaby zapłacić za audyt tablicy, której tu nie ma.
+            raise HTTPException(status_code=400, detail=str(blad)) from None
+
+        zapisz_wybor(
+            con,
+            zadanie_id,
+            {
+                "workspace_ids": sorted(dane.workspace_ids),
+                "board_ids": sorted(wybrane) if wybrane is not None else [],
+            },
+        )
+        zapisz_stan(
+            con,
+            zadanie_id,
+            stan=STAN_ANALIZUJE,
+            etap="badam wybrany zakres",
+            postep=62,
+        )
+        w_tle.add_task(
+            uruchom_analize_w_tle,
+            sciezka_bazy,
+            zadanie_id,
+            stan.client_id,
+            dane.klucz_api,
+            dane.klucz_anthropic,
+            wybrane,
+        )
+        logger.info(
+            "audyt %s zatwierdzony: %s",
+            zadanie_id,
+            "całe konto" if wybrane is None else f"{len(wybrane)} tablic",
+        )
+        return {"zadanie_id": zadanie_id}
+
+    @aplikacja.post("/api/audyt/{zadanie_id}/porzuc")
+    def porzuc_audyt(zadanie_id: str, sesja: ZSesji, con: Polaczenie) -> dict[str, str]:
+        """Rezygnacja z zebranych danych — klient chce zacząć od nowa.
+
+        Zadanie idzie w stan `blad`, więc nie liczy się jako „w toku" —
+        inaczej klient zobaczyłby „audyt już trwa" przy audycie, z którego
+        właśnie zrezygnował.
+
+        Snapshotu nie usuwamy: jest niemutowalny (D7), a zebrane dane zostają
+        widoczne w panelu — zużyty limit monday to fakt, którego nie chowamy.
+        """
+        stan = wczytaj_stan(con, zadanie_id)
+        if stan is None or not sesja.widzi_klienta(stan.client_id):
+            raise HTTPException(status_code=404, detail="nie znaleziono")
+        if not porzuc_zadanie(con, zadanie_id):
+            # 409, nie 404: zadanie istnieje, tylko nie jest w stanie, z którego
+            # da się zrezygnować (już analizuje albo jest gotowe).
+            raise HTTPException(
+                status_code=409,
+                detail=f"tego audytu nie da się już porzucić (stan: {stan.stan})",
+            )
+        logger.info("audyt %s porzucony przez klienta %s", zadanie_id, stan.client_id)
+        return {"zadanie_id": zadanie_id}
 
     if KATALOG_FRONTU.is_dir():
         aplikacja.mount("/", StaticFiles(directory=KATALOG_FRONTU, html=True), name="front")
@@ -725,6 +971,47 @@ def zbuduj_aplikacje(
         )
 
     return aplikacja
+
+
+_POWOD_PRZEDAWNIENIA = (
+    "Dane zebrane do tego audytu się zestarzały, a kwota policzona z nich "
+    "przestała być wiarygodna. Uruchom audyt ponownie — zbierzemy świeże dane."
+)
+
+_POWOD_BRAKU_KLUCZA = (
+    "Audyt wymaga klucza API Anthropic — analizę wykonuje model Claude "
+    "i koszt trafia na Twój rachunek. Klucz zdobędziesz na "
+    "console.anthropic.com w sekcji API keys; konto wymaga doładowania "
+    "środków. Klucza nie zapisujemy: żyje w pamięci przez czas audytu."
+)
+
+
+def _wybrane_tablice(payload: dict[str, Any], dane: DaneZgody) -> frozenset[str] | None:
+    """Zbiór tablic po zgodzie albo `None`, gdy klient zatwierdził całe konto.
+
+    Kolejność jest istotna: wybór tablic jest WĘŻSZY niż wybór workspace'ów,
+    więc gdy klient wskazał tablice, one rozstrzygają. Sam wybór workspace'ów
+    rozwijamy do ich tablic — dalej w kodzie istnieje tylko jedno pojęcie
+    zawężenia (`board_ids`), więc reszta ścieżki nie musi znać workspace'ów.
+
+    `None`, a nie pusty zbiór: pusty zbiór znaczy „nie wybrano żadnej tablicy"
+    i zostawia wyłącznie hipotezy o koncie. To dwie różne zgody i mieszanie
+    ich dałoby audyt węższy, niż klient zatwierdził.
+    """
+    if dane.board_ids:
+        return sprawdz_wybor(payload, dane.board_ids)
+    if dane.workspace_ids:
+        chciane = set(dane.workspace_ids)
+        tablice = (payload.get("tablice") or {}).get("tablice") or []
+        z_workspace = [
+            str(t.get("board_id"))
+            for t in tablice
+            if str(t.get("workspace_id") or "") in chciane and t.get("typ") == TYP_TABLICY
+        ]
+        if not z_workspace:
+            raise WyborError("wskazane workspace'y nie mają w tym snapshocie ani jednej tablicy")
+        return frozenset(z_workspace)
+    return None
 
 
 def _pierwszy_klient(con: sqlite3.Connection) -> str | None:

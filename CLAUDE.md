@@ -55,6 +55,7 @@ z MCP nie ma już podprocesu MCP. Bez frontu w v1.
 | `STATUS.md` | zawsze, pierwszy |
 | `docs/PODSUMOWANIE.md` | stan projektu bez kodu — gdy ktoś pyta „na czym stoimy" |
 | `docs/ZBUDOWANE.md` | **co już stoi i co zostało zmierzone** — zanim zaczniesz cokolwiek budować |
+| `docs/WYBOR_ZAKRESU.md` | wybór zakresu audytu: dwie bramki, flagi, podłoga kosztu, co niedokończone |
 | `docs/etapy/0N-*.md` | pełna specyfikacja bieżącego etapu |
 | `docs/ARCHITEKTURA.md` | decyzje z uzasadnieniami — **czytaj przed zmianą architektury** |
 | `docs/OTWARTE.md` | założenia niepotwierdzone — nie traktuj ich jako faktów |

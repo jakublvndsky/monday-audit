@@ -308,11 +308,22 @@ async def test_nieznany_email_w_tresci_przerywa_przed_zapisem(con: sqlite3.Conne
 
 
 async def test_zawezony_zakres_dopisuje_uwagi(con: sqlite3.Connection) -> None:
-    """Dwa zapytania są z natury na poziomie konta — trzeba to powiedzieć."""
+    """Dwa zapytania są z natury na poziomie konta — trzeba to powiedzieć.
+
+    Test pilnuje SENSU, nie brzmienia: teksty przeszły na język klienta
+    (2026-08-25), bo niosły `users`, `board_id` i odnośnik „OTWARTE.md O12" —
+    nazwy z API i nasz plik wewnętrzny. Wiązanie testu z dosłownym zdaniem
+    zamieniłoby każdą poprawkę językową w czerwony test.
+    """
     raport = await uruchom(con, zakres=Zakres.workspace("6576039"))
 
-    assert any("lista użytkowników" in z for z in raport.zastrzezenia)
-    assert any("statystyki uruchomień" in z for z in raport.zastrzezenia)
+    assert any("osób" in z and "całe konto" in z for z in raport.zastrzezenia)
+    assert any("automatyzacji" in z for z in raport.zastrzezenia)
+    # Żadnych nazw z API ani odnośników do naszych dokumentów w tekście,
+    # który czyta klient.
+    zlepek = " ".join(raport.zastrzezenia)
+    for przeciek in ("OTWARTE.md", "board_id", "`users`", "Int32", "--wszystkie-logi"):
+        assert przeciek not in zlepek, f"techniczny przeciek w tekście dla klienta: {przeciek}"
 
 
 async def test_pelny_zakres_nie_dopisuje_uwag_o_zawezeniu(con: sqlite3.Connection) -> None:

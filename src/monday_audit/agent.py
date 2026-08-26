@@ -50,6 +50,7 @@ import json
 import logging
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -704,8 +705,18 @@ async def zbadaj_hipotezy(
     model: str = MODEL,
     effort: str | None = None,
     sciezka_promptu: Path = SCIEZKA_PROMPTU,
+    postep: Callable[[int, int, str], None] | None = None,
 ) -> dict[str, Any]:
     """Bada wszystkie hipotezy i składa dokument D8. Nie waliduje — to `kontrakt`.
+
+    `postep(zbadanych, wszystkich, klasa_id)` jest wołane po KAŻDEJ hipotezie.
+    `None` = cisza, więc CLI i testy nie muszą nic podawać.
+
+    ZGŁOSZONE (Kuba, 2026-08-25): „patrzysz w to i nie wiesz, kiedy co się
+    stanie, za ile się stanie". Pętla liczyła `[24/24]` od zawsze, ale wysyłała
+    to tylko do logu — ekran dostawał JEDEN zapis stanu na całe dziewięć minut
+    analizy. Ten sam wzorzec co `postep` w `MondayClient`: warstwa liczy,
+    wywołujący decyduje, co z tym zrobić.
 
     Rozdzielenie jest celowe: pętla ma zwrócić to, co agent faktycznie
     powiedział, a walidacja ma to ocenić. Gdyby pętla poprawiała odpowiedzi
@@ -815,6 +826,16 @@ async def zbadaj_hipotezy(
             findings.append(wynik.finding)
         elif wynik.odrzucona:
             odrzucone.append(wynik.odrzucona)
+
+        if postep is not None:
+            # Po hipotezie, nie przed: „5 z 24" ma znaczyć „pięć zbadanych",
+            # nie „zaczynam piątą". Wyjątek z hooka NIE może przerwać analizy,
+            # za którą klient już zapłacił — raportowanie postępu jest
+            # mniej ważne niż wynik.
+            try:
+                postep(numer, len(hipotezy), hipoteza.klasa_id)
+            except Exception:
+                logger.warning("hook postępu padł na hipotezie %d", numer, exc_info=True)
 
     if bledy:
         # Nie ukrywamy: hipoteza, której nie udało się zbadać, to inna rzecz

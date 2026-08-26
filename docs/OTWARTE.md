@@ -1466,3 +1466,69 @@ w innym miejscu. Przenosi to problem z marży na cenę usługi, ale go nie usuwa
 rachunek" (wtedy zespół wkleja klucz w panelu przy kliencie, jak stawkę licencji).
 Odrzucone na teraz jako trzecia ścieżka do przetestowania i trzecie miejsce, gdzie
 klucz może wyciec.
+
+---
+
+## O37
+
+**Wybór wielu workspace'ów nie jest przetestowany.** — otwarte 2026-08-25
+
+Interfejs kreatora pozwala wybrać **jeden** workspace. Backend przyjmuje wiele:
+`Zakres.workspace(*ids)` w `konto.py` i filtr `workspace_ids: $ws` w zapytaniu
+GraphQL istnieją od 3.5 i mają walidację. Ale ani jeden run tego nie przeszedł.
+
+**Dlaczego nie zmierzone:** wszystkie snapshoty testowe mają po jednym
+workspace (#7 to `CRM_PL_Demo`, #11–12 to `monday AI Agents`). Zebranie danych
+z dwóch naraz wymaga świadomej decyzji o zakresie na żywym koncie, a konto
+27690228 ma ponad 100 workspace'ów — czyli trzeba by wskazać, które dwa i po co.
+
+**Czego nie wiemy:** czy `boards` z dwoma `workspace_ids` zwraca sumę, czy
+przecięcie; jak zachowa się paginacja przy dwóch obszarach o różnej wielkości;
+czy `_PARY_TABLIC` w `detektory.py` nie zacznie porównywać tablic **między**
+workspace'ami, skoro grupuje po `a.workspace_id IS b.workspace_id` — przy dwóch
+obszarach para międzyobszarowa nie powstanie, ale to trzeba potwierdzić, nie
+założyć.
+
+**Kiedy to zamknąć:** przy pierwszym koncie klienta, które ma kilka workspace'ów
+i sensowny powód, żeby audytować więcej niż jeden. Do tego czasu interfejs
+świadomie oferuje jeden — mniej niż potrafi backend, ale tyle, ile zmierzono.
+
+---
+
+## O38
+
+**Metryki i sekcja „Ludzie" nie idą za wyborem tablic.** — otwarte 2026-08-25
+
+Zawężenie zakresu po zebraniu danych (`odsiej_hipotezy`) działa **wyłącznie na
+hipotezach**. `zbuduj_pulpit` i `zbuduj_ludzi` czytają **cały snapshot**, więc
+raport pokazuje wszystkie tablice i wszystkie osoby niezależnie od tego, co
+klient zaznaczył na ekranie zgody.
+
+ZGŁOSZONE (Kuba, 2026-08-25): „raport zawiera więcej tablic niż tylko te, co
+chciałem, nie ma to pokrycia w tym, co wybierałem — zarówno w znaleziskach
+i metrykach, jak i ludziach".
+
+To **projekt, nie usterka**: snapshot jest niemutowalny (D7) i celowo pełny, bo
+`DUPLICATE_STRUCTURE` porównuje tablice parami i bez pozostałych nie ma czego
+porównywać. Ale sprzeczność z oczekiwaniem jest realna: klient zaznacza dwie
+tablice i widzi raport o dziewięćdziesięciu siedmiu.
+
+**Dwie drogi, obie z ceną:**
+
+1. **Zawężać przy ZBIERANIU** (na pierwszym ekranie, przed collectorem).
+   Snapshot jest wtedy węższy i wszystko się zgadza — metryki, ludzie,
+   znaleziska. Cena: `DUPLICATE_STRUCTURE` i `PROCESS_BYPASS` tracą materiał,
+   bo nie mają z czym porównać wybranej tablicy. Zastrzeżenie o tym już
+   powstaje (`_uwagi_o_zakresie`), ale klasa po prostu zamilknie.
+
+2. **Filtrować PULPIT** po zapisanym `zadania.wybor`. Snapshot zostaje pełny,
+   `DUPLICATE_STRUCTURE` działa, a raport pokazuje tylko wybrane tablice.
+   Cena: trzeba przepisać `zbuduj_pulpit`, `zbuduj_ludzi` i `_sekcje_konta`,
+   a każda metryka wymaga decyzji „liczyć z wybranych czy z całości" — bo
+   „workspace'ów: 3" przy dwóch wybranych tablicach nie ma sensu w żadnym
+   wariancie.
+
+Trzecia możliwość: zostawić jak jest i **napisać na ekranie**, że zawężenie
+dotyczy tylko znalezisk. Najtańsze, ale przenosi problem na czytającego.
+
+Decyzja należy do Kuby — każda z dróg zmienia to, czym jest „zakres audytu".

@@ -88,9 +88,12 @@ def test_migracje_aplikuja_sie_od_zera(tmp_path: Path) -> None:
     010 dodała rozbicie zużycia: tokeny z CACHE (przy prompt cachingu tam siedzi
     większość wejścia), czas pętli agenta i tabelę `zuzycie_hipotez`. Bez tego
     wiadomo było tylko, że run kosztował 7,09 USD — nie z czego.
+    012 PRZEBUDOWAŁA `zadania`, bo `CHECK (stan IN (...))` nie da się zmienić
+    w miejscu, a doszedł stan `czeka_na_zgode` — pauza między zebraniem danych
+    a odpaleniem agenta, w której klient wybiera zakres i zgadza się na koszt.
     """
     con = polacz(tmp_path / "nowa.db")
-    assert zastosuj_migracje(con) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    assert zastosuj_migracje(con) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     con.close()
 
 
