@@ -68,8 +68,12 @@ jobs:
       # `_bundled/claude` agent spadłby na szukanie `claude` w PATH i wywalił
       # się `CLINotFoundError` dopiero w produkcji, w trakcie płatnego runu.
       - name: plik wykonywalny Agent SDK istnieje
+        # `uv run`, nie `python`: SDK jest w środowisku projektu, nie
+        # w systemowym Pythonie runnera. Pierwszy przebieg CI padł tu na
+        # `ModuleNotFoundError` — reszta kroków miała `uv run --frozen`,
+        # ten jeden nie.
         run: |
-          python - <<'PY'
+          uv run --frozen python - <<'PY'
           import pathlib
           import claude_agent_sdk as sdk
 
