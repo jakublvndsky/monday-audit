@@ -25,6 +25,12 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Ręczne uruchomienie z zakładki Actions albo `gh workflow run sprawdz.yml`.
+  #
+  # Dodane po pierwszym przebiegu: push zmieniający TYLKO plik workflow nie
+  # utworzył przebiegu, więc poprawki samego CI nie dawało się sprawdzić bez
+  # dokładania sztucznego commita gdzie indziej.
+  workflow_dispatch:
 
 # Nowy push na tę samą gałąź anuluje poprzedni przebieg. Bez tego dwa commity
 # pod rząd trzymają dwa równoległe joby, a wynik starszego nikogo nie interesuje.
