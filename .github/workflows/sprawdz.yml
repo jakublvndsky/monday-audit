@@ -1,0 +1,177 @@
+# Bramka jakości po push. Do 2026-08-25 nie było jej wcale: repo miało 73
+# commity, a jedyną kontrolą był `pre-commit` na maszynie Kuby. Kod, którego
+# nikt nie sprawdza po wypchnięciu, jest sprawdzony tylko u autora.
+#
+# ## Dlaczego `ubuntu-latest`, a nie macOS
+#
+# Wszystko dotąd chodziło TYLKO na macOS-ie, a produkcja to Linux (Mikr.us).
+# To pierwsze miejsce, gdzie `uv sync` sięgnie po wheel `manylinux` pakietu
+# `claude-agent-sdk` — ten pakiet wozi własny plik wykonywalny (~246 MB) i ma
+# osobne koło na każdą platformę. Gdyby na Linuksie czegoś brakowało, CI to
+# pokaże tutaj, nie na serwerze przy pierwszym audycie.
+#
+# ## Bez sekretów, i to jest sprawdzone
+#
+# `pyproject.toml` ma w `addopts` wpisane `-m "not integracyjny"`, więc 19
+# testów uderzających w prawdziwe monday jest domyślnie wyłączonych. Pozostałe
+# 803 przechodzą bez `MONDAY_TOKEN`, `ANTHROPIC_API_KEY` i soli — `conftest.py`
+# celowo ODCINA środowisko w warstwie 1. Dlatego ten workflow nie ma ani jednego
+# `secrets.*` i nie potrzebuje go mieć.
+
+name: sprawdź
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Nowy push na tę samą gałąź anuluje poprzedni przebieg. Bez tego dwa commity
+# pod rząd trzymają dwa równoległe joby, a wynik starszego nikogo nie interesuje.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Domyślnie tylko czytanie. Ten workflow nic nie zapisuje w repo, więc nie ma
+# powodu, żeby jego token mógł.
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: ruff + mypy + testy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          # Cache po `uv.lock` — SDK to ~85 MB pobierania, bez cache'u każdy
+          # przebieg ciągnie je od nowa.
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Python z .python-version
+        run: uv python install
+
+      # `--frozen`, nie `uv sync`: `uv.lock` jest w repo, więc CI ma odtworzyć
+      # DOKŁADNIE te wersje, nie rozwiązać zależności na nowo. Rozjazd lockfile'a
+      # z pyproject.toml ma tu paść, a nie zostać po cichu naprawiony.
+      - name: zależności
+        run: uv sync --frozen
+
+      # Wersja SDK i obecność jego pliku wykonywalnego — jedyna rzecz w tym
+      # workflow, która realnie różni Linuksa od macOS-a. Bez pliku
+      # `_bundled/claude` agent spadłby na szukanie `claude` w PATH i wywalił
+      # się `CLINotFoundError` dopiero w produkcji, w trakcie płatnego runu.
+      - name: plik wykonywalny Agent SDK istnieje
+        run: |
+          python - <<'PY'
+          import pathlib
+          import claude_agent_sdk as sdk
+
+          katalog = pathlib.Path(sdk.__file__).parent / "_bundled"
+          plik = katalog / "claude"
+          print(f"SDK {sdk.__version__ if hasattr(sdk, '__version__') else '?'} w {katalog}")
+          if not plik.exists():
+              raise SystemExit(
+                  "BRAK _bundled/claude — wheel dla tej platformy nie zawiera pliku "
+                  "wykonywalnego. Agent nie wystartuje na serwerze."
+              )
+          print(f"  {plik.name}: {plik.stat().st_size // 1024 // 1024} MB, "
+                f"wykonywalny={plik.stat().st_mode & 0o111 != 0}")
+          PY
+        shell: bash
+
+      - name: ruff
+        run: uv run --frozen ruff check .
+
+      - name: ruff format
+        run: uv run --frozen ruff format --check .
+
+      - name: mypy
+        run: uv run --frozen mypy
+
+      # 803 testy. `-m "not integracyjny"` jest w `addopts`, więc nie
+      # powtarzamy go tutaj — dwa źródła prawdy o tym, co się uruchamia,
+      # rozjechałyby się przy pierwszej zmianie.
+      - name: testy
+        run: uv run --frozen pytest
+
+  front:
+    name: typy TS + build + kontrakt api.ts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: front/package-lock.json
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Python z .python-version
+        run: uv python install
+
+      - name: zależności Pythona
+        run: uv sync --frozen
+
+      - name: zależności frontu
+        run: npm ci
+        working-directory: front
+
+      # `npm run build` to `tsc --noEmit && vite build` — typy i build w jednym.
+      # `make sprawdz` tego NIE robi, więc do 2026-08-25 błąd typów w TS nie
+      # zatrzymywał niczego.
+      - name: typy TS i build
+        run: npm run build
+        working-directory: front
+
+      # `front/src/api.ts` jest GENEROWANY z dataclass w Pythonie. Ręczna zmiana
+      # pola po stronie Pythona bez regeneracji daje `undefined` w interfejsie
+      # u klienta, nie błąd u nas — dlatego kontrakt sprawdza CI, nie człowiek.
+      #
+      # Musi iść PO buildzie: gdyby `api.ts` był nieaktualny, chcemy zobaczyć
+      # najpierw, czy front się w ogóle składa.
+      - name: kontrakt api.ts ↔ Python
+        run: uv run --frozen python -m monday_audit.generuj_typy --sprawdz
+
+  hooki:
+    name: pre-commit (skanery sekretów)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Python z .python-version
+        run: uv python install
+
+      - name: zależności
+        run: uv sync --frozen
+
+      # Osobny job, bo `.pre-commit-config.yaml` ma TRZY własne skanery, których
+      # nie robi ani ruff, ani mypy:
+      #   * `token-monday` — wzorzec JWT w treści dowolnego pliku
+      #   * `sekret-na-sztywno` — MONDAY_TOKEN/ANTHROPIC_API_KEY przypisany literałem
+      #   * `dane-runu-poza-repo` — `.env`, `*.db`, `*.sqlite3` dodane przez `git add -f`
+      #
+      # Do dziś uruchamiał je tylko `git commit` na maszynie Kuby. Commit z innej
+      # maszyny albo przez interfejs GitHuba przechodził bez tej kontroli.
+      - name: pre-commit
+        run: uv run --frozen pre-commit run --all-files --show-diff-on-failure

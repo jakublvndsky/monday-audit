@@ -1,0 +1,77 @@
+# Jednostka systemd dla panelu audytu. Kopiuj do /etc/systemd/system/.
+#
+# Zakłada: użytkownika `audyt`, repo w /opt/monday-audit, sekrety
+# w /etc/monday-audit.env (chmod 600, właściciel `audyt`).
+#
+# Wszystkie ścieżki są ABSOLUTNE i to nie jest ozdoba: `MONDAY_AUDIT_DB`
+# domyślnie wskazuje `monday_audit.db` RELATYWNIE do katalogu roboczego, więc
+# usługa bez `WorkingDirectory` otworzyłaby (albo UTWORZYŁA) bazę w `/`.
+
+[Unit]
+Description=Panel audytu monday.com (CXLABS)
+Documentation=file:///opt/monday-audit/deploy/README.md
+# `network-online`, nie samo `network`: collector uderza do api.monday.com
+# w pierwszej sekundzie runu, a `network.target` nie gwarantuje trasy.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=audyt
+Group=audyt
+WorkingDirectory=/opt/monday-audit
+
+# Sekrety WYŁĄCZNIE z pliku, nigdy w tej jednostce: `systemctl show` pokazuje
+# `Environment=` każdemu, kto ma dostęp do maszyny, a `EnvironmentFile` już nie.
+# Plik musi mieć chmod 600 — sól do pseudonimizacji jest w nim, a jej wyciek
+# pozwala zdeanonimizować całą tabelę `osoby_mapowanie`.
+EnvironmentFile=/etc/monday-audit.env
+
+# `--host ::` nasłuchuje na IPv6 ORAZ IPv4 (dual-stack), a Mikr.us wymaga IPv6
+# dla darmowej subdomeny `serwer-port.mikrus.cloud`. Domyślne `127.0.0.1`
+# w `cli_web.py` jest właściwe lokalnie i błędne tutaj.
+#
+# `uv run --frozen`: odtwarza DOKŁADNIE wersje z `uv.lock`. Bez `--frozen` restart
+# usługi mógłby cicho podnieść inną wersję zależności niż ta przetestowana w CI.
+ExecStart=/usr/local/bin/uv run --frozen python -m monday_audit.cli_web \
+    --serwuj --host :: --port 8000
+
+# Migracje aplikują się same przy starcie (`cli_web` woła `przygotuj_baze`
+# PRZED uvicornem), więc tu tylko potwierdzamy, że usługa odpowiada.
+# `|| true` — nieudany health nie ma zabijać usługi, która właśnie wstała;
+# ma zostawić ślad w journalu.
+ExecStartPost=/bin/sh -c 'sleep 3; curl -fsS http://127.0.0.1:8000/health || true'
+
+Restart=on-failure
+RestartSec=5
+# Po pięciu nieudanych startach w 10 minut systemd przestaje próbować.
+# Bez tego zepsuta konfiguracja daje pętlę restartów i zapchany journal.
+StartLimitBurst=5
+StartLimitIntervalSec=600
+
+# ── Ograniczenia procesu ─────────────────────────────────────────────────
+#
+# `ulimit -c 0`: zrzut pamięci przy awarii zawierałby klucz API klienta, który
+# żyje w pamięci procesu przez czas runu (O25). Na Mikrusie trzeba jeszcze
+# sprawdzić, czy systemd-coredump nie zbiera zrzutów niezależnie.
+LimitCORE=0
+
+# Bez podnoszenia uprawnień i bez dostępu do reszty systemu. `ProtectHome`
+# nie przeszkadza, bo repo jest w /opt.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# Jedyne miejsca do zapisu: baza i katalogi wyników. `raporty/` zawiera
+# findingi PO deanonimizacji, czyli prawdziwe imiona — dlatego lista jest jawna,
+# a nie `ProtectSystem=false`.
+ReadWritePaths=/opt/monday-audit
+
+# Log do journala. Bez własnego pliku: rotacja i limity są już w journaldzie,
+# a `logger.warning` z `_bez_sekretow` i tak przechodzi przez filtr sekretów.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=monday-audit
+
+[Install]
+WantedBy=multi-user.target

@@ -418,6 +418,58 @@ def zbuduj_aplikacje(
 
     # ── sesje ────────────────────────────────────────────────────────
 
+    @aplikacja.get("/health")
+    def health() -> dict[str, Any]:
+        """Czy aplikacja żyje i czy baza odpowiada. BEZ sesji — i to jest celowe.
+
+        ## Własne połączenie, NIE przez zależność `Polaczenie`
+
+        ZMIERZONE przy pisaniu testu: zależność `polaczenie()` otwiera bazę
+        PRZED wejściem do ciała endpointu, więc uszkodzony plik daje 500 z całej
+        aplikacji, a `try` w środku nigdy się nie wykonuje. Kontrola zdrowia,
+        która sama tonie w awarii, jaką ma rozpoznać, jest bezużyteczna —
+        monitoring dostaje 500 „coś padło" zamiast 503 „baza nie odpowiada".
+
+        `05-deploy.md` krok 4 każe to sprawdzić po wstaniu usługi, ale endpointu
+        nie było — dopisany 2026-08-25 przy przygotowaniu etapu 5.
+
+        Czytają go systemd (`ExecStartPost`), skrypt wdrożenia i tunel — żadne
+        z nich nie ma ciasteczka sesji, więc wymóg uwierzytelnienia zamieniłby
+        kontrolę zdrowia w kontrolę tego, czy ktoś jest zalogowany.
+
+        ## Co ten endpoint UJAWNIA, a czego nie
+
+        Jest publiczny, więc mówi wyłącznie o stanie procesu: czy baza odpowiada
+        i na której migracji stoi. **Ani słowa o klientach** — nie liczba kont,
+        nie liczba audytów, nie nazwy. Numer migracji jest tu potrzebny, bo przy
+        wdrożeniu to jedyny sposób sprawdzenia, czy restart faktycznie podniósł
+        nową wersję schematu; a sam numer nie mówi nic o niczyich danych.
+
+        Baza sprawdzana zapytaniem, nie obecnością pliku: plik może istnieć
+        i być uszkodzony, a to jest dokładnie ta awaria, którą chcemy zauważyć.
+        """
+        try:
+            con = polacz(sciezka_bazy, wielowatkowe=True)
+            try:
+                wiersz = con.execute("SELECT MAX(numer) n FROM _migracje").fetchone()
+                migracja = int(wiersz["n"] or 0)
+            finally:
+                con.close()
+        except sqlite3.Error as blad:
+            # 503, nie 500: usługa stoi, ale nie jest gotowa obsłużyć ruchu.
+            #
+            # `error`, nie `exception` (TRY400 wyłączone świadomie): pełny
+            # traceback wszedłby do journala razem ze ścieżką bazy i treścią
+            # zapytania. `/health` jest publiczny i wołany co kilka sekund przez
+            # monitoring, więc jedna awaria bazy zasypałaby log powtarzalnym
+            # zrzutem zawierającym układ schematu. Typ wyjątku wystarcza do
+            # diagnozy, a `journalctl` i tak pokaże czas i kod odpowiedzi.
+            logger.error(  # noqa: TRY400
+                "health: baza nie odpowiada (%s)", type(blad).__name__
+            )
+            raise HTTPException(status_code=503, detail="baza nie odpowiada") from None
+        return {"status": "ok", "migracja": migracja}
+
     @aplikacja.post("/api/sesja/klient")
     def sesja_klienta(
         dane: DaneKlienta, zadanie: Request, odpowiedz: Response, con: Polaczenie

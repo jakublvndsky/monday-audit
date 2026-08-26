@@ -70,18 +70,62 @@ ponownie.
 
 ## Wdrożenie na Mikrusa
 
+**AKTUALIZACJA 2026-08-25 — trzy kroki niżej były nieaktualne.** Pełna,
+wykonywalna instrukcja jest teraz w `deploy/README.md`; tutaj zostaje
+uzasadnienie zmian, bo to ono jest wiedzą, a nie same komendy.
+
 Kolejność, każdy krok weryfikowalny osobno:
 
-1. Node 20 (pod CLI Agent SDK — **nie** pod MCP, tego nie ma), Python 3.12, `uv`
-2. Caddy + `Caddyfile` → sprawdź, czy certyfikat się wystawił
-3. SQLite + migracje → sprawdź, czy aplikują się od zera
-4. FastAPI jako usługa systemd → sprawdź `/health`
+1. ~~Node 20~~ **Python 3.12 i `uv`. Node NIE jest potrzebny na serwerze.**
+   `claude-agent-sdk 0.2.128` wozi własny plik wykonywalny
+   (`_bundled/claude`, 246 MB), a jego `_find_cli()` sprawdza go PIERWSZY,
+   przed szukaniem `claude` w PATH. Sprawdzone w kodzie SDK. Ryzyko przenosi się
+   z „zainstaluj Node" na „upewnij się, że `uv sync` wziął wheel `manylinux`" —
+   pilnuje tego krok w CI.
+2. ~~Caddy + `Caddyfile`~~ **HTTPS bez Caddy.** Mikr.us to kontener LXC
+   z *przekierowanymi portami*, bez własnego IPv4 i bez portu 80/443 — wyzwanie
+   ACME nie ma jak przejść. Dwie drogi: darmowa subdomena
+   `serwer-port.mikrus.cloud` (HTTPS automatyczny, aplikacja słucha na IPv6)
+   albo **tunel Cloudflare** na `audyt.cxlabs.digital`, bez otwartych portów.
+   Domena `cxlabs.digital` już stoi na Cloudflare (sprawdzone), a subdomena
+   `audyt` jest wolna. Wpływ na D9 i aneks D16: `ADRES_PUBLICZNY` nadal jest
+   potrzebny za tunelem, tylko proxy nie jest nasze.
+3. SQLite + migracje → sprawdź, czy aplikują się od zera *(bez zmian; migracje
+   aplikuje `przygotuj_baze()` przy starcie `cli_web`)*
+4. FastAPI jako usługa systemd → sprawdź `/health` — **endpointu nie było,
+   dopisany 2026-08-25.** Publiczny (czytają go systemd, skrypt wdrożenia
+   i monitoring, żaden nie ma sesji), mówi tylko o stanie procesu i numerze
+   migracji. Otwiera WŁASNE połączenie, nie przez zależność FastAPI: przy
+   uszkodzonej bazie zależność wywala 500 z całej aplikacji, a kontrola zdrowia
+   ma tę awarię rozpoznać, nie w niej tonąć.
 5. Worker jako proces jednorazowy wywoływany przez FastAPI —
    **nie demon** (O6, budżet RAM)
-6. Pierwszy run produkcyjny na koncie CXLABS
+6. Pierwszy run produkcyjny na koncie CXLABS, potem **brama promocji**
+   (`evals/brama.py`) przed czymkolwiek dla klienta
 
 **Sprawdź realną rezerwę RAM przed krokiem 5** (O6). Jeśli poniżej 800 MB,
 zawęź sampling activity logs.
+
+### Budżet dysku — dopisany 2026-08-25, wcześniej nie było go nigdzie
+
+| co | rozmiar |
+|---|---|
+| środowisko produkcyjne (`uv sync --frozen --no-dev`) | **~275 MB** |
+| z tego `claude_agent_sdk/_bundled/claude` | **246 MB** (jeden plik) |
+| baza przy 12 snapshotach | 3,7 MB |
+| `front/dist` | 300 KB |
+| kopia zapasowa po `gzip` | ~600 KB |
+
+Plan Mikrus 1.0 (5 GB, 384 MB RAM) jest ciasny: środowisko zajmuje 6% dysku,
+a szczyt runu (~280 MB zmierzone) nie mieści się w RAM z zapasem. **2.1
+(10 GB, 1 GB RAM) daje margines.**
+
+### RAM — pierwszy pomiar, nie szacunek
+
+`02-design.md` budżetuje ~720 MB w szczycie. Zmierzone (macOS, `ru_maxrss`):
+aplikacja web z detektorami **71 MB**, podproces `claude` w trakcie analizy
+**130–210 MB**, czyli szczyt **~280 MB**. To 2,5× mniej niż budżet — ale pomiar
+jest z macOS-a i **nie mówi, ile zostaje na Mikrusie**. O6 pozostaje otwarte.
 
 ---
 
@@ -99,7 +143,26 @@ z przeszłości.
 ## Definition of Done — etap 5
 
 - [ ] Sześć elementów pinowania zapisywanych przy runie
-- [ ] Brama promocji zaimplementowana jako skrypt, nie procedura w głowie
-- [ ] Sekrety w env, token klienta nie w argv
+- [x] **Brama promocji jako skrypt** — `evals/brama.py`, kody wyjścia 0/1/2,
+      metryki przez `evals/mierz.py` (bez drugiej implementacji progów).
+      Sprawdzona na prawdziwym runie: trafność 0,857, blokery działają
+- [x] **Sekrety w env, token klienta nie w argv** — `EnvironmentFile` w jednostce
+      systemd (nie `Environment=`, bo `systemctl show` je pokazuje),
+      `.env.example` dokumentuje wszystkie 12 pól `Ustawienia`
 - [ ] Run produkcyjny na koncie CXLABS przechodzi
-- [ ] Kopia zapasowa działa i odtworzenie zostało przetestowane
+- [x] **Kopia zapasowa i test odtworzenia** — `deploy/backup.sh`, `.backup`
+      SQLite (nie `cp` — kopiowanie w trakcie zapisu daje uszkodzony plik bez
+      ostrzeżenia). Test sprawdza integralność **i zawartość**: pusta, poprawna
+      baza kończy się kodem 1, bo wygląda na kopię, a nią nie jest.
+      **Odtworzenie nadal do wykonania na serwerze** — lokalnie zweryfikowane
+      na kopii prawdziwej bazy (12 snapshotów, 42 runy)
+
+**Dodane 2026-08-25, czego ta lista nie miała:**
+
+- [x] **CI po każdym push** — `.github/workflows/sprawdz.yml`, trzy joby na
+      `ubuntu-latest`: backend (ruff, mypy, 806 testów), front (`tsc`, build,
+      kontrakt `api.ts`), pre-commit ze skanerami sekretów. Bez sekretów, bo
+      `addopts` wyklucza testy integracyjne
+- [x] **`/health`** — wymagany przez krok 4, w kodzie go nie było
+- [ ] **Rezerwa RAM na Mikrusie** (O6) — jedyny pomiar, którego nie da się
+      zrobić poza serwerem

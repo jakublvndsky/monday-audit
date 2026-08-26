@@ -177,8 +177,27 @@ Node bierze udział tylko w `npm run build` na maszynie deweloperskiej; na serwe
 idą gotowe pliki, które FastAPI oddaje jako statyki. Więc web **nie zmienia
 rzędu wielkości** tego budżetu — nadal decyduje szczyt runu, a nie panel.
 
-Co nadal wymaga pomiaru Kuby: realna rezerwa na Mikrusie. Pomiar powyżej jest
-z macOS-a i mówi tylko, że web jest tani, nie ile zostaje.
+**Aktualizacja 2026-08-25 — zmierzony SZCZYT, nie tylko spoczynek.** Do dziś
+brakowało tej liczby: 720 MB w `02-design.md` to był szacunek projektowy, nigdy
+nie sprawdzony. Zmierzone przez `resource.getrusage` (macOS):
+
+| | RSS |
+|---|---|
+| aplikacja web + FastAPI + import Agent SDK | **67 MB** |
+| + detektory na snapshocie (24 hipotezy) | **71 MB** |
+| podproces `claude` w trakcie analizy | **130–210 MB** |
+| **szczyt razem** | **~280 MB** |
+
+To **2,5× mniej niż budżet projektowy**. Doszedł też budżet dysku, którego nie
+było nigdzie: środowisko produkcyjne (`uv sync --no-dev`) to ~275 MB, z czego
+**246 MB to jeden plik** — `claude_agent_sdk/_bundled/claude`.
+
+Wniosek dla doboru planu: Mikrus 1.0 (384 MB RAM, 5 GB) jest ciasny — szczyt
+runu nie mieści się z zapasem. **2.1 (1 GB, 10 GB) daje margines.**
+
+Co NADAL wymaga pomiaru Kuby: realna rezerwa na Mikrusie. Pomiary powyżej są
+z macOS-a i mówią, ile bierze NASZ proces — nie ile zostaje po innych
+aplikacjach CXLABS. Komendy do tego są w `deploy/README.md` krok 5.
 
 ---
 
@@ -1532,3 +1551,40 @@ Trzecia możliwość: zostawić jak jest i **napisać na ekranie**, że zawęże
 dotyczy tylko znalezisk. Najtańsze, ale przenosi problem na czytającego.
 
 Decyzja należy do Kuby — każda z dróg zmienia to, czym jest „zakres audytu".
+
+---
+
+## O39
+
+**Restart serwera w trakcie analizy niszczy run bez śladu.** — otwarte 2026-08-25
+
+Audyt w tle żyje w **wątku procesu FastAPI** — nie ma kolejki ani osobnego
+workera. `systemctl restart` w trakcie analizy zabija wątek, a w bazie zostaje
+zadanie w stanie `analizuje` z postępem sprzed restartu. Wygląda identycznie
+jak run, który trwa.
+
+**Zdarzyło się raz, 2026-08-25**, przy zdejmowaniu hamulca częstotliwości:
+restart serwera ubił analizę po ~6 minutach (24 hipotezy, ~1,5 USD). Klient
+patrzył na „analizuję 24 sygnały, 62%", a nikt tego już nie liczył. Wyszło
+dopiero z pytania „czy trwa jakaś analiza?" i sprawdzenia `zuzycie_hipotez`
+(zero wpisów przy runie oznaczonym jako `w_toku`).
+
+**Co łagodzi skutek dziś:** reaper (`MINUT_NA_OSIEROCENIE = 40`) oznacza takie
+zadanie jako `blad` przy najbliższym `wolno_odpalic`, więc konto się odblokowuje
+samo. Ale run jest stracony, a klient zapłacił za rozpoczętą analizę.
+
+**Doraźnie:** przed każdym restartem sprawdź, czy nic nie trwa:
+
+```sql
+SELECT id, stan, etap FROM zadania
+WHERE stan IN ('w_kolejce','zbieram','analizuje');
+```
+
+**Docelowo:** kolejka zadań przeżywająca restart procesu. `02-design.md`
+przewiduje workera jako *proces jednorazowy wywoływany przez FastAPI* i to jest
+właściwy kierunek — dziś tego nie ma, bo dopóki wszystko chodziło lokalnie,
+restart był świadomym działaniem człowieka, nie zdarzeniem infrastruktury.
+Po wdrożeniu na Mikrusa restart będzie też skutkiem `deploy/wdroz.sh`.
+
+**Czego to NIE blokuje:** wdrożenia. Blokuje spokój przy wdrażaniu w godzinach,
+w których ktoś może odpalać audyt.

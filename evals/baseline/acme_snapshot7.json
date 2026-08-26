@@ -1,0 +1,8 @@
+{
+  "_opis": "Baseline promocji — trafność z ostatniego zatwierdzonego runu. Brama porównuje z tym plikiem i zgłasza regresję > 0,05 jako decyzję człowieka (kod wyjścia 2), nie jako bloker.",
+  "_run_id": "acme-20260825T183321Z-agent",
+  "_data": "2026-08-25",
+  "trafnosc": 0.857,
+  "falszywki": 0.0,
+  "rzeczowosc": 1.0
+}

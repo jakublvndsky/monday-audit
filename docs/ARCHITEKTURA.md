@@ -1027,3 +1027,45 @@ poprawce: nawigacja mobilna w `.pasek` nie istniała w panelu głównym (pasek j
 tylko w widoku audytu — przeniesiona do sidebara); tabela klientów miała 405 px przy
 oknie 390 przez `white-space: nowrap`; `.sidebar__admin` wystawał 84 px za krawędź.
 Piąty raz w tym projekcie warstwę wizualną zweryfikowało obejrzenie obrazu, nie test.
+
+---
+
+## D18. HTTPS bez własnego reverse proxy (2026-08-25)
+
+**Decyzja:** Caddy wypada ze stosu. HTTPS zapewnia infrastruktura hostingu —
+najpierw darmowa subdomena Mikrusa, potem tunel Cloudflare na
+`audyt.cxlabs.digital`.
+
+**Powód — architektura Mikrusa, sprawdzona, nie założona.** Mikr.us to kontenery
+LXC z *przekierowanymi portami TCP*, bez własnego IPv4. Portu 80 i 443 tam nie
+ma, więc wyzwanie ACME, na którym stoi automatyczny certyfikat w Caddy, nie ma
+jak przejść. `02-design.md` budżetował Caddy na 20 MB RAM i trzy linijki
+`Caddyfile` — problemem nie był koszt, a to, że mechanizm nie zadziała.
+
+Dwie drogi, które zadziałają:
+
+| droga | adres | co daje |
+|---|---|---|
+| subdomena Mikrusa | `serwer-port.mikrus.cloud` | HTTPS automatyczny, aplikacja słucha na IPv6 (`--host ::`), zero konfiguracji. Wiki Mikrusa wprost odradza własne certyfikaty |
+| tunel Cloudflare | `audyt.cxlabs.digital` | HTTPS automatyczny, **bez otwartych portów** — `cloudflared` łączy się wychodząco |
+
+`cxlabs.digital` **już stoi na Cloudflare** (zmierzone: nagłówek
+`server: cloudflare`, węzeł WAW), a `audyt.cxlabs.digital` jest wolna. Skoro
+Cloudflare jest na miejscu, tunel jest tańszy poznawczo niż stawianie
+i utrzymywanie własnego proxy.
+
+**Co to zmienia w D9 i aneksie D16.** Oba mówią „za odwrotnym proxy (Caddy,
+etap 5)". Proxy nadal będzie — tylko nie nasze. `ADRES_PUBLICZNY` pozostaje
+potrzebny z dokładnie tego samego powodu: za tunelem żądanie widzi
+`127.0.0.1:8000`, a odbiorca `https://audyt.cxlabs.digital`, więc link resetu
+hasła zbudowany z `Request.base_url` byłby nieklikalny.
+
+**Co unieważni:** przeniesienie na hosting z pełnym IPv4 i portem 443 —
+wtedy Caddy albo nginx wracają jako opcja, ale nie jako konieczność.
+Albo potrzeba czegoś, czego tunel nie robi: własnych reguł cache'owania,
+terminacji mTLS, limitowania po IP.
+
+**Czego ta decyzja NIE załatwia.** O23 pozostaje otwarte niezależnie od tego,
+kto terminuje TLS: szyfrowanie transportu nie odpowiada na pytanie, jak długo
+dane osobowe klienta mają być dostępne pod URL-em i kto kasuje konto po
+zakończeniu relacji.

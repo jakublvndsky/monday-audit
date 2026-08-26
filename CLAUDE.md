@@ -45,8 +45,16 @@ Naruszenie któregokolwiek = błąd krytyczny, zatrzymaj się i zapytaj.
 ## Stack
 
 Python 3.12, `uv`, `httpx` (collector **i** narzędzia agenta), Agent SDK
-(analityk), SQLite, FastAPI, Caddy. Node tylko pod Agent SDK — po rezygnacji
-z MCP nie ma już podprocesu MCP. Bez frontu w v1.
+(analityk), SQLite, FastAPI. Front: React 19 + Vite (D16) — budowany lokalnie,
+na serwer idą gotowe pliki z `front/dist`.
+
+**Node NIE jest potrzebny w produkcji** (sprawdzone 2026-08-25): Agent SDK wozi
+własny plik wykonywalny `_bundled/claude` i sprawdza go przed szukaniem w PATH.
+Node bierze udział tylko w `npm run build` na maszynie deweloperskiej.
+
+**Caddy wypadł ze stacku** (2026-08-25): Mikr.us to kontener LXC bez portu
+80/443, więc ACME nie ma jak przejść. HTTPS daje darmowa subdomena Mikrusa albo
+tunel Cloudflare — `docs/etapy/05-deploy.md` i `deploy/README.md`.
 
 ## Gdzie co jest
 

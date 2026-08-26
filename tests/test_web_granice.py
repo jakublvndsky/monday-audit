@@ -1255,3 +1255,54 @@ def test_wylaczony_wymog_przywraca_wariant_opcjonalny(
     odp = klient_http.post("/api/audyt", json={"klucz_api": ATRAPA_KLUCZA, "zakres": "cale_konto"})
 
     assert odp.status_code == 200, "bez wymogu audyt ma startować bez klucza modelu"
+
+
+# ── /health: publiczny, ale nic nie ujawnia ──────────────────────────────
+
+
+def test_health_dziala_bez_sesji(klient_http: TestClient) -> None:
+    """Czytają go systemd, skrypt wdrożenia i tunel — żaden nie ma ciasteczka.
+
+    `05-deploy.md` krok 4 każe sprawdzić `/health` po wstaniu usługi. Wymóg
+    sesji zamieniłby kontrolę zdrowia w kontrolę tego, czy ktoś jest zalogowany.
+    """
+    odp = klient_http.get("/health")
+
+    assert odp.status_code == 200
+    dane = odp.json()
+    assert dane["status"] == "ok"
+    # Numer migracji jest potrzebny: przy wdrożeniu to jedyny sposób sprawdzenia,
+    # czy restart podniósł nową wersję schematu.
+    assert isinstance(dane["migracja"], int)
+    assert dane["migracja"] > 0
+
+
+def test_health_nie_ujawnia_nic_o_klientach(klient_http: TestClient) -> None:
+    """Endpoint jest PUBLICZNY, więc mówi tylko o stanie procesu.
+
+    Baza testowa ma dwóch klientów (`cxlabs`, `inny-klient`), findingi i konta.
+    Gdyby `/health` liczył audyty albo wymieniał klientów, byłby wyciekiem
+    informacji handlowej — a taki wyciek przez endpoint monitoringu jest tym
+    trudniejszy do zauważenia, że nikt tam nie zagląda.
+    """
+    tresc = klient_http.get("/health").text.lower()
+
+    for zakazane in ("cxlabs", "inny-klient", "client_id", "audyt", "finding", "konto"):
+        assert zakazane not in tresc, f"/health ujawnia „{zakazane}”: {tresc}"
+
+
+def test_health_zglasza_zepsuta_baze(klient_http: TestClient, baza: Path) -> None:
+    """Uszkodzona baza musi dać 503, nie 200.
+
+    Plik może istnieć i być nieczytelny — to dokładnie ta awaria, którą kontrola
+    zdrowia ma zauważyć. Sprawdzenie „czy plik jest" przepuściłoby ją.
+    """
+    baza.write_bytes(b"to nie jest baza SQLite, tylko smieci")
+
+    odp = klient_http.get("/health")
+
+    assert odp.status_code == 503
+    assert "nie odpowiada" in odp.json()["detail"]
+    # Komunikat nie może nieść ścieżki bazy ani nazw tabel.
+    assert "_migracje" not in odp.text
+    assert str(baza) not in odp.text
