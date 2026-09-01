@@ -23,6 +23,18 @@ KATALOG="${KATALOG_APLIKACJI:-/opt/monday-audit}"
 USLUGA="${USLUGA:-monday-audit}"
 PORT="${PORT:-8000}"
 
+# Te dwie MUSZĄ być identyczne z `Environment=` w jednostce systemd.
+#
+# `uv` domyślnie trzyma interpreter i cache w katalogu domowym, a jednostka ma
+# `ProtectHome=true` i ich tam nie widzi. Ten skrypt działa POZA sandboksem
+# jednostki, więc zapis do /home by mu się udał — i to jest właśnie pułapka:
+# wdrożenie przeszłoby, a usługa po restarcie nie wstałaby, bo interpreter
+# wylądowałby w miejscu, którego nie widzi. Dzieje się to tylko wtedy, gdy uv
+# musi COKOLWIEK zainstalować (nowa wersja Pythona, nowa zależność), czyli
+# nie przy każdym wdrożeniu — a taki błąd jest najgorszy z możliwych.
+export UV_CACHE_DIR="${UV_CACHE_DIR:-/var/cache/monday-audit}"
+export UV_PYTHON_INSTALL_DIR="${UV_PYTHON_INSTALL_DIR:-$KATALOG/.uv-python}"
+
 cd "$KATALOG"
 
 echo "==> gałąź i stan repo"
