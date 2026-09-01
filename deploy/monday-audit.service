@@ -49,9 +49,25 @@ Environment=UV_CACHE_DIR=/var/cache/monday-audit
 Environment=UV_PYTHON_INSTALL_DIR=/opt/monday-audit/.uv-python
 CacheDirectory=monday-audit
 
-# `--host ::` nasłuchuje na IPv6 ORAZ IPv4 (dual-stack), a Mikr.us wymaga IPv6
-# dla darmowej subdomeny `serwer-port.mikrus.cloud`. Domyślne `127.0.0.1`
-# w `cli_web.py` jest właściwe lokalnie i błędne tutaj.
+# `--host 127.0.0.1`: panel słucha WYŁĄCZNIE na pętli zwrotnej, a wejściem
+# z zewnątrz jest nginx (D19). Do 2026-09-01 stało tu `--host ::` z komentarzem
+# „nasłuchuje na IPv6 ORAZ IPv4 (dual-stack)". Oba zdania były nieprawdziwe
+# i zmierzone na serwerze:
+#
+#  1. To NIE jest dual-stack. Python ustawia `IPV6_V6ONLY=1` w
+#     `socket.create_server`, niezależnie od `net.ipv6.bindv6only=0` w systemie.
+#     Efekt: `[::1]:8000/health` odpowiadał, `127.0.0.1:8000/health` nie.
+#     A po 127.0.0.1 pyta `ExecStartPost` niżej, `deploy/wdroz.sh` (i przerwałby
+#     KAŻDE wdrożenie komunikatem „usługa NIE jest zdrowa") oraz `proxy_pass`
+#     w nginksie, który dostawałby 502.
+#  2. `::` to nie tylko pętla zwrotna. Panel odpowiadał na GLOBALNYM adresie
+#     IPv6 kontenera, po zwykłym HTTP, z pominięciem Cloudflare i nginxa —
+#     przy `policy accept` w nftables i braku reguł. Panel niesie dane osobowe
+#     pracowników klienta (O23), więc to była realna ekspozycja, nie teoria.
+#
+# Ceną jest droga zapasowa 2d z README: subdomena `mikrus.cloud` wymaga
+# nasłuchu na IPv6 kontenera. Gdyby kiedyś była potrzebna, wraca `--host ::`
+# — ale wtedy świadomie, z zaporą, a nie przy okazji.
 #
 # `uv run --frozen`: odtwarza DOKŁADNIE wersje z `uv.lock`. Bez `--frozen` restart
 # usługi mógłby cicho podnieść inną wersję zależności niż ta przetestowana w CI.
@@ -70,7 +86,7 @@ CacheDirectory=monday-audit
 # startuje jako `audyt`, a instalację robi root. Stąd `UV_INSTALL_DIR` w kroku 1
 # deploy/README.md. Niezgodność daje `status=203/EXEC`.
 ExecStart=/usr/local/bin/uv run --frozen --no-dev python -m monday_audit.cli_web \
-    --serwuj --host :: --port 8000
+    --serwuj --host 127.0.0.1 --port 8000
 
 # Migracje aplikują się same przy starcie (`cli_web` woła `przygotuj_baze`
 # PRZED uvicornem), więc tu tylko potwierdzamy, że usługa odpowiada.

@@ -182,7 +182,7 @@ z `Request.base_url`, czyli z adresu wewnętrznego — za proxy to
 
 | droga | kiedy | uwaga |
 |---|---|---|
-| subdomena `mikrus.cloud` | gdy nie chcesz dotykać cudzego nginxa | wymaga IPv6 — **jest**, kontener ma adres globalny (sprawdzone 2026-09-01) i jednostka słucha na `--host ::` |
+| subdomena `mikrus.cloud` | gdy nie chcesz dotykać cudzego nginxa | wymaga nasłuchu na globalnym IPv6 kontenera. Adres **jest**, ale jednostka celowo słucha tylko na `127.0.0.1` — trzeba by wrócić do `--host ::` i **najpierw postawić zaporę**, bo nftables ma `policy accept` bez reguł (patrz komentarz w jednostce) |
 | tunel `cloudflared` | gdy trzeba ominąć nginx w całości | `https://wiki.mikr.us/podpiecie_domeny_przez_tunel_cloudflare/` |
 
 ### Kontrola po tym kroku
