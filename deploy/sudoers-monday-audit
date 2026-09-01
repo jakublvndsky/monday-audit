@@ -1,0 +1,25 @@
+# Uprawnienie dla `deploy/wdroz.sh`. Kopiować do /etc/sudoers.d/monday-audit
+# przez `install -m 440 -o root -g root`, a potem SPRAWDZIĆ przez
+# `visudo -c -f /etc/sudoers.d/monday-audit`.
+#
+# ## Po co to jest
+#
+# `wdroz.sh` działa jako `audyt` (bo repo należy do `audyt`, a `git pull`
+# robiony przez roota zostawiłby w drzewie pliki, których `audyt` nie nadpisze)
+# i w ostatnim kroku restartuje usługę. Restart wymaga roota. Bez tej reguły
+# skrypt przerywa na `sudo: a password is required` — sprawdzone na serwerze
+# 2026-09-01, README kazał go uruchamiać w sposób, który nie działał.
+#
+# ## Dlaczego tak wąsko
+#
+# To jest maszyna dzielona z sześcioma cudzymi aplikacjami (D19). `audyt ALL=
+# (ALL) NOPASSWD: ALL` dałoby użytkownikowi aplikacyjnemu roota na cudzej
+# produkcji — za restart jednej usługi.
+#
+# Reguła wymienia PEŁNE polecenia, nie samo `systemctl`. Bez tego `sudo
+# systemctl restart nginx` też by przeszedł, a `systemctl` z odpowiednimi
+# argumentami potrafi uruchomić dowolny program jako root
+# (`systemctl --no-block start` na własnoręcznie podłożonej jednostce).
+#
+# Ścieżka jest bezwzględna, bo dopasowanie sudo idzie po niej, nie po PATH.
+audyt ALL=(root) NOPASSWD: /usr/bin/systemctl restart monday-audit, /usr/bin/systemctl restart monday-audit.service

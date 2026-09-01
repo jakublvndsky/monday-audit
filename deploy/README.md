@@ -301,6 +301,30 @@ Ma wypisać `[1, 2, …, 12]` na czystej bazie, `[]` na już zmigrowanej.
 cp deploy/monday-audit.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now monday-audit
+
+# Bez tego `deploy/wdroz.sh` przerwie na restarcie: działa jako `audyt`,
+# a restart wymaga roota. Reguła wymienia pełne polecenia, nie samo
+# `systemctl` — uzasadnienie w nagłówku pliku.
+install -m 440 -o root -g root deploy/sudoers-monday-audit /etc/sudoers.d/monday-audit
+visudo -c -f /etc/sudoers.d/monday-audit
+```
+
+**Sprawdź jednostkę przez `systemd-analyze verify`, nie tylko przez
+`systemctl status`:**
+
+```bash
+systemd-analyze verify monday-audit.service
+```
+
+`systemctl start` **nie zgłasza** kluczy, których nie rozumie — po prostu je
+pomija. Tak przeszła niezauważona zła sekcja `StartLimitIntervalSec`
+(poprawione 2026-09-01): limit prób startu wyglądał na ustawiony i nie
+obowiązywał. Kontrola, że obowiązuje teraz:
+
+```bash
+systemctl show monday-audit -p StartLimitBurst -p StartLimitIntervalUSec
+# StartLimitIntervalUSec=10min
+# StartLimitBurst=5
 ```
 
 **Kontrola:**
