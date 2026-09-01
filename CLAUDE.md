@@ -53,8 +53,15 @@ własny plik wykonywalny `_bundled/claude` i sprawdza go przed szukaniem w PATH.
 Node bierze udział tylko w `npm run build` na maszynie deweloperskiej.
 
 **Caddy wypadł ze stacku** (2026-08-25): Mikr.us to kontener LXC bez portu
-80/443, więc ACME nie ma jak przejść. HTTPS daje darmowa subdomena Mikrusa albo
-tunel Cloudflare — `docs/etapy/05-deploy.md` i `deploy/README.md`.
+80/443, więc ACME nie ma jak przejść.
+
+**HTTPS: przez nginx, który na serwerze już stoi** (D19, 2026-09-01). Serwer
+docelowy nie jest pusty — dzielimy go z sześcioma cudzymi vhostami, dwiema
+aplikacjami PM2 i n8n w Dockerze, a **oba przekierowane porty TCP są zajęte**.
+TLS terminuje Cloudflare, panel wchodzi jako kolejny vhost proxujący na
+`127.0.0.1:8000`. Subdomena `mikrus.cloud` i tunel Cloudflare to drogi zapasowe.
+Szczegóły: `deploy/README.md` krok 2. **Bez Dockera** — D20, i to jest decyzja,
+nie przypadek.
 
 ## Gdzie co jest
 
