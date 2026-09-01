@@ -15,6 +15,17 @@ Documentation=file:///opt/monday-audit/deploy/README.md
 After=network-online.target
 Wants=network-online.target
 
+# Po pięciu nieudanych startach w 10 minut systemd przestaje próbować.
+# Bez tego zepsuta konfiguracja daje pętlę restartów i zapchany journal.
+#
+# Te dwa klucze MUSZĄ stać w [Unit]. W [Service] systemd je ignoruje i mówi
+# o tym tylko w `systemd-analyze verify` — `systemctl start` nie pisnie, więc
+# limit wygląda na działający, a nie działa. Sprawdzone na serwerze 2026-09-01
+# (systemd 249, Ubuntu 22.04): „Unknown key name 'StartLimitIntervalSec'
+# in section 'Service', ignoring."
+StartLimitBurst=5
+StartLimitIntervalSec=600
+
 [Service]
 Type=exec
 User=audyt
@@ -58,10 +69,7 @@ ExecStartPost=/bin/sh -c 'sleep 3; curl -fsS http://127.0.0.1:8000/health || tru
 
 Restart=on-failure
 RestartSec=5
-# Po pięciu nieudanych startach w 10 minut systemd przestaje próbować.
-# Bez tego zepsuta konfiguracja daje pętlę restartów i zapchany journal.
-StartLimitBurst=5
-StartLimitIntervalSec=600
+# Limit prób startu stoi w [Unit], nie tutaj — patrz komentarz tam.
 
 # ── Ograniczenia procesu ─────────────────────────────────────────────────
 #
