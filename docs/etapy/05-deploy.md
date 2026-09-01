@@ -187,4 +187,20 @@ z przeszłości.
       kontrola pod obciążeniem przy pierwszym runie (krok 5 `deploy/README.md`)
 - [ ] **Vhost nginx i rekord DNS dla `audyt.cxlabs.digital`** (D19) — doszło
       z pomiaru: serwer jest współdzielony, więc wystawienie panelu to zmiana
-      w cudzej konfiguracji nginxa, nie własny proces na własnym porcie
+      w cudzej konfiguracji nginxa, nie własny proces na własnym porcie.
+      **Vhost postawiony i sprawdzony 2026-09-01** (`nginx -t`, cudze vhosty
+      nietknięte); **rekordu DNS nie ma** — do zrobienia w Cloudflare
+
+**Wdrożenie wykonane 2026-09-01 — przebieg, dziewięć usterek i pomiary opisuje
+`05-WYKONANE.md`.** Poniżej tylko to, co ta lista mierzy.
+
+- [x] **Usługa stoi i wstaje sama** — `active`, `enabled`, limit prób startu
+      potwierdzony przez `systemctl show`, nie przez „skopiowałem jednostkę"
+- [x] **Panel wyłącznie na pętli zwrotnej** — `--host ::` wystawiał go na
+      globalnym IPv6 kontenera z pominięciem Cloudflare i nginxa, przy
+      `policy accept` w nftables. Poprawione, ekspozycja zamknięta
+- [x] **`deploy/wdroz.sh` faktycznie wdraża** — przed 2026-09-01 przerywał
+      na braku sudo, a wcześniej na kontroli `/health`, która pytała po IPv4,
+      gdy aplikacja słuchała tylko po IPv6
+- [ ] **Konto zespołu** — w bazie 0 kont, więc nie ma jak się zalogować
+- [ ] **`MONDAY_TOKEN` i SMTP** — puste; oba są po stronie człowieka
