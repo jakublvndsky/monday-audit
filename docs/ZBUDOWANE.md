@@ -10,8 +10,9 @@
 
 Etap 3, pozycje **3.1–3.12 zbudowane i przepuszczone przez prawdziwe konto**.
 Audyt kończy się dwoma dokumentami HTML, a od 2026-08-05 także **makietą
-dashboardów** (D15). Publikacja pod URL-em przechodzi do etapu 5, gdzie stoi
-Caddy — a ryzyko danych osobowych pod URL-em opisuje O23.
+dashboardów** (D15). Publikacja pod URL-em przechodzi do etapu 5, gdzie TLS
+terminuje Cloudflare, a origin obsługuje nginx już stojący na serwerze (D19;
+Caddy wypadł ze stacku w D18) — ryzyko danych osobowych pod URL-em opisuje O23.
 
 ---
 
@@ -524,7 +525,7 @@ snapshotu, więc pokazują wszystkie tablice niezależnie od zaznaczenia. To
 
 | Brak | Gdzie opisany |
 |---|---|
-| **wdrożenie pod publicznym URL-em** | etap 5 — Caddy, TLS, backupy. Aplikacja z D16 działa lokalnie; hasła i sesje już są, ryzyko danych osobowych pod URL-em: O23 |
+| **wdrożenie pod publicznym URL-em** | etap 5 — vhost nginx za Cloudflare (D19), backupy. Aplikacja z D16 działa lokalnie; hasła i sesje już są, ryzyko danych osobowych pod URL-em: O23 |
 | **OAuth zamiast klucza wklejanego przez klienta** | warunek przed wystawieniem poza relację doradczą — aneks do D11, granice pamięci: O25 |
 | **SSO na domenę `@cxlabs.digital`** | dziś hasło per osoba; O24 |
 | wybór wielu workspace'ów naraz | backend potrafi, interfejs oferuje jeden — O37 |

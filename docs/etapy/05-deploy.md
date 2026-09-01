@@ -90,6 +90,14 @@ Kolejność, każdy krok weryfikowalny osobno:
    Domena `cxlabs.digital` już stoi na Cloudflare (sprawdzone), a subdomena
    `audyt` jest wolna. Wpływ na D9 i aneks D16: `ADRES_PUBLICZNY` nadal jest
    potrzebny za tunelem, tylko proxy nie jest nasze.
+
+   **POPRAWIONE 2026-09-01 (D19): żadna z tych dwóch dróg nie jest pierwszym
+   wyborem.** Serwer docelowy nie jest pusty — stoi na nim nginx z sześcioma
+   vhostami za proxy Cloudflare, a **oba przekierowane porty TCP są zajęte**.
+   Panel wchodzi jako kolejny vhost proxujący na `127.0.0.1:8000`. Subdomena
+   `mikrus.cloud` i tunel spadają do roli zapasowych. Rdzeń tej pozycji zostaje:
+   Caddy nie, ACME nie przejdzie — potwierdzone brakiem `/etc/letsencrypt` na
+   maszynie z sześcioma działającymi adresami HTTPS.
 3. SQLite + migracje → sprawdź, czy aplikują się od zera *(bez zmian; migracje
    aplikuje `przygotuj_baze()` przy starcie `cli_web`)*
 4. FastAPI jako usługa systemd → sprawdź `/health` — **endpointu nie było,
@@ -164,5 +172,10 @@ z przeszłości.
       kontrakt `api.ts`), pre-commit ze skanerami sekretów. Bez sekretów, bo
       `addopts` wyklucza testy integracyjne
 - [x] **`/health`** — wymagany przez krok 4, w kodzie go nie było
-- [ ] **Rezerwa RAM na Mikrusie** (O6) — jedyny pomiar, którego nie da się
-      zrobić poza serwerem
+- [x] **Rezerwa RAM na Mikrusie** (O6) — **zmierzone 2026-09-01: 1390 MB
+      dostępne z 2048 MB, przy działających cudzych aplikacjach.** Próg 800 MB
+      nie zadziałał, sampling zostaje bez zmian. Pomiar jest w spoczynku —
+      kontrola pod obciążeniem przy pierwszym runie (krok 5 `deploy/README.md`)
+- [ ] **Vhost nginx i rekord DNS dla `audyt.cxlabs.digital`** (D19) — doszło
+      z pomiaru: serwer jest współdzielony, więc wystawienie panelu to zmiana
+      w cudzej konfiguracji nginxa, nie własny proces na własnym porcie

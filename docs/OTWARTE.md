@@ -153,10 +153,10 @@ i **wypada pierwsza** przy cięciu zakresu.
 
 ---
 
-## O6. Co jeszcze chodzi na Mikrusie
+## O6. Co jeszcze chodzi na Mikrusie — ZMIERZONE 2026-09-01, rezerwa 1390 MB
 
-**Status:** do sprawdzenia przez Kubę
-**Blokuje:** budżet RAM
+**Status:** zmierzone na serwerze docelowym; zostaje kontrola pod obciążeniem
+**Blokuje:** nic — próg 800 MB nie zadziałał
 
 Założenie: ~360 MB w spoczynku, ~720 MB w szczycie runu. Przy 2 GB
 dzielonych z innymi aplikacjami CXLABS trzeba znać realną rezerwę.
@@ -200,6 +200,30 @@ z macOS-a i mówią, ile bierze NASZ proces — nie ile zostaje po innych
 aplikacjach CXLABS. Komendy do tego są w `deploy/README.md` krok 5.
 
 ---
+
+**ZAMKNIĘTE 2026-09-01 — pierwszy pomiar na serwerze docelowym.** Rezerwa jest
+i jest duża:
+
+| | |
+|---|---|
+| RAM łącznie | 2048 MB |
+| **dostępny przy działających cudzych aplikacjach** | **1390 MB** |
+| szczyt naszego runu (pomiar macOS) | ~280 MB |
+| dysk wolny | 16 GB z 25 GB |
+
+Próg z tego wpisu („jeśli rezerwa < 800 MB") **nie zadziałał** — sampling
+activity logs zostaje bez zmian, worker i tak jest procesem jednorazowym z innych
+powodów (O6 pierwotne, budżet RAM).
+
+Odpowiedź na tytułowe pytanie „co jeszcze chodzi na Mikrusie" brzmi: nginx
+z sześcioma vhostami, dwie aplikacje na PM2, n8n w Dockerze, dwie usługi Pythona
+na pętli zwrotnej. Założenie z tego wpisu — „2 GB dzielone z innymi aplikacjami
+CXLABS" — okazało się dokładnie trafne. Konsekwencje architektoniczne: **D19**.
+
+**Co zostaje.** Pomiar jest w spoczynku. Cudze procesy rosną niezależnie od nas
+i nic nie gwarantuje, że ich szczyt wypadnie w innym momencie niż nasz. Kontrola
+pod obciążeniem — w trakcie pierwszego prawdziwego runu, krok 5
+`deploy/README.md`.
 
 ## O7. Koszt licencji u klienta
 
@@ -1041,6 +1065,19 @@ Czego pomiar NIE obejmuje:
 Oba są poza tym, co da się załatwić kodem aplikacji. Właściwa odpowiedź to
 OAuth z ograniczonym zakresem (aneks do D11), nie kolejna warstwa ostrożności
 wokół klucza o pełnych uprawnieniach.
+
+**Pomiar 2026-09-01 na serwerze docelowym — punkt 2 przestaje być hipotezą.**
+`swapon --show` pokazuje **2 GB swapu** (wirtualnego, na razie nietkniętego).
+Czyli maszyna **ma gdzie** wypchnąć stronę pamięci z kluczem klienta, a run jest
+najcięższym momentem, więc też najbardziej prawdopodobnym.
+
+Punkt 1 jest częściowo załatwiony: `LimitCORE=0` w jednostce systemd. Czy
+`systemd-coredump` nie zbiera zrzutów niezależnie — nadal do sprawdzenia,
+i to na tej konkretnej maszynie.
+
+Nic z tego nie zmienia wniosku: właściwą odpowiedzią jest OAuth z ograniczonym
+zakresem (aneks do D11), nie kolejna warstwa ostrożności wokół klucza o pełnych
+uprawnieniach.
 
 ## O26 — „odetnij dostęp teraz" nie istnieje (2026-08-10)
 

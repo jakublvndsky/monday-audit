@@ -1069,3 +1069,97 @@ terminacji mTLS, limitowania po IP.
 kto terminuje TLS: szyfrowanie transportu nie odpowiada na pytanie, jak długo
 dane osobowe klienta mają być dostępne pod URL-em i kto kasuje konto po
 zakończeniu relacji.
+
+---
+
+## D19. Serwer docelowy jest współdzielony. HTTPS przez istniejący nginx (2026-09-01)
+
+**Decyzja:** panel audytu staje jako kolejna usługa na serwerze, na którym już
+działa produkcja CXLABS. TLS terminuje Cloudflare, origin obsługuje nginx, który
+tam **już stoi**. Tunel `cloudflared` i subdomena `mikrus.cloud` spadają do roli
+zapasowych dróg.
+
+**Powód — pierwszy kontakt z maszyną, zmierzone, nie założone.** D18 powstało
+przy założeniu świeżego Mikrusa. Pierwsze wejście na serwer 2026-09-01 pokazało
+coś innego:
+
+| co zastane | szczegół |
+|---|---|
+| nginx | sześć vhostów, `listen 80` i `listen NNNNN default_server` |
+| PM2 | dwie aplikacje Node |
+| Docker | kontener n8n na jednym z przekierowanych portów |
+| systemd | dwie obce usługi aplikacyjne |
+| Python (obcy) | dwa procesy na pętli zwrotnej |
+| przekierowane porty TCP | **oba zajęte** — jeden przez docker-proxy, drugi przez nginx |
+| port 8000 | wolny |
+
+**Dwie rzeczy z tego wynikają.** Po pierwsze, nie ma trzeciego portu do wzięcia,
+więc „wystaw aplikację na własnym porcie" przestaje być opcją. Po drugie, droga
+przez Cloudflare jest tu **już przetarta i działa**: istniejąca subdomena
+`cxlabs.digital` rozwiązuje się przez CNAME na hosta wskazanego przez Mikrusa,
+przed nim stoi proxy Cloudflare (nagłówek `cf-ray`, węzeł WAW), a origin obsługuje
+nginx z tego serwera. Na maszynie **nie ma** ani `cloudflared`, ani
+`/etc/letsencrypt` — czyli nikt nie stawiał tunelu ani nie wystawiał certyfikatu,
+a mimo to HTTPS działa.
+
+Skoro wzorzec jest na miejscu i obsługuje sześć adresów, `audyt.cxlabs.digital`
+to **CNAME plus vhost proxujący na `127.0.0.1:8000`**. Stawianie obok tego tunelu
+byłoby drugim mechanizmem do tego samego, utrzymywanym osobno.
+
+**Co to zmienia w D18.** Rdzeń D18 zostaje i został potwierdzony: własnego Caddy
+nie stawiamy, ACME na Mikrusie nie przejdzie — brak `/etc/letsencrypt` na maszynie
+z sześcioma działającymi adresami HTTPS jest na to dowodem z praktyki, nie
+z rozumowania. Zmienia się tylko **kto** jest tym cudzym proxy: nie tunel, tylko
+nginx już obecny na serwerze. `ADRES_PUBLICZNY` pozostaje potrzebny z dokładnie
+tego samego powodu co w D18 — za proxy żądanie widzi `127.0.0.1:8000`, a odbiorca
+`https://audyt.cxlabs.digital`.
+
+**Nazwa hosta, port SSH i adres IP tego serwera NIE są w tym repo.** Repo jest
+publiczne od 2026-09-01. Wartości żyją w panelu Mikrusa i w `~/.ssh/config` na
+maszynie Kuby.
+
+**Co unieważni:** przeniesienie na maszynę dedykowaną tylko temu projektowi —
+wtedy wraca pytanie, czy nginx jest nam do czegokolwiek potrzebny. Albo potrzeba
+czegoś, czego współdzielony nginx nie da bez ryzyka dla cudzych vhostów:
+własnych limitów po IP, mTLS, nietypowej terminacji.
+
+**Czego ta decyzja NIE załatwia.** Trzy rzeczy, każda nowa wobec D18:
+
+1. **Promień rażenia.** `nginx -s reload` dotyka sześciu cudzych adresów. Błąd
+   w naszym vhoście kładzie nie tylko nas. Stąd `nginx -t` przed każdym reloadem
+   jest warunkiem, nie zwyczajem.
+2. **RAM jest dzielony.** O6 zakładało to od początku („przy 2 GB dzielonych
+   z innymi aplikacjami CXLABS") i pomiar to potwierdza — rezerwa jest liczona
+   przy działających cudzych procesach, więc ich wzrost ją zjada.
+3. **O23 stoi nietknięte.** Kto terminuje TLS, nie ma wpływu na to, jak długo
+   dane osobowe klienta wiszą pod URL-em i kto kasuje konto po zakończeniu relacji.
+
+---
+
+## D20. Bez Dockera, chociaż Docker na tym serwerze jest (2026-09-01)
+
+**Decyzja:** aplikacja idzie jako usługa systemd z `uv run --frozen`, nie jako
+obraz kontenera. Zapisane dopiero teraz, bo do 2026-09-01 **nie było to nigdzie
+decyzją** — tylko domyślną drogą, której nikt nie zakwestionował.
+
+**Powód.** Trzy rzeczy, po które zwykle sięga się po Dockera, są tu już załatwione
+czym innym:
+
+| po co Docker | co to daje u nas dzisiaj |
+|---|---|
+| powtarzalność środowiska | `uv.lock` + `uv sync --frozen`, ta sama ścieżka co w CI |
+| izolacja procesu | jednostka systemd: `ProtectSystem=strict`, `NoNewPrivileges`, `PrivateTmp`, jawne `ReadWritePaths`, `LimitCORE=0` |
+| przenośność | jedno wdrożenie, jedna maszyna — nie ma między czym przenosić |
+
+Do tego koszt: `claude_agent_sdk/_bundled/claude` to **246 MB w jednym pliku**.
+W obrazie ta binarka siedzi w warstwie i mnoży się przez liczbę tagów, na dysku
+dzielonym z sześcioma innymi aplikacjami.
+
+**Przesłanka, która była błędna.** Przed pomiarem argument brzmiał „Mikrus to LXC,
+Docker byłby warstwą w warstwie". Nieprawda: `docker.service` na tej maszynie
+działa i obsługuje n8n. Docker jest dostępny — po prostu nic nam nie kupuje.
+Odrzucenie stoi na braku korzyści, nie na braku możliwości.
+
+**Co unieważni:** drugie wdrożenie do utrzymania, potrzeba identycznego
+środowiska na kilku maszynach, albo moment, w którym `uv sync` na serwerze
+przestanie odtwarzać to, co przeszło w CI.
