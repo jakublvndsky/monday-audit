@@ -11,6 +11,11 @@ wheels/
 
 # Virtual environments
 .venv
+# Interpreter pobierany przez uv NA SERWERZE. Domyślnie leży w katalogu
+# domowym, ale `ProtectHome=true` w jednostce systemd go tam nie widzi, więc
+# `UV_PYTHON_INSTALL_DIR` kieruje go do katalogu aplikacji (deploy/README.md
+# krok 3). Efekt uboczny: 108 MB w drzewie repozytorium na serwerze.
+.uv-python/
 
 # Node — CLI pod Agent SDK, plus ewentualny front w przyszłości.
 # (Podprocesu MCP nie ma od 2026-08-03 — D4.)

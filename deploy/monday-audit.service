@@ -38,6 +38,17 @@ WorkingDirectory=/opt/monday-audit
 # pozwala zdeanonimizować całą tabelę `osoby_mapowanie`.
 EnvironmentFile=/etc/monday-audit.env
 
+# Te dwie NIE są sekretami, więc mogą stać jawnie — i muszą stać tutaj, a nie
+# w pliku env, bo bez nich `uv` sięga do katalogu domowego, którego
+# `ProtectHome=true` nie pokazuje (szczegóły przy ProtectHome niżej).
+#
+# `CacheDirectory=` niżej tworzy /var/cache/monday-audit z właścicielem `audyt`
+# i sam dopisuje go do ścieżek zapisywalnych — dlatego nie ma go w
+# `ReadWritePaths`.
+Environment=UV_CACHE_DIR=/var/cache/monday-audit
+Environment=UV_PYTHON_INSTALL_DIR=/opt/monday-audit/.uv-python
+CacheDirectory=monday-audit
+
 # `--host ::` nasłuchuje na IPv6 ORAZ IPv4 (dual-stack), a Mikr.us wymaga IPv6
 # dla darmowej subdomeny `serwer-port.mikrus.cloud`. Domyślne `127.0.0.1`
 # w `cli_web.py` jest właściwe lokalnie i błędne tutaj.
@@ -78,8 +89,20 @@ RestartSec=5
 # sprawdzić, czy systemd-coredump nie zbiera zrzutów niezależnie.
 LimitCORE=0
 
-# Bez podnoszenia uprawnień i bez dostępu do reszty systemu. `ProtectHome`
-# nie przeszkadza, bo repo jest w /opt.
+# Bez podnoszenia uprawnień i bez dostępu do reszty systemu.
+#
+# `ProtectHome=true` JEDNAK przeszkadza — wbrew temu, co stało tu do
+# 2026-09-01. Repo faktycznie jest w /opt, ale `uv` domyślnie trzyma w katalogu
+# domowym dwie rzeczy, bez których usługa nie ruszy:
+#
+#   /home/audyt/.local/share/uv/python/…  — SAM INTERPRETER (108 MB).
+#                                           `.venv/bin/python` to dowiązanie tam.
+#   /home/audyt/.cache/uv                 — cache pobrań (401 MB).
+#
+# Pierwszy start padł na `Failed to initialize cache at /home/audyt/.cache/uv:
+# Permission denied`, a nawet po naprawieniu cache'u padłby na interpreterze.
+# Dlatego oba są przeniesione poniżej pod ścieżki, które ta jednostka widzi
+# — `ProtectHome=true` zostaje.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict

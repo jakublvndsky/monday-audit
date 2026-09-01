@@ -207,13 +207,38 @@ czy któreś wywołanie panelu tyle trwa.
 useradd -m -s /bin/bash audyt
 mkdir -p /opt/monday-audit && chown audyt:audyt /opt/monday-audit
 sudo -u audyt git clone https://github.com/jakublvndsky/monday-audit.git /opt/monday-audit
-cd /opt/monday-audit && sudo -u audyt uv sync --frozen --no-dev
+mkdir -p /var/cache/monday-audit && chown audyt:audyt /var/cache/monday-audit
+cd /opt/monday-audit && sudo -u audyt env \
+    UV_PYTHON_INSTALL_DIR=/opt/monday-audit/.uv-python \
+    UV_CACHE_DIR=/var/cache/monday-audit \
+    /usr/local/bin/uv sync --frozen --no-dev
 ```
 
+> **Te dwie zmienne nie są ozdobą i muszą być TAKIE SAME jak w jednostce
+> systemd.** `uv` domyślnie trzyma w katalogu domowym nie tylko cache, ale
+> **sam interpreter** — `.venv/bin/python` to dowiązanie do
+> `~/.local/share/uv/python/…`. Jednostka ma `ProtectHome=true`, więc nie
+> zobaczyłaby ani jednego, ani drugiego. Pierwszy start na tym serwerze padł
+> dokładnie na tym: `Failed to initialize cache at /home/audyt/.cache/uv:
+> Permission denied`. Bez `UV_PYTHON_INSTALL_DIR` naprawienie samego cache'u
+> przesunęłoby awarię o jeden krok dalej, na interpreter.
+
 `--no-dev` pomija ruff, mypy i pytest. Zmierzone **na tym serwerze**
-2026-09-01: środowisko produkcyjne to **298 MB**, z czego **262 MB** to jeden
-plik `claude_agent_sdk/_bundled/claude`. Wcześniejsze „~275 MB / 246 MB"
-pochodziło z macOS-a — koło wersji linuksowej, ale nie równe.
+2026-09-01 — i całość jest **trzy razy większa, niż mówił budżet dysku**, bo
+budżet liczył samo `.venv`:
+
+| co | gdzie | rozmiar |
+|---|---|---|
+| `.venv` | `/opt/monday-audit/.venv` | **298 MB** |
+| z tego `claude_agent_sdk/_bundled/claude` | — | 262 MB (jeden plik) |
+| interpreter pobrany przez `uv` | `.uv-python` | **108 MB** |
+| cache `uv` | `/var/cache/monday-audit` | **do ~400 MB** |
+| **razem** | | **~800 MB** |
+
+Wcześniejsze „~275 MB" pochodziło z macOS-a i dotyczyło wyłącznie `.venv`.
+Przy 16 GB wolnego to nadal bez znaczenia, ale na planie 1.0 (5 GB) byłaby to
+różnica między „6% dysku" a „16%". Cache można potem przyciąć przez
+`uv cache prune`.
 
 > **`--no-dev` trzeba powtarzać przy KAŻDYM wywołaniu `uv run`, nie tylko przy
 > `uv sync`.** `uv run` synchronizuje środowisko przed uruchomieniem komendy
