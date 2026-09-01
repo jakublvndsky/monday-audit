@@ -2,7 +2,10 @@
 __pycache__/
 *.py[oc]
 build/
-dist/
+# Ukośnik z przodu jest konieczny. Bez niego `dist/` łapie także `front/dist`,
+# czyli zbudowany panel, który MA iść do repo — na serwerze nie ma Node'a,
+# więc nie ma go czym odtworzyć (deploy/README.md, krok 1).
+/dist/
 wheels/
 *.egg-info
 

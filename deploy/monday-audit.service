@@ -33,6 +33,11 @@ EnvironmentFile=/etc/monday-audit.env
 #
 # `uv run --frozen`: odtwarza DOKŁADNIE wersje z `uv.lock`. Bez `--frozen` restart
 # usługi mógłby cicho podnieść inną wersję zależności niż ta przetestowana w CI.
+#
+# Ścieżka do `uv` jest bezwzględna, bo `ExecStart` nie przeszukuje PATH — i musi
+# być to `/usr/local/bin`, a nie domyślne `~/.local/bin` instalatora, bo usługa
+# startuje jako `audyt`, a instalację robi root. Stąd `UV_INSTALL_DIR` w kroku 1
+# deploy/README.md. Niezgodność daje `status=203/EXEC`.
 ExecStart=/usr/local/bin/uv run --frozen python -m monday_audit.cli_web \
     --serwuj --host :: --port 8000
 

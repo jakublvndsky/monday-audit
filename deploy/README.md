@@ -28,7 +28,7 @@ mechanizm — i dlatego stoi tu, na początku.
 ```bash
 ssh cxlabsNN@srvNN.mikr.us          # port SSH z panelu Mikrusa
 apt update && apt install -y curl git sqlite3
-curl -LsSf https://astral.sh/uv/install.sh | sh
+curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh
 ```
 
 **Node nie wchodzi na serwer** — i to poprawka wobec kroku 1 specyfikacji.
@@ -39,10 +39,17 @@ Sprawdzone 2026-08-25 w kodzie SDK i potwierdzone w CI.
 Front też nie potrzebuje Node'a tutaj: `npm run build` wykonuje się na maszynie
 deweloperskiej, a do repo idą gotowe pliki z `front/dist`.
 
-**Kontrola po tym kroku:**
+**`UV_INSTALL_DIR` nie jest ozdobą.** Domyślnie instalator kładzie binarkę
+w `~/.local/bin/uv`, czyli w katalogu domowym tego, kto uruchomił polecenie.
+Jednostka systemd woła `/usr/local/bin/uv` ścieżką bezwzględną — bo `ExecStart`
+nie przeszukuje `PATH` użytkownika, a usługa startuje jako `audyt`, nie jako
+root. Bez tej zmiennej `systemctl start` kończy się `status=203/EXEC`
+i wygląda na błąd aplikacji, którym nie jest.
+
+**Kontrola po tym kroku** — sprawdza ŚCIEŻKĘ, nie samą obecność `uv`:
 
 ```bash
-uv --version && python3 --version
+/usr/local/bin/uv --version && python3 --version
 ```
 
 ---
