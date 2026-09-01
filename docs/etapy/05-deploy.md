@@ -116,17 +116,26 @@ zawęź sampling activity logs.
 
 ### Budżet dysku — dopisany 2026-08-25, wcześniej nie było go nigdzie
 
-| co | rozmiar |
-|---|---|
-| środowisko produkcyjne (`uv sync --frozen --no-dev`) | **~275 MB** |
-| z tego `claude_agent_sdk/_bundled/claude` | **246 MB** (jeden plik) |
-| baza przy 12 snapshotach | 3,7 MB |
-| `front/dist` | 300 KB |
-| kopia zapasowa po `gzip` | ~600 KB |
+| co | rozmiar (macOS, 2026-08-25) | **serwer, 2026-09-01** |
+|---|---|---|
+| środowisko produkcyjne (`uv sync --frozen --no-dev`) | ~275 MB | **298 MB** |
+| z tego `claude_agent_sdk/_bundled/claude` | 246 MB (jeden plik) | **262 MB** |
+| to samo po jednym `uv run --frozen` BEZ `--no-dev` | — | **405 MB** |
+| baza przy 12 snapshotach | 3,7 MB | — |
+| `front/dist` | 300 KB | 300 KB |
+| kopia zapasowa po `gzip` | ~600 KB | — |
 
 Plan Mikrus 1.0 (5 GB, 384 MB RAM) jest ciasny: środowisko zajmuje 6% dysku,
 a szczyt runu (~280 MB zmierzone) nie mieści się w RAM z zapasem. **2.1
-(10 GB, 1 GB RAM) daje margines.**
+(10 GB, 1 GB RAM) daje margines.** Maszyna, na którą faktycznie wdrażamy, ma
+25 GB i 2 GB RAM (D19).
+
+**Wiersz trzeci to pułapka, nie ciekawostka.** `uv run` synchronizuje
+środowisko przed uruchomieniem komendy i domyślnie bierze grupę `dev`, więc
+`--no-dev` przy samym `uv sync` nie wystarcza — jedno wywołanie `uv run
+--frozen` bez tej flagi dociąga ruff, mypy, pytest i virtualenv z powrotem.
+`ExecStart` w jednostce systemd ma `--no-dev` właśnie dlatego; bez tego każdy
+`systemctl start` szedłby do sieci i przepisywał środowisko pod usługą.
 
 ### RAM — pierwszy pomiar, nie szacunek
 

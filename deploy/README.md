@@ -210,8 +210,17 @@ sudo -u audyt git clone https://github.com/jakublvndsky/monday-audit.git /opt/mo
 cd /opt/monday-audit && sudo -u audyt uv sync --frozen --no-dev
 ```
 
-`--no-dev` pomija ruff, mypy i pytest (~120 MB). Zmierzone: środowisko
-produkcyjne to **~275 MB**, z czego 246 MB to plik SDK.
+`--no-dev` pomija ruff, mypy i pytest. Zmierzone **na tym serwerze**
+2026-09-01: środowisko produkcyjne to **298 MB**, z czego **262 MB** to jeden
+plik `claude_agent_sdk/_bundled/claude`. Wcześniejsze „~275 MB / 246 MB"
+pochodziło z macOS-a — koło wersji linuksowej, ale nie równe.
+
+> **`--no-dev` trzeba powtarzać przy KAŻDYM wywołaniu `uv run`, nie tylko przy
+> `uv sync`.** `uv run` synchronizuje środowisko przed uruchomieniem komendy
+> i domyślnie bierze grupę `dev`. Zmierzone tu: po `uv sync --frozen --no-dev`
+> środowisko ma 298 MB i zero narzędzi deweloperskich, a jedno `uv run --frozen`
+> bez tej flagi dociąga 24 pakiety i robi z tego **405 MB**. Dlatego wszystkie
+> polecenia niżej — i `ExecStart` w jednostce systemd — mają `--no-dev`.
 
 ### Sekrety
 
@@ -250,7 +259,7 @@ Migracje aplikują się **same** przy starcie — `cli_web` woła `przygotuj_baz
 przed uvicornem. Kontrola od zera:
 
 ```bash
-sudo -u audyt uv run --frozen python -c "
+sudo -u audyt uv run --frozen --no-dev python -c "
 from pathlib import Path
 from monday_audit.baza import polacz, zastosuj_migracje
 con = polacz(Path('/opt/monday-audit/monday_audit.db'))
@@ -285,7 +294,7 @@ procesu: czy baza odpowiada i na której migracji stoi. **Ani słowa o klientach
 
 ```bash
 cd /opt/monday-audit
-sudo -u audyt uv run --frozen python -m monday_audit.cli_web \
+sudo -u audyt uv run --frozen --no-dev python -m monday_audit.cli_web \
     --dodaj-osobe jle@cxlabs.digital
 ```
 
@@ -303,7 +312,7 @@ wejście na serwer ją dało.
 | RAM łącznie | 2048 MB | — |
 | **dostępny przy działających cudzych aplikacjach** | **1390 MB** | > 800 MB ✅ |
 | swap | 2 GB, nieużywany | patrz niżej |
-| dysk wolny | 16 GB z 25 GB | trzeba ~275 MB ✅ |
+| dysk wolny | 16 GB z 25 GB | środowisko zajęło 298 MB ✅ |
 
 Dla porównania pomiar lokalny (macOS, 2026-08-25): aplikacja web z detektorami
 **71 MB**, podproces `claude` w trakcie analizy **130–210 MB**, szczyt **~280 MB**.
@@ -378,7 +387,7 @@ tablice → zbierz dane → zatwierdź.
 Zanim wypuścisz cokolwiek do klienta, uruchom **bramę promocji**:
 
 ```bash
-uv run python evals/brama.py --run <run_id>-agent \
+uv run --frozen --no-dev python evals/brama.py --run <run_id>-agent \
     --zestaw evals/zloty_zestaw/acme_snapshot7.yaml
 ```
 

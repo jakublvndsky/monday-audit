@@ -34,11 +34,20 @@ EnvironmentFile=/etc/monday-audit.env
 # `uv run --frozen`: odtwarza DOKŁADNIE wersje z `uv.lock`. Bez `--frozen` restart
 # usługi mógłby cicho podnieść inną wersję zależności niż ta przetestowana w CI.
 #
+# `--no-dev` NIE jest tu powtórzeniem tego, co robi `uv sync` przy wdrożeniu.
+# `uv run` synchronizuje środowisko PRZED uruchomieniem komendy i domyślnie
+# bierze grupę `dev`. Zmierzone na serwerze 2026-09-01: po `uv sync --frozen
+# --no-dev` środowisko ma 298 MB i zero narzędzi deweloperskich, a samo
+# `uv run --frozen` dociąga 24 pakiety (ruff, mypy, pytest, virtualenv) i robi
+# z tego 405 MB. Bez `--no-dev` każdy `systemctl start` sięgałby do sieci po
+# rzeczy, których produkcja nie używa, i przepisywał środowisko pod działającą
+# usługą.
+#
 # Ścieżka do `uv` jest bezwzględna, bo `ExecStart` nie przeszukuje PATH — i musi
 # być to `/usr/local/bin`, a nie domyślne `~/.local/bin` instalatora, bo usługa
 # startuje jako `audyt`, a instalację robi root. Stąd `UV_INSTALL_DIR` w kroku 1
 # deploy/README.md. Niezgodność daje `status=203/EXEC`.
-ExecStart=/usr/local/bin/uv run --frozen python -m monday_audit.cli_web \
+ExecStart=/usr/local/bin/uv run --frozen --no-dev python -m monday_audit.cli_web \
     --serwuj --host :: --port 8000
 
 # Migracje aplikują się same przy starcie (`cli_web` woła `przygotuj_baze`
