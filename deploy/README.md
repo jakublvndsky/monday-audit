@@ -184,7 +184,12 @@ server {
 }
 ```
 
+Gotowy plik jest w repo: **`deploy/nginx-audyt.conf`** (jedyne, co trzeba w nim
+podmienić, to `NNNNN` na port przekierowany).
+
 ```bash
+cp deploy/nginx-audyt.conf /etc/nginx/sites-available/audyt
+nano /etc/nginx/sites-available/audyt          # podmień NNNNN
 ln -s /etc/nginx/sites-available/audyt /etc/nginx/sites-enabled/audyt
 nginx -t && systemctl reload nginx
 ```

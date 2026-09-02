@@ -32,6 +32,18 @@ User=audyt
 Group=audyt
 WorkingDirectory=/opt/monday-audit
 
+# Pliki tworzone przez usługę mają być czytelne TYLKO dla `audyt`.
+#
+# Bez tego SQLite tworzy bazę z domyślną umask, czyli `-rw-r--r--` — sprawdzone
+# na serwerze 2026-09-02, baza faktycznie taka była. A w bazie jest
+# `osoby_mapowanie` (imiona, nazwiska, e-maile pracowników klienta), hasze haseł
+# i tokeny sesji. Na maszynie dzielonej z sześcioma cudzymi aplikacjami (D19)
+# „czytelne dla wszystkich" nie jest teoretycznym problemem.
+#
+# Dotyczy też `raporty/`, gdzie findingi są PO deanonimizacji, czyli
+# z prawdziwymi nazwiskami.
+UMask=0077
+
 # Sekrety WYŁĄCZNIE z pliku, nigdy w tej jednostce: `systemctl show` pokazuje
 # `Environment=` każdemu, kto ma dostęp do maszyny, a `EnvironmentFile` już nie.
 # Plik musi mieć chmod 600 — sól do pseudonimizacji jest w nim, a jej wyciek
