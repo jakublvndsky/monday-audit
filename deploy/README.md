@@ -422,17 +422,46 @@ ostrożności wokół klucza o pełnych uprawnieniach.
 
 ## 6. Kopie zapasowe
 
+**Trzy przygotowania jako root.** Dwa pierwsze to prawa, trzecie to plik,
+którego `audyt` nie może utworzyć sam:
+
 ```bash
-mkdir -p /var/backups/monday-audit
+# 700, bo w kopiach są dane osobowe pracowników klienta
+install -d -m 700 -o audyt -g audyt /var/backups/monday-audit
+
+# /var/log jest zapisywalny tylko dla grupy `syslog`, więc `audyt` NIE utworzy
+# tam pliku. Przekierowanie `>>` w cronie zawodzi PRZED uruchomieniem skryptu,
+# czyli kopia nie powstaje i nie ma o tym śladu. Sprawdzone 2026-09-02.
+install -m 640 -o audyt -g audyt /dev/null /var/log/monday-audit-backup.log
+```
+
+```bash
 crontab -u audyt -e
 ```
 
 ```cron
-# 03:15 codziennie. CEL_ZDALNY musi wskazywać POZA Mikrusa.
-15 3 * * * CEL_ZDALNY=kuba@backup.example:/kopie/monday-audit /opt/monday-audit/deploy/backup.sh >> /var/log/monday-audit-backup.log 2>&1
+# Kopia bazy audytu, codziennie 03:15.
+15 3 * * * /opt/monday-audit/deploy/backup.sh >> /var/log/monday-audit-backup.log 2>&1
 ```
 
-**Test odtworzenia — RAZ, RĘCZNIE, przed pierwszym audytem klienta:**
+**`CEL_ZDALNY` świadomie pusty — stan na 2026-09-02.** Nie ma maszyny
+docelowej poza Mikrusem, więc kopia zostaje na serwerze. To **nie jest kopia
+zapasowa w pełnym sensie**: chroni przed złą migracją, przypadkowym `DELETE`
+i pomyłką człowieka, ale awaria dysku zabierze oryginał i kopię razem. Skrypt
+wypisuje to ostrzeżenie przy każdym uruchomieniu i **ma je wypisywać** — dzień,
+w którym przestanie, to dzień, w którym ktoś podał `CEL_ZDALNY`.
+
+Ściąganie na maszynę deweloperską jest po stronie człowieka:
+
+```bash
+scp mikrus:/var/backups/monday-audit/'monday_audit_*.db.gz' ~/kopie-audytu/
+```
+
+Docelowo `CEL_ZDALNY` w linii crona. Do obcego magazynu obiektowego
+**nie wysyłaj tego bez szyfrowania** — `backup.sh` go nie ma, kopia jest
+w środku zwykłą bazą z nazwiskami.
+
+**Test odtworzenia — RAZ, RĘCZNIE, ale NIE PRZED pierwszym runem:**
 
 ```bash
 gunzip -k /var/backups/monday-audit/monday_audit_*.db.gz
@@ -441,10 +470,14 @@ gunzip -k /var/backups/monday-audit/monday_audit_*.db.gz
 
 Sprawdza integralność **i zawartość**. Sam `integrity_check` przepuszcza pustą,
 poprawną bazę — a to jest gorsze niż brak kopii, bo wygląda na kopię.
-Zweryfikowane: na pustej bazie skrypt kończy się kodem 1.
 
-Kopia zawiera `osoby_mapowanie`, czyli dane osobowe pracowników klienta, bez
-szyfrowania. Cel musi być prywatny.
+> **Kolejność ma znaczenie i jest nieoczywista.** Test wymaga niezerowych
+> `snapshots`, `runy` i `_migracje`. Na świeżym wdrożeniu `snapshots` i `runy`
+> są puste, więc test kończy się **kodem 1 i komunikatem `BŁĄD: snapshots jest
+> pusta`** — sprawdzone 2026-09-02 na prawdziwej kopii z tego serwera. To skrypt
+> działający poprawnie, nie awaria: pusta baza NIE jest kopią, którą warto mieć.
+> Test odtworzenia wykonaj więc **po** pierwszym runie produkcyjnym (krok 8),
+> nie przed.
 
 ---
 
