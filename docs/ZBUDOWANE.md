@@ -525,7 +525,7 @@ snapshotu, więc pokazują wszystkie tablice niezależnie od zaznaczenia. To
 
 | Brak | Gdzie opisany |
 |---|---|
-| **publiczny URL panelu** | **usługa stoi na serwerze od 2026-09-01** (`05-WYKONANE.md`), brakuje rekordu DNS w Cloudflare i konta zespołu. Ryzyko danych osobowych pod URL-em: O23 |
+| **publiczny URL panelu** | **usługa stoi od 2026-09-01, vhost dla `audyt.cxlabs.digital` gotowy, rekord DNS w OVH jest** (`05-WYKONANE.md`). Brakuje **podpięcia hosta u operatora Mikrusa** — bez niego Cloudflare nie ma certyfikatu dla tej nazwy i TLS się zrywa — oraz konta zespołu. Ryzyko danych osobowych pod URL-em: O23 |
 | **kopie zapasowe poza Mikrusem** | `deploy/backup.sh` gotowy, ale `CEL_ZDALNY` nie ma na co wskazywać. Kopia niesie `osoby_mapowanie` bez szyfrowania |
 | **OAuth zamiast klucza wklejanego przez klienta** | warunek przed wystawieniem poza relację doradczą — aneks do D11, granice pamięci: O25 |
 | **SSO na domenę `@cxlabs.digital`** | dziś hasło per osoba; O24 |

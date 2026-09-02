@@ -111,21 +111,48 @@ adresami HTTPS **nie ma katalogu `/etc/letsencrypt`**.
 tu działa, jest prostszy i już obsługuje sześć adresów:
 
 ```
-przeglądarka ──HTTPS──> Cloudflare ──HTTP──> nginx na serwerze ──> 127.0.0.1:8000
-                (terminuje TLS)        (origin, port przekierowany)
+przeglądarka ─HTTPS─> Cloudflare ─> Cytrus (backend.strony.me) ─HTTP─> nginx ─> 127.0.0.1:8000
+                    (terminuje TLS)      (proxy Mikrusa)         (port przekierowany)
 ```
 
 Na serwerze nie ma `cloudflared`. TLS terminuje Cloudflare, do originu idzie
-zwykły HTTP przez port przekierowany przez Mikrusa. Uzasadnienie: **D19**.
+zwykły HTTP. Uzasadnienie: **D19**.
 
-### 2a. Rekord DNS
+### 2a. Rekord DNS — strefa jest w OVH, NIE w Cloudflare
 
-W Cloudflare dla `cxlabs.digital` dodaj `audyt` jako **CNAME wskazujący na ten
-sam cel, co istniejące subdomeny** tego serwera (podejrzyj `docs` albo `demo`),
-z **włączonym proxy** (pomarańczowa chmurka). Bez proxy nie ma HTTPS, bo
-certyfikatu na originie nie ma i nie będzie.
+> **Poprawka 2026-09-02.** Ten krok mówił „w Cloudflare dodaj rekord". Błąd
+> pomiaru z mojej strony: wniosek o Cloudflare brał się z nagłówków `cf-ray`
+> i `server: cloudflare` przy `docs.cxlabs.digital`. To prawda o **ścieżce
+> żądania**, nie o strefie DNS. Autorytatywne serwery dla `cxlabs.digital` to
+> `dns200.anycast.me` i `ns200.anycast.me`, czyli **OVH** — sprawdzone przez
+> `dig NS` i `SOA` (`tech.ovh.net`). Cloudflare stoi wyłącznie przed
+> `backend.strony.me`, czyli przed proxy Mikrusa, i nie jest niczym, co
+> konfigurujemy.
 
-`audyt.cxlabs.digital` jest wolna — sprawdzone 2026-09-01, brak rekordu A.
+W panelu **OVH**, w strefie `cxlabs.digital`, rekord wygląda tak samo jak
+`docs` i `demo`:
+
+| pole | wartość |
+|---|---|
+| typ | `CNAME` |
+| nazwa | `audit` |
+| cel | `backend.strony.me.` |
+
+HTTPS pojawia się sam, bo `backend.strony.me` stoi za Cloudflare. Na originie
+nie ma i nie będzie certyfikatu.
+
+**Adres kanoniczny to `audyt.cxlabs.digital`, pisownia polska** — decyzja
+z 2026-09-02. Po drodze powstał najpierw rekord `audit` (angielski) i przez
+chwilę panel stał pod nim; zapisane, żeby nikt nie szukał powodu, gdy
+w historii repo zobaczy obie pisownie.
+
+**Kontrola, czy rekord w ogóle istnieje** — pytaj serwer autorytatywny, nie
+swój resolver, bo cache pokazuje stan sprzed zmiany:
+
+```bash
+dig @dns200.anycast.me audyt.cxlabs.digital CNAME +short   # ma zwrócić backend.strony.me.
+dig @dns200.anycast.me audyt.cxlabs.digital A              # NXDOMAIN = rekordu nie ma
+```
 
 ### 2b. Vhost nginx
 

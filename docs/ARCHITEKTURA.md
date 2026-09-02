@@ -1054,6 +1054,13 @@ Dwie drogi, które zadziałają:
 Cloudflare jest na miejscu, tunel jest tańszy poznawczo niż stawianie
 i utrzymywanie własnego proxy.
 
+> **Ten akapit jest błędny — sprostowane 2026-09-02, patrz D19.** Nagłówek
+> `server: cloudflare` mówi o **ścieżce żądania**, nie o tym, gdzie jest strefa
+> DNS. Strefa `cxlabs.digital` jest w **OVH** (`dns200.anycast.me`,
+> SOA `tech.ovh.net`); Cloudflare stoi przed `backend.strony.me`, czyli przed
+> proxy Mikrusa. Wniosek „skoro Cloudflare jest na miejscu, weźmy jego tunel"
+> stał na złej przesłance — i tak upadł z innego powodu (D19).
+
 **Co to zmienia w D9 i aneksie D16.** Oba mówią „za odwrotnym proxy (Caddy,
 etap 5)". Proxy nadal będzie — tylko nie nasze. `ADRES_PUBLICZNY` pozostaje
 potrzebny z dokładnie tego samego powodu: za tunelem żądanie widzi
@@ -1095,16 +1102,41 @@ coś innego:
 
 **Dwie rzeczy z tego wynikają.** Po pierwsze, nie ma trzeciego portu do wzięcia,
 więc „wystaw aplikację na własnym porcie" przestaje być opcją. Po drugie, droga
-przez Cloudflare jest tu **już przetarta i działa**: istniejąca subdomena
-`cxlabs.digital` rozwiązuje się przez CNAME na hosta wskazanego przez Mikrusa,
-przed nim stoi proxy Cloudflare (nagłówek `cf-ray`, węzeł WAW), a origin obsługuje
-nginx z tego serwera. Na maszynie **nie ma** ani `cloudflared`, ani
-`/etc/letsencrypt` — czyli nikt nie stawiał tunelu ani nie wystawiał certyfikatu,
-a mimo to HTTPS działa.
+przez cudze proxy jest tu **już przetarta i działa**: istniejące subdomeny
+`cxlabs.digital` rozwiązują się przez CNAME na `backend.strony.me` (proxy
+Mikrusa, „Cytrus"), przed nim stoi Cloudflare (nagłówek `cf-ray`, węzeł WAW),
+a origin obsługuje nginx z tego serwera. Na maszynie **nie ma** ani
+`cloudflared`, ani `/etc/letsencrypt` — czyli nikt nie stawiał tunelu ani nie
+wystawiał certyfikatu, a mimo to HTTPS działa.
+
+Pełny łańcuch, zmierzony 2026-09-02:
+
+```
+przeglądarka ─HTTPS─> Cloudflare ─> Cytrus (backend.strony.me) ─HTTP─> nginx ─> 127.0.0.1:8000
+```
+
+**Gdzie jest strefa DNS — sprostowanie z 2026-09-02.** Nie w Cloudflare, tylko
+w **OVH**: autorytatywne `dns200.anycast.me` i `ns200.anycast.me`, SOA
+`tech.ovh.net`. Pierwotnie zapisałem „Cloudflare", bo tak mówiły nagłówki
+odpowiedzi — ale one opisują ścieżkę żądania, a nie to, kto trzyma strefę.
+Praktyczna różnica jest konkretna: rekord dodaje się w panelu OVH i **nie ma
+tam żadnej „pomarańczowej chmurki"** do włączenia. HTTPS bierze się stąd, że
+celem CNAME jest host, który już stoi za Cloudflare.
 
 Skoro wzorzec jest na miejscu i obsługuje sześć adresów, `audyt.cxlabs.digital`
 to **CNAME plus vhost proxujący na `127.0.0.1:8000`**. Stawianie obok tego tunelu
 byłoby drugim mechanizmem do tego samego, utrzymywanym osobno.
+
+**Adres kanoniczny: `audyt.cxlabs.digital`** (decyzja 2026-09-02). Po drodze
+w strefie powstał najpierw `audit` w pisowni angielskiej i panel przez chwilę
+stał pod tym adresem — stąd obie pisownie w historii repo. Wybrana została
+polska, mimo że `docs` i `demo` są po angielsku.
+
+Konsekwencja techniczna jest jedna i warto ją znać: **zmiana adresu panelu to
+trzy miejsca, nie jedno** — `server_name` w vhoście, `ADRES_PUBLICZNY`
+w `/etc/monday-audit.env` (bez tego linki resetu hasła wskazują stary adres)
+i restart usługi, żeby to drugie zadziałało. Nazwa pliku vhosta jest czwartym,
+kosmetycznym.
 
 **Co to zmienia w D18.** Rdzeń D18 zostaje i został potwierdzony: własnego Caddy
 nie stawiamy, ACME na Mikrusie nie przejdzie — brak `/etc/letsencrypt` na maszynie

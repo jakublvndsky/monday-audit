@@ -28,6 +28,51 @@ kroków po stronie człowieka — patrz „Czego nie zrobiłem".
 
 ---
 
+## Dopisane 2026-09-02 — adres publiczny i trzy rzeczy, które trzeba rozdzielić
+
+Panel **działał już pod publicznym adresem** i ktoś go otwierał: log nginxa
+pokazuje żądania z proxy Mikrusa z refererem `https://audit.cxlabs.digital/`,
+w tym `GET /api/ja` → 401 (poprawnie: kont jest zero). Czyli cały łańcuch od
+przeglądarki do `127.0.0.1:8000` jest **dowiedziony w praktyce**, nie tylko
+skonfigurowany.
+
+Potem adres został przełączony na docelowy i przy tej okazji wyszło, że
+„podpięcie domeny" to **trzy niezależne rzeczy**, a ich pomieszanie zmyliło
+mnie dwa razy w ciągu jednego dnia:
+
+| co | gdzie | jak sprawdzić |
+|---|---|---|
+| **rekord DNS** | panel **OVH** (strefa `cxlabs.digital`) | `dig @dns200.anycast.me <host> CNAME +short` |
+| **podpięcie hosta u operatora** — wydaje certyfikat dla tej konkretnej nazwy | panel Mikrusa (Cytrus / `backend.strony.me`) | `curl -sv https://<host>` — brak podpięcia daje **zerwane TLS**, nie 404 |
+| **vhost** | nasz nginx | `curl -H "Host: <host>" http://127.0.0.1:PORT/health` |
+
+**Dlaczego to nie jest drobiazg.** Każda z tych warstw zawodzi inaczej i objaw
+mówi wprost, która to:
+
+- **zerwane uzgadnianie TLS** (`sslv3 alert handshake failure`) — host nie jest
+  podpięty u operatora, więc Cloudflare nie ma dla niego certyfikatu. Działający
+  `docs.cxlabs.digital` ma `CN=docs.cxlabs.digital` wystawiony przez
+  „Cloudflare TLS Issuing ECC CA" — certyfikat jest **per nazwa**, nie dla całej
+  domeny
+- **404 z gołym `<center>nginx</center>`** — żądanie nie dotarło do nas.
+  Rozstrzyga to log: unikalna ścieżka w `curl` z zewnątrz i `grep` w
+  `access.log`. Zero trafień = problem jest przed naszym serwerem
+- **404 albo 502 z naszej strony** — brak `server_name` albo martwa usługa
+
+**Sprostowanie: strefa DNS jest w OVH, nie w Cloudflare.** Zapisałem
+„Cloudflare", bo tak mówiły nagłówki `cf-ray` i `server: cloudflare`. One opisują
+**ścieżkę żądania**; strefę trzyma OVH (`dns200.anycast.me`, SOA `tech.ovh.net`).
+Cloudflare stoi przed `backend.strony.me` i nie jest niczym, co konfigurujemy —
+w panelu OVH nie ma żadnej „pomarańczowej chmurki" do włączenia. Poprawione
+w D18, D19 i `deploy/README.md`.
+
+**Adres kanoniczny: `audyt.cxlabs.digital`** (pisownia polska). Przez kilka
+godzin panel stał pod `audit` (angielska) — stąd obie pisownie w historii repo.
+Zmiana adresu to trzy miejsca: `server_name`, `ADRES_PUBLICZNY` i restart
+usługi, żeby to drugie zadziałało.
+
+---
+
 ## Dlaczego to nie było „wykonanie README"
 
 Instrukcja z `deploy/README.md` opisywała świeżego Mikrusa i osiem kroków do
