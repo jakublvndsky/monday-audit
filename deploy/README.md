@@ -360,11 +360,29 @@ procesu: czy baza odpowiada i na której migracji stoi. **Ani słowa o klientach
 
 ```bash
 cd /opt/monday-audit
-sudo -u audyt uv run --frozen --no-dev python -m monday_audit.cli_web \
+sudo -u audyt /usr/local/bin/uv run --frozen --no-dev python -m monday_audit.cli_web \
+    --plik-env /etc/monday-audit.env \
     --dodaj-osobe jle@cxlabs.digital
 ```
 
 Hasło wypisze się **raz**. Wymagana domena `@cxlabs.digital`.
+
+> **`--plik-env` jest obowiązkowe i wcześniej go tu nie było.** Bez niego
+> komenda kończy się `KonfiguracjaError: konfiguracja niekompletna
+> [MONDAY_TOKEN: brak; SOL_PSEUDONIMIZACJI: brak]` — sprawdzone na serwerze
+> 2026-09-02. Powód: sekrety żyją w `/etc/monday-audit.env`, a ten plik podaje
+> **jednostka systemd** przez `EnvironmentFile`. Wywołanie z powłoki nie
+> przechodzi przez systemd, więc `wczytaj()` szuka domyślnego
+> `/opt/monday-audit/.env`, którego nie ma i nie ma go być.
+>
+> Dotyczy **każdego** ręcznego wywołania `cli_web` i `cli`, nie tylko tego.
+> Alternatywnie `MONDAY_AUDIT_ENV_FILE=/etc/monday-audit.env` w środowisku.
+>
+> Osobna sprawa, warta zapisania: `--dodaj-osobe` ładuje pełne `Ustawienia`,
+> więc **wymaga `MONDAY_TOKEN` i `SOL_PSEUDONIMIZACJI`, choć zakłada tylko
+> konto w panelu**. Puste `MONDAY_TOKEN=` w pliku wystarcza (pydantic widzi
+> klucz, nie brak), ale to przypadek, nie projekt. Uporządkowanie tego to
+> zmiana w `uruchom()`, nie w instrukcji.
 
 ---
 
