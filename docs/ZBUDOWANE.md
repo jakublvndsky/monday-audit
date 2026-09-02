@@ -10,9 +10,15 @@
 
 Etap 3, pozycje **3.1–3.12 zbudowane i przepuszczone przez prawdziwe konto**.
 Audyt kończy się dwoma dokumentami HTML, a od 2026-08-05 także **makietą
-dashboardów** (D15). Publikacja pod URL-em przechodzi do etapu 5, gdzie TLS
-terminuje Cloudflare, a origin obsługuje nginx już stojący na serwerze (D19;
-Caddy wypadł ze stacku w D18) — ryzyko danych osobowych pod URL-em opisuje O23.
+dashboardów** (D15).
+
+**Od 2026-09-02 panel stoi pod publicznym adresem** `https://audyt.cxlabs.digital`
+i przeszły przez niego dwa runy produkcyjne (12 i 18 znalezisk). TLS terminuje
+Cloudflare, origin obsługuje nginx już stojący na serwerze (D19; Caddy wypadł
+w D18), aplikacja słucha wyłącznie na pętli zwrotnej. Przebieg wdrożenia
+i dziesięć usterek, które przy nim wyszły: `docs/etapy/05-WYKONANE.md`.
+Ryzyko danych osobowych pod URL-em — **O23 nadal otwarte**, więc panel jest
+tylko dla zespołu.
 
 ---
 
@@ -525,7 +531,7 @@ snapshotu, więc pokazują wszystkie tablice niezależnie od zaznaczenia. To
 
 | Brak | Gdzie opisany |
 |---|---|
-| **publiczny URL panelu** | **usługa stoi od 2026-09-01, vhost dla `audyt.cxlabs.digital` gotowy, rekord DNS w OVH jest** (`05-WYKONANE.md`). Brakuje **podpięcia hosta u operatora Mikrusa** — bez niego Cloudflare nie ma certyfikatu dla tej nazwy i TLS się zrywa — oraz konta zespołu. Ryzyko danych osobowych pod URL-em: O23 |
+| ~~publiczny URL panelu~~ | **ZROBIONE 2026-09-02** — `https://audyt.cxlabs.digital` działa, dwa konta zespołu, dwa runy produkcyjne (12 i 18 znalezisk). Przebieg: `docs/etapy/05-WYKONANE.md`. Ryzyko danych osobowych pod URL-em: **O23 nadal otwarte**, więc bez kont klientów |
 | **kopie zapasowe poza Mikrusem** | `deploy/backup.sh` gotowy, ale `CEL_ZDALNY` nie ma na co wskazywać. Kopia niesie `osoby_mapowanie` bez szyfrowania |
 | **OAuth zamiast klucza wklejanego przez klienta** | warunek przed wystawieniem poza relację doradczą — aneks do D11, granice pamięci: O25 |
 | **SSO na domenę `@cxlabs.digital`** | dziś hasło per osoba; O24 |

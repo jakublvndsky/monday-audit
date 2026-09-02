@@ -333,7 +333,19 @@ rubrykę i nowy prompt.
 ## Stan i co dalej
 
 **Zbudowane i przepuszczone przez prawdziwe konto: 3.1–3.12, plus aplikacja web
-poza numeracją etapów.** 618 testów, kontrola typów i lintera przechodzą.
+poza numeracją etapów.** 807 testów, kontrola typów i lintera przechodzą.
+
+**Etap 5 wykonany 2026-09-01/02 — panel działa pod publicznym adresem.**
+`https://audyt.cxlabs.digital`, dwa konta zespołu, dwa runy produkcyjne
+(12 i 18 znalezisk, 1,54 i 2,29 USD). Szczyt RAM zmierzony pod obciążeniem:
+452 MB przy 1130 MB rezerwy, co domyka O6 — i pokazuje, że pomiar z macOS-a
+(280 MB) był zaniżony o 60%.
+
+Wdrożenie wyciągnęło **dziesięć usterek**, z których żadna nie objawiała się
+tam, gdzie powstawała: panel wystawiony na globalnym IPv6 z pominięciem
+Cloudflare, `ProtectHome` odcinający `uv` od interpretera, baza czytelna dla
+wszystkich, `wdroz.sh` restartujący usługę w trakcie analizy. Pełny wykaz
+z mechanizmami: `docs/etapy/05-WYKONANE.md`.
 
 Korpus 6 zamrożonych snapshotów gotowy na etap 4 (wymagane 3–5) — szósty doszedł
 z drugiego workspace'u, na którym aplikacja przeszła pełną ścieżkę.

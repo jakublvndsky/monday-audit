@@ -1,6 +1,7 @@
 # Etap 5 — Deploy
 
-**Stan: zablokowany do zamknięcia etapu 4.**
+**Stan: WYKONANY 2026-09-01/02.** Przebieg, pomiary i dziesięć usterek
+opisuje `05-WYKONANE.md`; ten plik zostaje jako kryteria i uzasadnienia.
 
 > Ten dokument opisuje **kryteria i mechanizmy**, nie implementację.
 > Szczegóły wdrożenia domykamy po pierwszym działającym runie —
@@ -126,7 +127,7 @@ zawęź sampling activity logs.
 | kopia zapasowa po `gzip` | ~600 KB | — |
 
 Plan Mikrus 1.0 (5 GB, 384 MB RAM) jest ciasny: środowisko zajmuje 6% dysku,
-a szczyt runu (~280 MB zmierzone) nie mieści się w RAM z zapasem. **2.1
+a szczyt runu (**452 MB zmierzone na Linuksie**) w ogóle się w nim nie mieści. **2.1
 (10 GB, 1 GB RAM) daje margines.** Maszyna, na którą faktycznie wdrażamy, ma
 25 GB i 2 GB RAM (D19).
 
@@ -142,7 +143,21 @@ a szczyt runu (~280 MB zmierzone) nie mieści się w RAM z zapasem. **2.1
 `02-design.md` budżetuje ~720 MB w szczycie. Zmierzone (macOS, `ru_maxrss`):
 aplikacja web z detektorami **71 MB**, podproces `claude` w trakcie analizy
 **130–210 MB**, czyli szczyt **~280 MB**. To 2,5× mniej niż budżet — ale pomiar
-jest z macOS-a i **nie mówi, ile zostaje na Mikrusie**. O6 pozostaje otwarte.
+jest z macOS-a i **nie mówi, ile zostaje na Mikrusie**.
+
+**ZMIERZONE NA SERWERZE 2026-09-02, w trakcie runu, 201 próbek co 3 s:**
+
+| | wartość | odniesienie |
+|---|---|---|
+| szczyt cgroupy usługi | **452 MB** | budżet ~720 MB ✅ |
+| minimum wolnej pamięci | **1130 MB** | próg z O6: 800 MB ✅ |
+| swap użyty | **0 MB** | dotyczy O25 |
+
+**Pomiar z macOS-a był zaniżony o 60%** — 280 MB wobec 452 MB na Linuksie.
+Na planie 1.0 (384 MB RAM) ten run by się nie zmieścił, czyli decyzja o 2.1
+była słuszna przypadkiem, nie z dobrego powodu. `systemd` 249 nie ma
+`MemoryPeak`, więc szczytu nie da się odczytać po fakcie — trzeba próbkować
+w trakcie. **O6 zamknięte.**
 
 ---
 
@@ -159,20 +174,27 @@ z przeszłości.
 
 ## Definition of Done — etap 5
 
-- [ ] Sześć elementów pinowania zapisywanych przy runie
+- [x] **Pinowanie sprawdzone na prawdziwym runie z panelu** — 5 z 6 zapisanych,
+      szóste (`cennik_ver`) puste POPRAWNIE, bo w bazie zero stawek (O28).
+      `prompt_hash` nie zapisywał się wcale na ścieżce panelu do 2026-09-02 —
+      trzecia kopia tej samej usterki, szczegóły w `05-WYKONANE.md`
 - [x] **Brama promocji jako skrypt** — `evals/brama.py`, kody wyjścia 0/1/2,
       metryki przez `evals/mierz.py` (bez drugiej implementacji progów).
       Sprawdzona na prawdziwym runie: trafność 0,857, blokery działają
 - [x] **Sekrety w env, token klienta nie w argv** — `EnvironmentFile` w jednostce
       systemd (nie `Environment=`, bo `systemctl show` je pokazuje),
       `.env.example` dokumentuje wszystkie 12 pól `Ustawienia`
-- [ ] Run produkcyjny na koncie CXLABS przechodzi
+- [x] **Run produkcyjny na koncie CXLABS przechodzi** — dwa runy 2026-09-02:
+      12 i 18 znalezisk, 11 i 19 odrzuconych hipotez, 1,54 i 2,29 USD,
+      bez tracebacków
 - [x] **Kopia zapasowa i test odtworzenia** — `deploy/backup.sh`, `.backup`
       SQLite (nie `cp` — kopiowanie w trakcie zapisu daje uszkodzony plik bez
       ostrzeżenia). Test sprawdza integralność **i zawartość**: pusta, poprawna
       baza kończy się kodem 1, bo wygląda na kopię, a nią nie jest.
-      **Odtworzenie nadal do wykonania na serwerze** — lokalnie zweryfikowane
-      na kopii prawdziwej bazy (12 snapshotów, 42 runy)
+      **Odtworzenie wykonane na serwerze 2026-09-02** (kod 0) — ale dopiero po
+      pierwszym runie: test wymaga niezerowych `snapshots` i `runy`, więc na
+      świeżym wdrożeniu MUSI zawieść. Kopie lokalne w cronie; `CEL_ZDALNY`
+      pusty, bo nie ma maszyny docelowej
 
 **Dodane 2026-08-25, czego ta lista nie miała:**
 
@@ -185,11 +207,12 @@ z przeszłości.
       dostępne z 2048 MB, przy działających cudzych aplikacjach.** Próg 800 MB
       nie zadziałał, sampling zostaje bez zmian. Pomiar jest w spoczynku —
       kontrola pod obciążeniem przy pierwszym runie (krok 5 `deploy/README.md`)
-- [ ] **Vhost nginx i rekord DNS dla `audyt.cxlabs.digital`** (D19) — doszło
+- [x] **Vhost nginx i rekord DNS dla `audyt.cxlabs.digital`** (D19) — doszło
       z pomiaru: serwer jest współdzielony, więc wystawienie panelu to zmiana
       w cudzej konfiguracji nginxa, nie własny proces na własnym porcie.
-      **Vhost postawiony i sprawdzony 2026-09-01** (`nginx -t`, cudze vhosty
-      nietknięte); **rekordu DNS nie ma** — do zrobienia w Cloudflare
+      **Zrobione 2026-09-02:** vhost stoi, rekord CNAME jest w **OVH** (nie
+      w Cloudflare — sprostowanie w D19), host podpięty u operatora Mikrusa,
+      certyfikat `CN=audyt.cxlabs.digital`. Cudze vhosty nietknięte
 
 **Wdrożenie wykonane 2026-09-01 — przebieg, dziewięć usterek i pomiary opisuje
 `05-WYKONANE.md`.** Poniżej tylko to, co ta lista mierzy.
@@ -202,5 +225,9 @@ z przeszłości.
 - [x] **`deploy/wdroz.sh` faktycznie wdraża** — przed 2026-09-01 przerywał
       na braku sudo, a wcześniej na kontroli `/health`, która pytała po IPv4,
       gdy aplikacja słuchała tylko po IPv6
-- [ ] **Konto zespołu** — w bazie 0 kont, więc nie ma jak się zalogować
-- [ ] **`MONDAY_TOKEN` i SMTP** — puste; oba są po stronie człowieka
+- [x] **Konto zespołu** — dwa konta, potwierdzone zalogowaniem
+- [x] **`MONDAY_TOKEN` niepotrzebny** — czytany tylko w `cli.py` i `cli_agent.py`,
+      w `web/api.py` nie występuje. Panel bierze klucz z przeglądarki, więc puste
+      pole jest poprawnym stanem końcowym, nie brakiem
+- [ ] **SMTP** — puste świadomie: konta zakłada CLI, który wypisuje hasło.
+      Potrzebne, gdy odzyskanie hasła ma nie wymagać dostępu do serwera (O29)

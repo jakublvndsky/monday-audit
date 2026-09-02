@@ -153,9 +153,9 @@ i **wypada pierwsza** przy cięciu zakresu.
 
 ---
 
-## O6. Co jeszcze chodzi na Mikrusie — ZMIERZONE 2026-09-01, rezerwa 1390 MB
+## O6. Co jeszcze chodzi na Mikrusie — ZAMKNIĘTE 2026-09-02, szczyt 452 MB
 
-**Status:** zmierzone na serwerze docelowym; zostaje kontrola pod obciążeniem
+**Status:** ZAMKNIĘTE — zmierzone w spoczynku i pod obciążeniem
 **Blokuje:** nic — próg 800 MB nie zadziałał
 
 Założenie: ~360 MB w spoczynku, ~720 MB w szczycie runu. Przy 2 GB
@@ -220,10 +220,23 @@ z sześcioma vhostami, dwie aplikacje na PM2, n8n w Dockerze, dwie usługi Pytho
 na pętli zwrotnej. Założenie z tego wpisu — „2 GB dzielone z innymi aplikacjami
 CXLABS" — okazało się dokładnie trafne. Konsekwencje architektoniczne: **D19**.
 
-**Co zostaje.** Pomiar jest w spoczynku. Cudze procesy rosną niezależnie od nas
-i nic nie gwarantuje, że ich szczyt wypadnie w innym momencie niż nasz. Kontrola
-pod obciążeniem — w trakcie pierwszego prawdziwego runu, krok 5
-`deploy/README.md`.
+**DOMKNIĘTE 2026-09-02 pomiarem pod obciążeniem.** 201 próbek co 3 s przez cały
+run (18 znalezisk, 1063 s pracy agenta):
+
+| | wartość | odniesienie |
+|---|---|---|
+| **szczyt cgroupy usługi** | **452 MB** | budżet projektowy ~720 MB ✅ |
+| minimum wolnej pamięci | **1130 MB** | próg z tego wpisu: 800 MB ✅ |
+| swap użyty | **0 MB** | dotyczy O25 |
+
+**Najważniejsze nie jest to, że się mieści, a że pomiar z macOS-a był zaniżony
+o 60%** — 280 MB wobec 452 MB na Linuksie. Na planie 1.0 (384 MB RAM) ten run
+w ogóle by się nie zmieścił, więc decyzja o 2.1 była słuszna **przypadkiem**,
+nie z dobrego powodu. Wniosek szerszy niż ten wpis: pomiar RSS z macOS-a nie
+przenosi się na Linuksa nawet w rzędzie wielkości narzutu.
+
+`systemd` 249 (Ubuntu 22.04) nie udostępnia `MemoryPeak` — to od 253. Szczytu
+nie da się odczytać po fakcie, trzeba próbkować w trakcie.
 
 ## O7. Koszt licencji u klienta
 
@@ -1071,9 +1084,15 @@ wokół klucza o pełnych uprawnieniach.
 Czyli maszyna **ma gdzie** wypchnąć stronę pamięci z kluczem klienta, a run jest
 najcięższym momentem, więc też najbardziej prawdopodobnym.
 
-Punkt 1 jest częściowo załatwiony: `LimitCORE=0` w jednostce systemd. Czy
-`systemd-coredump` nie zbiera zrzutów niezależnie — nadal do sprawdzenia,
-i to na tej konkretnej maszynie.
+**Punkt 1 ZAMKNIĘTY 2026-09-02.** `LimitCORE=0` w jednostce (potwierdzone
+przez `systemctl show`), `systemd-coredump` na tej maszynie **nie istnieje**,
+a `kernel.core_pattern = core` — czyli zrzut poszedłby do katalogu roboczego,
+gdyby limit go nie blokował. Zrzut z kluczem klienta nie powstanie.
+
+**Punkt 2 zmierzony, ale nie zamknięty.** Swap jest (2 GB), lecz przez dwa runy
+produkcyjne **nie użyto ani 1 MB** — przy 1130 MB wolnej pamięci maszyna nie
+miała powodu swapować. To zdejmuje praktyczną ostrość, nie samo ryzyko: run na
+koncie znacznie większym niż CXLABS może tę rezerwę zjeść.
 
 Nic z tego nie zmienia wniosku: właściwą odpowiedzią jest OAuth z ograniczonym
 zakresem (aneks do D11), nie kolejna warstwa ostrożności wokół klucza o pełnych

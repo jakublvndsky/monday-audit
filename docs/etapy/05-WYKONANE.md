@@ -23,8 +23,10 @@
 | RAM usługi | 63 MB w spoczynku; 1317 MB wolne na maszynie |
 | dysk | `.venv` 307 MB + interpreter 108 MB + cache; 15 GB wolne |
 
-**Panel nie jest jeszcze używalny** i to nie jest usterka, tylko brak dwóch
-kroków po stronie człowieka — patrz „Czego nie zrobiłem".
+> Tabela wyżej to stan z 2026-09-01, gdy panel jeszcze nie był używalny.
+> **Domknięcie etapu i wszystkie pomiary z 2026-09-02 są na końcu pliku** —
+> adres publiczny, dwa runy produkcyjne, zamknięcie O6 i trzy usterki, które
+> wyszły dopiero z prawdziwego runu.
 
 ---
 
@@ -291,14 +293,137 @@ nginx -t                                   # przed każdym reloadem
 
 ---
 
-## Co zostaje otwarte po tym wdrożeniu
+## Domknięcie 2026-09-02 — dwa runy produkcyjne i koniec etapu
+
+### Adres publiczny działa
+
+`https://audyt.cxlabs.digital`, certyfikat `CN=audyt.cxlabs.digital` od Google
+Trust Services. Panel, statyki i `/api/ja` (401 bez sesji) sprawdzone z zewnątrz.
+Dwa konta zespołu, `audit` usunięty z `server_name` razem z rekordem DNS.
+
+### Kopie zapasowe: lokalne, świadomie niepełne
+
+Katalog `700`, kopia `600` po gzipie, cron 03:15, retencja 14 sztuk.
+Uruchomione **dokładnie tak, jak zrobi to cron** — i to wyciągnęło usterkę:
+linia z README przekierowywała log do `/var/log/`, zapisywalnego tylko dla grupy
+`syslog`. Przekierowanie `>>` zawodzi PRZED uruchomieniem skryptu, czyli kopia
+nie powstaje i nie ma o tym żadnego śladu.
+
+`CEL_ZDALNY` pusty, bo nie ma maszyny docelowej. Kopia chroni przed złą migracją
+i przypadkowym `DELETE`, **nie** przed utratą dysku. Skrypt mówi to przy każdym
+uruchomieniu.
+
+**Test odtworzenia przechodzi** (kod 0) — ale dopiero po pierwszym runie.
+Wymaga niezerowych `snapshots` i `runy`, więc na świeżym wdrożeniu MUSI zawieść,
+a README kazał go zrobić „przed pierwszym audytem klienta".
+
+### Dwa runy: 12 i 18 znalezisk
+
+| | run 1 | run 2 |
+|---|---|---|
+| znaleziska | 12 | 18 |
+| hipotezy odrzucone | 11 | 19 |
+| sygnały | 24 | 38 |
+| koszt | 1,54 USD | 2,29 USD |
+| czas agenta | 684 s | 1063 s |
+
+Oba `klucz_klienta`, oba bez tracebacków. Różnica liczby znalezisk na tym samym
+koncie **dotyka O34** (powtarzalność 0,797 przy progu 0,8) — z dwóch runów
+o różnym zakresie sygnałów nie wyciągamy o niej wniosku, ale to ten obszar.
+
+### O6 ZAMKNIĘTE — i pomiar z macOS-a był zaniżony o 60%
+
+201 próbek co 3 s przez cały run drugi:
+
+| | wartość | odniesienie |
+|---|---|---|
+| **szczyt cgroupy usługi** | **452 MB** | budżet projektowy ~720 MB ✅ |
+| minimum wolnej pamięci | **1130 MB** | próg z O6: 800 MB ✅ |
+| swap użyty | **0 MB** | — |
+
+**Wniosek ważniejszy niż same liczby:** macOS pokazywał szczyt ~280 MB, Linux
+452 MB. Na planie 1.0 (384 MB RAM) ten run **by się nie zmieścił**, a decyzja
+o 2.1 stała wyłącznie na pomiarze z macOS-a — była więc słuszna przypadkiem,
+nie z dobrego powodu. `systemd` 249 nie ma `MemoryPeak`, więc szczytu nie da się
+odczytać po fakcie; trzeba próbkować w trakcie.
+
+Zerowy swap zdejmuje praktyczną ostrość z punktu 2 w O25: strona z kluczem
+klienta mogła trafić na dysk tylko przy swapowaniu, a przy 1130 MB rezerwy
+maszyna nie swapowała.
+
+### Usterka dziesiąta: `prompt_hash` na ścieżce panelu
+
+Weryfikacja DoD na pierwszym runie pokazała `runy.prompt_hash` puste.
+`cli_agent.py` wstawia dziewięć kolumn, `web/run.py` wstawiał siedem — bez tej.
+Ścieżką produkcyjną jest panel.
+
+**Trzecia kopia tej samej usterki.** `agent.py` opisuje: „do 2026-08-05
+`runy.prompt_hash` był NULL we WSZYSTKICH runach, bo nic go nie ustawiało" —
+naprawionej wtedy tylko w CLI, bo panel nie dochodził do zapisu. Obok, w tym
+samym pliku, stoi komentarz o dwóch innych usterkach, które przeżyły z dokładnie
+tego samego powodu.
+
+Naprawione razem z drugim źródłem prawdy: `model` brany ze stałej `agent.MODEL`
+zamiast z literału. Test regresyjny sprawdza **skutek w bazie, nie treść SQL-a**,
+i został zweryfikowany w obie strony. Potwierdzone na runie drugim:
+`prompt_hash = ca3cb58cccb02d0b`, zgodny z `hash_promptu()` z repo.
+
+**Czego NIE zrobiłem:** nie wpisałem hasha wstecz do runu pierwszego. Run
+policzony promptem, którego hasha nie zapisano, a potem uzupełniony „tym, co jest
+dziś w pliku", wyglądałby na przypięty, nie będąc nim. NULL uczciwie mówi
+„nie wiadomo".
+
+**Pomyłka po mojej stronie:** zgłosiłem też `cennik_ver` jako bug. Nie jest —
+`web/run.py:401` ustawia je warunkowo, a w bazie jest zero stawek, więc puste
+jest zachowaniem WYMAGANYM przez specyfikację („run bez kwot zostaje z NULL,
+żeby nie pinować cudzej daty"). Brak stawek to O28.
+
+### Serwer nie mógł pobrać kodu, choć repo jest publiczne
+
+Wdrożenie poprawki przerwało się na `could not read Username for
+'https://github.com'`. Prześledzone: pierwsze żądanie 200, drugie **401**
+z `www-authenticate: Basic realm="GitHub"`. `curl` na ten sam adres z tego
+samego serwera dostaje 200, a anonimowy `ls-remote` z innego IP działa.
+
+Czyli GitHub odmawia anonimowego `git-upload-pack` z adresu tej maszyny —
+najpewniej limit dla współdzielonego IPv4 Mikrusa. Mechanizmu nie potwierdzimy
+bez logów GitHuba i **nie ma to znaczenia**: anonimowy dostęp zależy od cudzego
+ruchu z tego samego adresu, więc wdrożenie nie może na nim stać. Remote
+przełączony na SSH z kluczem wdrożeniowym read-only; klucz hosta przypięty po
+porównaniu odcisku z `api.github.com/meta`, nie na ślepo z `ssh-keyscan`.
+
+Objaw jest mylący i dlatego opisany w README osobno: wygląda na brak uprawnień
+do repo, a repo jest publiczne.
+
+### `wdroz.sh` restartował usługę bez patrzenia na kolejkę
+
+Ostrzeżenie „restart w trakcie analizy niszczy audyt — sprawdź `zadania`" stało
+w README, w sekcji „co zostaje otwarte". Czyli pilnowanie tego było zadaniem
+człowieka, który właśnie uruchomił automat, żeby nie musieć niczego pilnować.
+Skrypt sprawdza teraz stany `w_kolejce`/`zbieram`/`analizuje` i przerywa,
+wypisując zadania, które by zginęły.
+
+### Baza była czytelna dla wszystkich
+
+`monday_audit.db` miał `-rw-r--r--`, bo SQLite tworzy plik z domyślną umask.
+W środku `osoby_mapowanie`, hasze haseł i tokeny sesji, na maszynie dzielonej
+z sześcioma cudzymi aplikacjami. Naprawione przez `UMask=0077` w jednostce,
+nie samym `chmod` — umask obejmuje też przyszłe pliki i `raporty/`.
+
+---
+
+## Co zostaje otwarte po tym etapie
 
 | pozycja | stan |
 |---|---|
-| **O6** | zamknięte pomiarem; zostaje kontrola pod obciążeniem w trakcie pierwszego runu |
+| **O6** | **ZAMKNIĘTE** — szczyt 452 MB pod obciążeniem, rezerwa 1130 MB |
 | **O23** | nietknięte — do rozstrzygnięcia **brak kont klientów** |
-| **O25** | swap istnieje (2 GB), więc punkt 2 jest realny. `systemd-coredump` nadal do sprawdzenia na tej maszynie |
-| **O29** | SMTP puste |
+| **O25** | punkt 1 zamknięty (`LimitCORE=0`, brak `systemd-coredump`, `core_pattern=core`). Punkt 2: swap jest, ale przy dwóch runach nie użyto ani 1 MB |
+| **O28** | zero stawek w bazie, więc findingi wyceniane kwotą wychodzą bez kwoty, a `cennik_ver` zostaje NULL |
+| **O29** | SMTP puste — świadomie: konta zakłada CLI, który wypisuje hasło |
+| **O34** | dwa runy na tym samym koncie: 12 i 18 znalezisk. Różne zakresy sygnałów, więc nie jest to pomiar powtarzalności — ale to ten obszar |
+| kopie poza serwer | `CEL_ZDALNY` pusty, brak maszyny docelowej. Do obcego magazynu potrzebne szyfrowanie, którego `backup.sh` nie ma |
+| monitoring `/health` | **nikt go nie pyta.** Endpoint jest dobry, brakuje obserwatora — etap 6 |
 | zapora | `nftables` z `policy accept` i zero reguł. Przy nasłuchu na pętli zwrotnej nas to nie dotyczy, ale dotyczy maszyny |
-| kolejka zadań | audyt żyje w wątku procesu — **restart w trakcie analizy ją niszczy**. `wdroz.sh` tego nie sprawdza |
-| pierwszy run produkcyjny | niewykonany; przed czymkolwiek dla klienta brama promocji (`evals/brama.py`) |
+| brama promocji | złoty zestaw jest dla snapshotu `acme`, nie dla runów CXLABS — do przemyślenia przed pierwszym klientem |
+| podgląd przed runem | `[WARNING] podgląd dla cxlabs nie wyszedł: ZapytanieError` — audyt przeszedł, podgląd nie |
