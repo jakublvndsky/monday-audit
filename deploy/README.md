@@ -220,10 +220,56 @@ czy któreś wywołanie panelu tyle trwa.
 
 ## 3. Kod, sekrety, baza
 
+### Najpierw klucz wdrożeniowy — anonimowy HTTPS tu nie wystarcza
+
+Repo jest publiczne, więc `git clone https://…` wygląda na wystarczające.
+**Nie jest** — sprawdzone 2026-09-02. Z tego serwera anonimowy `git-upload-pack`
+dostaje od GitHuba **401** i `www-authenticate: Basic realm="GitHub"`, przez co
+`git pull` pyta o hasło i przerywa wdrożenie. Pierwsze żądanie (`info/refs`)
+przechodzi z kodem 200, dopiero drugie jest odrzucane — a `curl` na ten sam
+adres dostaje 200, więc objaw wygląda na problem z uprawnieniami do repo i nim
+nie jest.
+
+Ten sam anonimowy `ls-remote` z innego adresu IP działa. Najprawdopodobniej to
+limit GitHuba dla współdzielonego IPv4 Mikrusa, na którym siedzi wiele
+kontenerów. Mechanizmu nie potwierdzimy bez logów GitHuba i **nie ma to
+znaczenia**: anonimowy dostęp jest kruchy i zależy od cudzego ruchu z tego
+samego adresu, więc wdrożenie nie może na nim stać.
+
+```bash
+# Klucz BEZ hasła — usługa pobiera kod bez człowieka przy klawiaturze.
+# Dlatego w GitHubie dodaj go jako Deploy key TEGO repo, `Allow write access`
+# WYŁĄCZONE: wyciek daje wtedy tyle, ile i tak jest jawne.
+sudo -u audyt install -d -m 700 /home/audyt/.ssh
+sudo -u audyt ssh-keygen -t ed25519 -N "" -C "deploy-monday-audit@$(hostname)" \
+    -f /home/audyt/.ssh/id_ed25519
+
+# Klucz hosta przypinamy PO SPRAWDZENIU odcisku u źródła, nie na ślepo:
+# ssh-keyscan bierze to, co przyjdzie po sieci, a api.github.com/meta podaje
+# odciski po HTTPS z certyfikatem.
+curl -s https://api.github.com/meta | grep -A4 ssh_key_fingerprints
+ssh-keyscan -t ed25519 github.com | sudo -u audyt tee -a /home/audyt/.ssh/known_hosts
+sudo -u audyt ssh-keygen -lf /home/audyt/.ssh/known_hosts   # porównaj z SHA256_ED25519
+
+cat /home/audyt/.ssh/id_ed25519.pub    # to wklejasz w GitHubie
+```
+
+Sprawdzenie, że działa — ma odpowiedzieć nazwą repo, nie nazwą konta:
+
+```bash
+sudo -u audyt ssh -T git@github.com < /dev/null
+# Hi jakublvndsky/monday-audit! You've successfully authenticated…
+```
+
+`< /dev/null` nie jest ozdobą: bez tego `ssh` zjada resztę skryptu ze
+standardowego wejścia i kolejne polecenia po cichu nie wykonują się.
+
+### Dopiero teraz kod
+
 ```bash
 useradd -m -s /bin/bash audyt
 mkdir -p /opt/monday-audit && chown audyt:audyt /opt/monday-audit
-sudo -u audyt git clone https://github.com/jakublvndsky/monday-audit.git /opt/monday-audit
+sudo -u audyt git clone git@github.com:jakublvndsky/monday-audit.git /opt/monday-audit
 mkdir -p /var/cache/monday-audit && chown audyt:audyt /var/cache/monday-audit
 cd /opt/monday-audit && sudo -u audyt env \
     UV_PYTHON_INSTALL_DIR=/opt/monday-audit/.uv-python \
