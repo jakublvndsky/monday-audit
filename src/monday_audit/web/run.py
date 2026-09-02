@@ -37,7 +37,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from monday_audit.agent import zbadaj_hipotezy
+from monday_audit.agent import MODEL, hash_promptu, zbadaj_hipotezy
 from monday_audit.baza import RejestrWywolan, polacz
 from monday_audit.cennik import stawki_dla, wersja_uzytych
 from monday_audit.cli import zbuduj_zakres
@@ -365,7 +365,7 @@ async def _analizuj(
         run_agenta = f"{run_collectora}-agent"
         con.execute(
             "INSERT INTO runy (run_id, client_id, snapshot_id, status, started_at, model, "
-            "rubric_ver) VALUES (?, ?, ?, 'w_toku', ?, ?, ?)",
+            "rubric_ver, prompt_hash) VALUES (?, ?, ?, 'w_toku', ?, ?, ?, ?)",
             (
                 run_agenta,
                 client_id,
@@ -379,8 +379,28 @@ async def _analizuj(
                 # Obie przeżyły, bo żaden run z panelu nie doszedł jeszcze do
                 # zapisu (`runy` z sufiksem `-agent`: 0 wierszy). Zmierzone.
                 datetime.now(tz=UTC).isoformat(),
-                "claude-sonnet-5",
+                # `MODEL` z `agent`, nie literał. Do 2026-09-02 stało tu
+                # `"claude-sonnet-5"` wpisane ręcznie, czyli DRUGIE źródło prawdy
+                # obok `agent.MODEL`, z którego bierze domyślną wartość `--model`
+                # w CLI. `05-deploy.md` każe przepuszczać podniesienie wersji
+                # modelu przez bramę promocji — przy dwóch miejscach zmiana
+                # w jednym nie rusza drugiego i brama patrzy na inny model niż
+                # ten, który faktycznie liczy audyty klientów.
+                MODEL,
                 rubryka.wersja,
+                # `prompt_hash` — piąty element pinowania z `05-deploy.md`.
+                #
+                # Ta ścieżka NIE zapisywała go wcale, więc pierwszy run z panelu
+                # (2026-09-02, 12 znalezisk) ma tę kolumnę pustą. To POWTÓRZENIE
+                # usterki opisanej w `agent.py`: „do 2026-08-05 `runy.prompt_hash`
+                # był NULL we WSZYSTKICH runach, bo nic go nie ustawiało" —
+                # naprawionej wtedy tylko w `cli_agent`, bo panel jeszcze nie
+                # dochodził do zapisu.
+                #
+                # Bez tego runu sprzed zmiany promptu nie da się odróżnić od runu
+                # po zmianie, czyli porównywanie wyników przestaje cokolwiek
+                # znaczyć — a to jest jedyny powód, dla którego pinowanie istnieje.
+                hash_promptu(),
             ),
         )
         # Ślad po hipotezach, których wybór nie objął — w tabeli, którą panel

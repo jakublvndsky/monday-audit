@@ -526,6 +526,50 @@ def test_faza_druga_bada_tylko_zatwierdzony_zakres(
     assert "b2" not in obiekty, "faza druga zbadała tablicę spoza zgody"
 
 
+def test_run_z_panelu_pinuje_model_i_prompt(
+    baza: Path, monkeypatch: pytest.MonkeyPatch, atrapy_konfiguracji: None
+) -> None:
+    """Ścieżka panelu musi pinować to samo, co ścieżka CLI.
+
+    Regresja z 2026-09-02, znaleziona na PIERWSZYM runie produkcyjnym z panelu:
+    `runy.prompt_hash` był pusty, bo `web/run.py` nie wstawiał tej kolumny —
+    dokładne powtórzenie usterki opisanej w `agent.py` („do 2026-08-05
+    `prompt_hash` był NULL we WSZYSTKICH runach"), naprawionej wtedy tylko
+    w `cli_agent`, bo panel nie dochodził jeszcze do zapisu.
+
+    Test pilnuje SKUTKU w bazie, nie treści zapytania SQL: trzecia kopia tej
+    usterki wejdzie inną drogą niż dwie poprzednie.
+
+    `model` sprawdzany przez `is MODEL`, nie przez porównanie z napisem —
+    literał w teście zamieniłby jedno źródło prawdy na dwa, czyli powtórzyłby
+    błąd, który ten test ma wyłapywać.
+    """
+    from monday_audit.agent import MODEL, hash_promptu
+    from monday_audit.web import run as modul_run
+
+    async def atrapa_agenta(hipotezy: Any, **kwargs: Any) -> dict[str, Any]:
+        return {"findingi": [], "hipotezy_odrzucone": [], "zuzycie": {}, "per_hipoteza": []}
+
+    monkeypatch.setattr(modul_run, "zbadaj_hipotezy", atrapa_agenta)
+    monkeypatch.setattr(modul_run, "MondayClient", _AtrapaKlienta)
+    zadanie_id = zadanie_czekajace(baza)
+
+    modul_run.uruchom_analize_w_tle(
+        baza, zadanie_id, "cxlabs", ATRAPA_KLUCZA, ATRAPA_ANTHROPIC, frozenset({"b1"})
+    )
+
+    with contextlib.closing(polacz(baza)) as con:
+        wiersz = con.execute(
+            "SELECT model, rubric_ver, prompt_hash FROM runy WHERE run_id LIKE '%-agent'"
+        ).fetchone()
+
+    assert wiersz is not None, "run agenta nie trafił do `runy`"
+    model, rubric_ver, prompt_hash = wiersz
+    assert model == MODEL, "model nie jest pinowany ze stałej `agent.MODEL`"
+    assert rubric_ver, "rubric_ver pusty"
+    assert prompt_hash == hash_promptu(), "prompt_hash nie jest pinowany"
+
+
 class _AtrapaKlienta:
     """`MondayClient` bez sieci — faza druga tworzy go, choć agent jest atrapą."""
 
