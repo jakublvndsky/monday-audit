@@ -135,11 +135,15 @@ W panelu **OVH**, w strefie `cxlabs.digital`, rekord wygląda tak samo jak
 | pole | wartość |
 |---|---|
 | typ | `CNAME` |
-| nazwa | `audit` |
+| nazwa | `audyt` |
 | cel | `backend.strony.me.` |
 
-HTTPS pojawia się sam, bo `backend.strony.me` stoi za Cloudflare. Na originie
-nie ma i nie będzie certyfikatu.
+**Sam rekord DNS NIE wystarczy.** Host trzeba jeszcze **podpiąć u operatora
+Mikrusa** — to ono wydaje certyfikat dla tej konkretnej nazwy. Zmierzone
+2026-09-02: z rekordem DNS, ale bez podpięcia, `curl` kończy się
+`sslv3 alert handshake failure`, a nie 404. Po podpięciu certyfikat to
+`CN=audyt.cxlabs.digital` od Google Trust Services. Na originie nie ma
+i nie będzie żadnego certyfikatu.
 
 **Adres kanoniczny to `audyt.cxlabs.digital`, pisownia polska** — decyzja
 z 2026-09-02. Po drodze powstał najpierw rekord `audit` (angielski) i przez
@@ -156,32 +160,13 @@ dig @dns200.anycast.me audyt.cxlabs.digital A              # NXDOMAIN = rekordu 
 
 ### 2b. Vhost nginx
 
-Skopiuj kształt z `/etc/nginx/sites-enabled/demo` — to najprostszy działający
-przykład na tej maszynie. **Porty `listen` muszą się zgadzać z pozostałymi
-vhostami**, bo to przez nie Mikrus wpuszcza ruch; podejrzyj je, nie przepisuj
-z tego pliku.
+Gotowy plik jest w repo: **`deploy/nginx-audyt.conf`**, z komentarzami przy
+każdej nieoczywistej linii. Jedyne, co trzeba podmienić, to `NNNNN` — **port
+przekierowany musi się zgadzać z pozostałymi vhostami**, bo to przez niego
+Mikrus wpuszcza ruch. Podejrzyj go na maszynie, nie przepisuj z dokumentacji:
 
-```nginx
-# /etc/nginx/sites-available/audyt
-server {
-    listen 80;
-    listen [::]:80;
-    listen NNNNN;          # port przekierowany, TEN SAM co w pozostałych vhostach
-    listen [::]:NNNNN;
-    server_name audyt.cxlabs.digital;
-
-    # BEZ `default_server` — ten wpis ma już `docs` i dublowanie wywali nginx.
-
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host              $host;
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        # Do originu przychodzi HTTP. Bez tego aplikacja widzi `http`
-        # i nie ma jak się dowiedzieć, że klient jechał po HTTPS.
-        proxy_set_header X-Forwarded-Proto https;
-    }
-}
+```bash
+grep -h listen /etc/nginx/sites-enabled/* | sort -u
 ```
 
 Gotowy plik jest w repo: **`deploy/nginx-audyt.conf`** (jedyne, co trzeba w nim
