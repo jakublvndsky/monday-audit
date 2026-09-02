@@ -63,6 +63,43 @@ if [ ! -d front/dist ]; then
     echo "       Zbuduj front lokalnie (npm run build) i wypchnij." >&2
 fi
 
+echo "==> kolejka zadań"
+# Audyt żyje w WĄTKU procesu aplikacji — osobnego workera nie ma świadomie
+# (O6, budżet RAM). Restart w trakcie analizy niszczy go bezpowrotnie: klient
+# traci run, za który zapłacił własnym kluczem Anthropic, a snapshot zostaje
+# niedokończony. Do 2026-09-02 ten skrypt restartował usługę bez pytania,
+# a ostrzeżenie „sprawdź `zadania` przed restartem" stało tylko w README —
+# czyli pilnowanie tego było zadaniem człowieka, który właśnie uruchomił
+# automat, żeby nie musiał niczego pilnować.
+#
+# Ścieżkę bazy czytam JEDNĄ linią z pliku sekretów, zamiast go źródłować:
+# `source` wciągnąłby do środowiska także sól i tokeny, a stąd trafiłyby do
+# każdego podprocesu.
+PLIK_ENV="${PLIK_ENV:-/etc/monday-audit.env}"
+BAZA="${MONDAY_AUDIT_DB:-$(sed -n 's/^MONDAY_AUDIT_DB=//p' "$PLIK_ENV" 2>/dev/null | tail -1)}"
+
+if [ -n "$BAZA" ] && [ -r "$BAZA" ] && command -v sqlite3 >/dev/null 2>&1; then
+    W_TOKU=$(sqlite3 -readonly "$BAZA" \
+        "SELECT count(*) FROM zadania WHERE stan IN ('w_kolejce','zbieram','analizuje');" 2>/dev/null || echo "")
+    if [ -z "$W_TOKU" ]; then
+        echo "UWAGA: nie udało się odczytać kolejki z $BAZA — restartuję w ciemno." >&2
+    elif [ "$W_TOKU" -gt 0 ]; then
+        echo "BŁĄD: $W_TOKU zadanie/zadania w toku. Restart je zniszczy." >&2
+        echo "       Zaczekaj albo, jeśli wiesz co robisz: POMIN_KOLEJKE=1 $0" >&2
+        sqlite3 -readonly "$BAZA" \
+            "SELECT '       ' || id || '  ' || stan || '  ' || coalesce(etap,'') FROM zadania
+             WHERE stan IN ('w_kolejce','zbieram','analizuje');" >&2 2>/dev/null || true
+        [ "${POMIN_KOLEJKE:-}" = "1" ] || exit 1
+        echo "       POMIN_KOLEJKE=1 — restartuję mimo to." >&2
+    else
+        echo "    pusto, restart bezpieczny"
+    fi
+else
+    # Nie blokuję wdrożenia brakiem narzędzia diagnostycznego — ale mówię o tym
+    # głośno, bo cicha utrata tej kontroli jest dokładnie tym, co ją zepsuło.
+    echo "UWAGA: nie sprawdziłem kolejki (brak sqlite3 albo nieczytelna baza)." >&2
+fi
+
 echo "==> restart usługi"
 sudo systemctl restart "$USLUGA"
 
