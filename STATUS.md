@@ -5,9 +5,9 @@
 > Jeśli uważasz, że etap jest skończony — napisz to w odpowiedzi i zatrzymaj się.
 
 ```
-etap_biezacy: 3
-zatwierdzone_do: 2
-data_aktualizacji: 2026-07-29
+etap_biezacy: 6
+zatwierdzone_do: 5
+data_aktualizacji: 2026-09-02
 ```
 
 ## Stan etapów
@@ -16,10 +16,10 @@ data_aktualizacji: 2026-07-29
 |------|-------|------|
 | 1 | Requirements | ✅ zatwierdzony |
 | 2 | Design | ✅ zatwierdzony |
-| 3 | Build | 🔨 w toku |
-| 4 | Test / Eval | ⬜ zablokowany |
-| 5 | Deploy | ⬜ zablokowany |
-| 6 | Operate | ⬜ zablokowany |
+| 3 | Build | ✅ zatwierdzony |
+| 4 | Test / Eval | ✅ zatwierdzony |
+| 5 | Deploy | ✅ zatwierdzony |
+| 6 | Operate | 🔨 w toku |
 | 7 | Iterate | ⬜ zablokowany |
 
 ## Etap 3 — postęp funkcja po funkcji
