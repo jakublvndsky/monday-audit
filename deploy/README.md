@@ -169,9 +169,6 @@ Mikrus wpuszcza ruch. Podejrzyj go na maszynie, nie przepisuj z dokumentacji:
 grep -h listen /etc/nginx/sites-enabled/* | sort -u
 ```
 
-Gotowy plik jest w repo: **`deploy/nginx-audyt.conf`** (jedyne, co trzeba w nim
-podmienić, to `NNNNN` na port przekierowany).
-
 ```bash
 cp deploy/nginx-audyt.conf /etc/nginx/sites-available/audyt
 nano /etc/nginx/sites-available/audyt          # podmień NNNNN
@@ -368,8 +365,12 @@ systemctl enable --now monday-audit
 # Bez tego `deploy/wdroz.sh` przerwie na restarcie: działa jako `audyt`,
 # a restart wymaga roota. Reguła wymienia pełne polecenia, nie samo
 # `systemctl` — uzasadnienie w nagłówku pliku.
-install -m 440 -o root -g root deploy/sudoers-monday-audit /etc/sudoers.d/monday-audit
-visudo -c -f /etc/sudoers.d/monday-audit
+# Walidacja PRZED instalacją, nie po. Błąd składni w /etc/sudoers.d/ psuje
+# `sudo` dla WSZYSTKICH użytkowników maszyny — łącznie z tym, który miałby
+# to cofnąć. Sprawdzamy więc kopię w repo i dopiero sprawdzony plik kładziemy
+# na miejsce.
+visudo -c -f deploy/sudoers-monday-audit \
+    && install -m 440 -o root -g root deploy/sudoers-monday-audit /etc/sudoers.d/monday-audit
 ```
 
 **Sprawdź jednostkę przez `systemd-analyze verify`, nie tylko przez
@@ -468,8 +469,8 @@ ostrożności wokół klucza o pełnych uprawnieniach.
 
 ## 6. Kopie zapasowe
 
-**Trzy przygotowania jako root.** Dwa pierwsze to prawa, trzecie to plik,
-którego `audyt` nie może utworzyć sam:
+**Dwa przygotowania jako root.** Pierwsze to prawa, drugie to plik, którego
+`audyt` nie może utworzyć sam:
 
 ```bash
 # 700, bo w kopiach są dane osobowe pracowników klienta

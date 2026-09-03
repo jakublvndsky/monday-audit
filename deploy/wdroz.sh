@@ -46,6 +46,73 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
     exit 1
 fi
 
+# ── kolejka zadań ────────────────────────────────────────────────────────
+#
+# Audyt żyje w WĄTKU procesu aplikacji — osobnego workera nie ma świadomie
+# (O6, budżet RAM). Restart w trakcie analizy niszczy go bezpowrotnie: klient
+# traci run, za który zapłacił własnym kluczem Anthropic, a snapshot zostaje
+# niedokończony. Do 2026-09-02 ten skrypt restartował usługę bez pytania,
+# a ostrzeżenie „sprawdź `zadania` przed restartem" stało tylko w README —
+# czyli pilnowanie tego było zadaniem człowieka, który właśnie uruchomił
+# automat, żeby nie musiał niczego pilnować.
+#
+# Kontrola idzie DWA RAZY i to nie jest nadmiarowość.
+#
+# Pierwszy raz PRZED `git pull` i `uv sync`, bo one przepisują drzewo źródeł
+# i `.venv` POD DZIAŁAJĄCYM procesem — razem z 262 MB pliku `_bundled/claude`,
+# który agent uruchamia przy każdej hipotezie. Sprawdzanie dopiero przed
+# restartem przerywało wdrożenie już PO zniszczeniu runu, którego ta kontrola
+# ma bronić. (Tak to napisałem za pierwszym razem; złapane w przeglądzie kodu.)
+#
+# Drugi raz tuż przed restartem, bo run mógł wystartować w trakcie pobierania
+# kodu — okno jest krótkie, ale niezerowe.
+#
+# Ścieżkę bazy czytam JEDNĄ linią z pliku sekretów, zamiast go źródłować:
+# `source` wciągnąłby do środowiska także sól i tokeny, a stąd trafiłyby do
+# każdego podprocesu. Zdejmuję też ewentualne cudzysłowy — `KLUCZ="wartość"`
+# jest w plikach env normalne, a `[ -r ]` na ścieżce z cudzysłowami zawodzi
+# i kontrola po cichu degraduje się do „restartuję w ciemno".
+PLIK_ENV="${PLIK_ENV:-/etc/monday-audit.env}"
+BAZA="${MONDAY_AUDIT_DB:-$(sed -n 's/^MONDAY_AUDIT_DB=//p' "$PLIK_ENV" 2>/dev/null \
+    | tail -1 | sed -e 's/^[\"'"'"']//' -e 's/[\"'"'"']$//')}"
+
+sprawdz_kolejke() {
+    kiedy="$1"
+    echo "==> kolejka zadań ($kiedy)"
+    if [ -z "$BAZA" ] || [ ! -r "$BAZA" ] || ! command -v sqlite3 >/dev/null 2>&1; then
+        # Nie blokuję wdrożenia brakiem narzędzia diagnostycznego — ale mówię
+        # o tym głośno, bo cicha utrata tej kontroli jest tym, co ją zepsuło.
+        echo "UWAGA: nie sprawdziłem kolejki (brak sqlite3 albo nieczytelna baza: ${BAZA:-?})." >&2
+        return 0
+    fi
+
+    w_toku=$(sqlite3 -readonly "$BAZA" \
+        "SELECT count(*) FROM zadania WHERE stan IN ('w_kolejce','zbieram','analizuje');" \
+        2>/dev/null || echo "")
+
+    if [ -z "$w_toku" ]; then
+        echo "UWAGA: nie udało się odczytać kolejki z $BAZA — idę dalej w ciemno." >&2
+        return 0
+    fi
+    if [ "$w_toku" -eq 0 ]; then
+        echo "    pusto"
+        return 0
+    fi
+
+    echo "BŁĄD: $w_toku zadanie/zadania w toku. Wdrożenie by je zniszczyło." >&2
+    sqlite3 -readonly "$BAZA" \
+        "SELECT '       ' || id || '  ' || stan || '  ' || coalesce(etap,'') FROM zadania
+         WHERE stan IN ('w_kolejce','zbieram','analizuje');" >&2 2>/dev/null || true
+    if [ "${POMIN_KOLEJKE:-}" = "1" ]; then
+        echo "       POMIN_KOLEJKE=1 — idę dalej mimo to." >&2
+        return 0
+    fi
+    echo "       Zaczekaj albo, jeśli wiesz co robisz: POMIN_KOLEJKE=1 $0" >&2
+    exit 1
+}
+
+sprawdz_kolejke "przed pobraniem kodu"
+
 echo "==> pobieram kod"
 git pull --ff-only
 
@@ -63,42 +130,7 @@ if [ ! -d front/dist ]; then
     echo "       Zbuduj front lokalnie (npm run build) i wypchnij." >&2
 fi
 
-echo "==> kolejka zadań"
-# Audyt żyje w WĄTKU procesu aplikacji — osobnego workera nie ma świadomie
-# (O6, budżet RAM). Restart w trakcie analizy niszczy go bezpowrotnie: klient
-# traci run, za który zapłacił własnym kluczem Anthropic, a snapshot zostaje
-# niedokończony. Do 2026-09-02 ten skrypt restartował usługę bez pytania,
-# a ostrzeżenie „sprawdź `zadania` przed restartem" stało tylko w README —
-# czyli pilnowanie tego było zadaniem człowieka, który właśnie uruchomił
-# automat, żeby nie musiał niczego pilnować.
-#
-# Ścieżkę bazy czytam JEDNĄ linią z pliku sekretów, zamiast go źródłować:
-# `source` wciągnąłby do środowiska także sól i tokeny, a stąd trafiłyby do
-# każdego podprocesu.
-PLIK_ENV="${PLIK_ENV:-/etc/monday-audit.env}"
-BAZA="${MONDAY_AUDIT_DB:-$(sed -n 's/^MONDAY_AUDIT_DB=//p' "$PLIK_ENV" 2>/dev/null | tail -1)}"
-
-if [ -n "$BAZA" ] && [ -r "$BAZA" ] && command -v sqlite3 >/dev/null 2>&1; then
-    W_TOKU=$(sqlite3 -readonly "$BAZA" \
-        "SELECT count(*) FROM zadania WHERE stan IN ('w_kolejce','zbieram','analizuje');" 2>/dev/null || echo "")
-    if [ -z "$W_TOKU" ]; then
-        echo "UWAGA: nie udało się odczytać kolejki z $BAZA — restartuję w ciemno." >&2
-    elif [ "$W_TOKU" -gt 0 ]; then
-        echo "BŁĄD: $W_TOKU zadanie/zadania w toku. Restart je zniszczy." >&2
-        echo "       Zaczekaj albo, jeśli wiesz co robisz: POMIN_KOLEJKE=1 $0" >&2
-        sqlite3 -readonly "$BAZA" \
-            "SELECT '       ' || id || '  ' || stan || '  ' || coalesce(etap,'') FROM zadania
-             WHERE stan IN ('w_kolejce','zbieram','analizuje');" >&2 2>/dev/null || true
-        [ "${POMIN_KOLEJKE:-}" = "1" ] || exit 1
-        echo "       POMIN_KOLEJKE=1 — restartuję mimo to." >&2
-    else
-        echo "    pusto, restart bezpieczny"
-    fi
-else
-    # Nie blokuję wdrożenia brakiem narzędzia diagnostycznego — ale mówię o tym
-    # głośno, bo cicha utrata tej kontroli jest dokładnie tym, co ją zepsuło.
-    echo "UWAGA: nie sprawdziłem kolejki (brak sqlite3 albo nieczytelna baza)." >&2
-fi
+sprawdz_kolejke "przed restartem"
 
 echo "==> restart usługi"
 sudo systemctl restart "$USLUGA"

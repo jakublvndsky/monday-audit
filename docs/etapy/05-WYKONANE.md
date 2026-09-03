@@ -407,8 +407,15 @@ wypisując zadania, które by zginęły.
 
 `monday_audit.db` miał `-rw-r--r--`, bo SQLite tworzy plik z domyślną umask.
 W środku `osoby_mapowanie`, hasze haseł i tokeny sesji, na maszynie dzielonej
-z sześcioma cudzymi aplikacjami. Naprawione przez `UMask=0077` w jednostce,
-nie samym `chmod` — umask obejmuje też przyszłe pliki i `raporty/`.
+z sześcioma cudzymi aplikacjami.
+
+Naprawione **dwoma krokami, bo jeden nie wystarczał**: `UMask=0077` w jednostce
+obejmuje pliki tworzone od teraz (w tym `raporty/`, gdzie findingi są po
+deanonimizacji), ale **nie zmienia praw pliku, który już istniał** — ten
+dostał osobne `chmod 600`. Potwierdzone na serwerze: `-rw------- audyt audyt`.
+
+Na świeżym wdrożeniu sam `UMask` wystarcza, bo bazę tworzy usługa. Przy
+wdrożeniu istniejącym trzeba obu.
 
 ---
 
