@@ -1,6 +1,38 @@
 # Etap 6 — Operate
 
-**Stan: zablokowany do zamknięcia etapu 5.**
+**Stan: bieżący od 2026-09-02**, po zatwierdzeniu etapu 5.
+
+---
+
+## Kolejka zerowa: domknięcie długu z etapu 5
+
+**Zanim w tym etapie powstanie cokolwiek nowego, zamykamy pięć rzeczy
+przeniesionych z wdrożenia.** Decyzja z 2026-09-02. Powód jest prosty:
+etap 5 został zatwierdzony jako *wdrożony*, nie jako *gotowy do obsługi
+klienta* — a te pięć pozycji to dokładnie różnica między jednym a drugim.
+
+Pełny opis każdej: `05-WYKONANE.md`, sekcja „Co zostaje otwarte po tym etapie".
+
+### Trzy blokery przed pierwszym klientem
+
+| # | co | kto rozstrzyga | dlaczego to nie jest usterka do naprawienia komendą |
+|---|---|---|---|
+| **Z1** | **O23** — cztery pytania o dane osobowe pod URL-em: wygasanie dostępu, kasowanie konta po zakończeniu relacji, logi wejść, nazwiska w adresie | **człowiek** | Dopóki otwarte, panel jest tylko dla zespołu, a `--dodaj-klienta` zostaje nieużywane. Komenda działa i nikt jej nie zablokował — to decyzja, nie mechanizm |
+| **Z2** | **Baseline dla bramy promocji** — złoty zestaw jest dla snapshotu `acme`, nie dla runów CXLABS | **człowiek**, potem ja | Brama istnieje jako skrypt i przeszła na prawdziwym runie, ale dziś **nie ma czego przepuścić**. Specyfikacja mówi „uruchom przed czymkolwiek dla klienta" — bez baselinu ten warunek jest niewykonalny, a nie spełniony |
+| **Z3** | **Kopia zapasowa poza serwerem** | **człowiek** (maszyna albo magazyn), potem ja | Snapshoty są niemutowalne i są jedynym źródłem case studies z liczbami; ich utrata jest nieodwracalna. Dziś kopia leży na tym samym dysku co oryginał. Do obcego magazynu potrzebne szyfrowanie, którego `backup.sh` nie ma — to zmiana w kodzie, nie w konfiguracji |
+
+### Dwie pozycje operacyjne, które i tak należą do tego etapu
+
+| # | co | stan |
+|---|---|---|
+| **Z4** | **Nikt nie pyta `/health`** | Endpoint jest dobry — własne połączenie z bazą, bez sesji, nic o klientach. Brakuje **obserwatora**. Usługa ma `Restart=on-failure`, ale po pięciu nieudanych próbach systemd przestaje próbować i nikt się o tym nie dowie |
+| **Z5** | **`nftables` z `policy accept` i zero reguł** | Panel słucha na pętli zwrotnej, więc nas to nie dotyka — ale dotyczy maszyny dzielonej z sześcioma cudzymi aplikacjami. Do zgłoszenia właścicielowi, niekoniecznie do naprawienia przez nas |
+
+### Czego ta kolejka NIE obejmuje
+
+Reszta tego dokumentu — obserwowalność, guardrailsy runtime, playbook incydentów
+— zostaje bez zmian i jest właściwą treścią etapu 6. Kolejka zerowa jest długiem,
+nie zakresem.
 
 ---
 
@@ -100,6 +132,16 @@ to darmowy przypadek testowy.
 ---
 
 ## Definition of Done — etap 6
+
+**Kolejka zerowa (dług z etapu 5) — przed resztą:**
+
+- [ ] **Z1** — O23 rozstrzygnięte albo świadomie odroczone z zapisanym warunkiem
+- [ ] **Z2** — baseline bramy promocji wskazany; brama przechodzi na runie CXLABS
+- [ ] **Z3** — kopia zapasowa poza serwerem, z testem odtworzenia z tamtego celu
+- [ ] **Z4** — coś pyta `/health` i krzyczy, gdy przestanie odpowiadać
+- [ ] **Z5** — brak reguł w `nftables` zgłoszony właścicielowi maszyny
+
+**Właściwy zakres etapu:**
 
 - [ ] Tabela `wywolania` zapisuje wszystkie pola
 - [ ] Pięć pytań z sekcji wyżej da się odpowiedzieć jednym zapytaniem SQL
