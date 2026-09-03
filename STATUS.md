@@ -5,9 +5,9 @@
 > Jeśli uważasz, że etap jest skończony — napisz to w odpowiedzi i zatrzymaj się.
 
 ```
-etap_biezacy: 5
-zatwierdzone_do: 4
-data_aktualizacji: 2026-09-01
+etap_biezacy: 3
+zatwierdzone_do: 2
+data_aktualizacji: 2026-07-29
 ```
 
 ## Stan etapów
