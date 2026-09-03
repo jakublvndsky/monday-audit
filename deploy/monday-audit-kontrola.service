@@ -1,0 +1,40 @@
+# Kontrola zdrowia panelu (Z4, etap 6). Uruchamiana przez timer, nie ciągle.
+#
+# `Type=oneshot`: to zadanie, nie usługa. Bez tego systemd uznałby zakończenie
+# skryptu za awarię i próbowałby go wskrzeszać.
+#
+# Nieudana kontrola kończy się kodem 1, więc jednostka wpada w stan `failed`
+# i widać ją w `systemctl --failed`. To jedyne miejsce, w którym awaria jest
+# widoczna BEZ czytania journala — dopóki nie ma czuwaka (`URL_CZUWAKA`).
+
+[Unit]
+Description=Kontrola zdrowia panelu audytu monday.com
+Documentation=file:///opt/monday-audit/deploy/kontrola-zdrowia.sh
+After=network-online.target monday-audit.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=audyt
+Group=audyt
+WorkingDirectory=/opt/monday-audit
+
+# `ADRES_PUBLICZNY` skrypt czyta sam z /etc/monday-audit.env, żeby nie mieć
+# drugiego źródła prawdy. `URL_CZUWAKA` dopisz TAM, nie tutaj: `systemctl show`
+# pokazuje `Environment=` każdemu na maszynie, a URL czuwaka jest sekretem —
+# kto go zna, może udawać, że serwer żyje.
+EnvironmentFile=-/etc/monday-audit.env
+
+ExecStart=/opt/monday-audit/deploy/kontrola-zdrowia.sh
+
+# Ta kontrola tylko czyta i wysyła żądania HTTP. Nie ma powodu, żeby mogła
+# cokolwiek zapisać.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+UMask=0077
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=monday-audit-kontrola

@@ -1,0 +1,23 @@
+# Timer kontroli zdrowia (Z4, etap 6). Kopiować do /etc/systemd/system/
+# razem z jednostką, potem `systemctl enable --now monday-audit-kontrola.timer`.
+
+[Unit]
+Description=Kontrola zdrowia panelu audytu co 5 minut
+
+[Timer]
+# Pięć minut to kompromis, nie liczba z sufitu. Krócej: audyt trwa kilkanaście
+# minut i sam w sobie obciąża maszynę dzieloną z sześcioma cudzymi aplikacjami,
+# a każde uruchomienie to dwa żądania HTTP, z czego jedno przez Cloudflare.
+# Dłużej: awaria wisi niezauważona pół godziny.
+OnBootSec=3min
+OnUnitActiveSec=5min
+
+# Bez tego wszystkie timery na maszynie budzą się w tej samej sekundzie.
+RandomizedDelaySec=30s
+
+# Nadrobienie po przestoju: jeśli maszyna była wyłączona, sprawdź od razu
+# po starcie zamiast czekać pełne pięć minut.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

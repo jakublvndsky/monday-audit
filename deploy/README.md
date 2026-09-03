@@ -433,6 +433,65 @@ Hasło wypisze się **raz**. Wymagana domena `@cxlabs.digital`.
 
 ---
 
+## 4b. Kontrola zdrowia — bo `Restart=on-failure` nikogo nie powiadamia
+
+Usługa sama się wskrzesza, ale **po pięciu nieudanych próbach w 10 minut systemd
+przestaje próbować** i nikt się o tym nie dowie. To pozycja **Z4** z etapu 6.
+
+```bash
+cp deploy/monday-audit-kontrola.service /etc/systemd/system/
+cp deploy/monday-audit-kontrola.timer   /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now monday-audit-kontrola.timer
+```
+
+**Kontrola:**
+
+```bash
+systemctl start monday-audit-kontrola.service   # jednorazowo, na żądanie
+journalctl -u monday-audit-kontrola -n 20 --no-pager
+systemctl list-timers monday-audit-kontrola.timer
+```
+
+Skrypt sprawdza **trzy rzeczy, nie jedną**:
+
+| co | co wykrywa |
+|---|---|
+| `/health` po pętli zwrotnej | martwa usługa, baza która się nie otwiera |
+| numer migracji vs liczba plików `.sql` w kodzie | baza w tyle za kodem — awaria cicha, bo panel wstaje, a zapytanie wywala się w trakcie audytu |
+| `/health` pod publicznym adresem | **całą drogę**: DNS, certyfikat, proxy operatora, nginx |
+
+Trzeci punkt jest osobny celowo. 2026-09-02 zdarzyło się dokładnie to, co on
+wykrywa: aplikacja odpowiadała lokalnie, a z zewnątrz przychodziło 404, bo host
+przestał być podpięty u operatora. Kontrola pytająca tylko lokalnie pokazałaby
+wtedy „wszystko w porządku".
+
+### Czego ta kontrola NIE potrafi — i co z tym zrobić
+
+Działa **na tej samej maszynie** co panel, więc **nie wykryje śmierci maszyny
+ani zerwanej sieci** — nie ma jej wtedy kto uruchomić. Monitor, który milczy
+razem z tym, co monitoruje, jest wart tyle, co jego brak.
+
+Domyka to **czuwak** (dead man's switch): serwer pinguje **na zewnątrz** po
+każdej udanej kontroli, a usługa zewnętrzna krzyczy, gdy pingi ustaną.
+Odwrócenie kierunku jest tu całą sztuczką — nie wymaga otwartych portów i łapie
+awarię, której lokalny monitor z definicji nie zgłosi.
+
+```
+URL_CZUWAKA=https://…        # w /etc/monday-audit.env, NIE w jednostce
+```
+
+W jednostce nie, bo `systemctl show` pokazuje `Environment=` każdemu na
+maszynie, a URL czuwaka jest sekretem: kto go zna, może pingować za serwer
+i udawać, że wszystko żyje.
+
+**Dopóki `URL_CZUWAKA` jest pusty, Z4 nie jest domknięte.** Wynik kontroli
+trafia wyłącznie do journala i do `systemctl --failed` — czyli tam, gdzie
+trzeba zajrzeć z własnej woli. Skrypt mówi to przy każdym uruchomieniu i ma
+mówić, dopóki czuwak nie zostanie skonfigurowany.
+
+---
+
 ## 5. RAM — O6 ZMIERZONE 2026-09-01, zostaje kontrola pod obciążeniem
 
 O6 było otwarte od początku projektu: *„realna rezerwa na Mikrusie"*. Pierwsze
