@@ -15,9 +15,12 @@ OnUnitActiveSec=5min
 # Bez tego wszystkie timery na maszynie budzą się w tej samej sekundzie.
 RandomizedDelaySec=30s
 
-# Nadrobienie po przestoju: jeśli maszyna była wyłączona, sprawdź od razu
-# po starcie zamiast czekać pełne pięć minut.
-Persistent=true
+# NIE MA tu `Persistent=true` i to nie jest przeoczenie: ono działa WYŁĄCZNIE
+# z `OnCalendar=` (systemd.timer(5): „only has an effect on timers configured
+# with OnCalendar="), a przy timerze monotonicznym systemd ignoruje je po cichu
+# — ta sama klasa pułapki co `StartLimitBurst` w sekcji [Service], na którą
+# projekt nadział się 2026-09-01 (patrz komentarz w monday-audit.service).
+# Nadrobienie po starcie maszyny robi `OnBootSec=` wyżej i to wystarcza.
 
 [Install]
 WantedBy=timers.target

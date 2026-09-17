@@ -19,6 +19,12 @@
 
 set -euo pipefail
 
+KATALOG_SKRYPTU="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# `czytaj_env` — jedna linia z pliku sekretów, bez źródłowania całości.
+# Wspólne z `kontrola-zdrowia.sh`; uzasadnienie w nagłówku `_env.sh`.
+# shellcheck source=deploy/_env.sh
+. "$KATALOG_SKRYPTU/_env.sh"
+
 KATALOG="${KATALOG_APLIKACJI:-/opt/monday-audit}"
 USLUGA="${USLUGA:-monday-audit}"
 PORT="${PORT:-8000}"
@@ -69,12 +75,12 @@ fi
 #
 # Ścieżkę bazy czytam JEDNĄ linią z pliku sekretów, zamiast go źródłować:
 # `source` wciągnąłby do środowiska także sól i tokeny, a stąd trafiłyby do
-# każdego podprocesu. Zdejmuję też ewentualne cudzysłowy — `KLUCZ="wartość"`
-# jest w plikach env normalne, a `[ -r ]` na ścieżce z cudzysłowami zawodzi
-# i kontrola po cichu degraduje się do „restartuję w ciemno".
+# każdego podprocesu. `czytaj_env` zdejmuje też ewentualne cudzysłowy —
+# `KLUCZ="wartość"` jest w plikach env normalne, a `[ -r ]` na ścieżce
+# z cudzysłowami zawodzi i kontrola po cichu degraduje się do „restartuję
+# w ciemno".
 PLIK_ENV="${PLIK_ENV:-/etc/monday-audit.env}"
-BAZA="${MONDAY_AUDIT_DB:-$(sed -n 's/^MONDAY_AUDIT_DB=//p' "$PLIK_ENV" 2>/dev/null \
-    | tail -1 | sed -e 's/^[\"'"'"']//' -e 's/[\"'"'"']$//')}"
+BAZA="${MONDAY_AUDIT_DB:-$(czytaj_env MONDAY_AUDIT_DB "$PLIK_ENV")}"
 
 sprawdz_kolejke() {
     kiedy="$1"

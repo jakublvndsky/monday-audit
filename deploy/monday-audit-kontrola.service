@@ -4,8 +4,11 @@
 # skryptu za awarię i próbowałby go wskrzeszać.
 #
 # Nieudana kontrola kończy się kodem 1, więc jednostka wpada w stan `failed`
-# i widać ją w `systemctl --failed`. To jedyne miejsce, w którym awaria jest
-# widoczna BEZ czytania journala — dopóki nie ma czuwaka (`URL_CZUWAKA`).
+# i widać ją w `systemctl --failed` — ale TYLKO DO NAJBLIŻSZEGO UDANEGO
+# PRZEJŚCIA. Pierwszy zielony przebieg, czyli najdalej pięć minut później,
+# kasuje ten stan: awaria, która minęła w nocy, nie zostawia tam rano śladu.
+# Trwały jest wyłącznie journal, a powiadomienie — dopiero czuwak
+# (`URL_CZUWAKA`). To nie jest monitoring, dopóki ten URL jest pusty.
 
 [Unit]
 Description=Kontrola zdrowia panelu audytu monday.com
@@ -19,13 +22,29 @@ User=audyt
 Group=audyt
 WorkingDirectory=/opt/monday-audit
 
-# `ADRES_PUBLICZNY` skrypt czyta sam z /etc/monday-audit.env, żeby nie mieć
-# drugiego źródła prawdy. `URL_CZUWAKA` dopisz TAM, nie tutaj: `systemctl show`
+# Bez `EnvironmentFile=`, i to jest decyzja. `ADRES_PUBLICZNY` oraz
+# `URL_CZUWAKA` skrypt czyta sam, po jednej linii, z /etc/monday-audit.env.
+# Wciągnięcie CAŁEGO pliku wstawiłoby do środowiska tej kontroli — i każdego
+# jej `curl`-a — także sól pseudonimizacji, `MONDAY_TOKEN` i klucz Anthropic,
+# czyli sekrety, których ona nie potrzebuje, na maszynie dzielonej z sześcioma
+# cudzymi aplikacjami (D19). `wdroz.sh` unika `source` z tego samego powodu.
+#
+# Obie zmienne trzymamy w pliku, a nie w `Environment=` tutaj: `systemctl show`
 # pokazuje `Environment=` każdemu na maszynie, a URL czuwaka jest sekretem —
 # kto go zna, może udawać, że serwer żyje.
-EnvironmentFile=-/etc/monday-audit.env
 
 ExecStart=/opt/monday-audit/deploy/kontrola-zdrowia.sh
+
+# `Type=oneshot` DOMYŚLNIE WYŁĄCZA limit czasu startu (systemd.service(5)).
+# Bez tej linii zawieszony `curl` — utknięty handshake TLS, zapchany resolver —
+# zostawiłby jednostkę w stanie `activating` na zawsze: nic nie trafia do
+# `systemctl --failed`, `OnUnitActiveSec=` nigdy nie odmierza kolejnego runu
+# i czuwak przestaje dostawać pingi. Monitor umiera po cichu, czyli dokładnie
+# tak, jak nagłówek skryptu zabrania.
+#
+# 180 s to budżet z zapasem na najgorszy przebieg: dwa przejścia po dwa żądania
+# (4 × LIMIT_S = 60 s), przerwa między nimi (PAUZA_S) i ping do czuwaka.
+TimeoutStartSec=180
 
 # Ta kontrola tylko czyta i wysyła żądania HTTP. Nie ma powodu, żeby mogła
 # cokolwiek zapisać.

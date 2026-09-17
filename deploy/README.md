@@ -458,13 +458,18 @@ Skrypt sprawdza **trzy rzeczy, nie jedną**:
 | co | co wykrywa |
 |---|---|
 | `/health` po pętli zwrotnej | martwa usługa, baza która się nie otwiera |
-| numer migracji vs liczba plików `.sql` w kodzie | baza w tyle za kodem — awaria cicha, bo panel wstaje, a zapytanie wywala się w trakcie audytu |
+| numer migracji w bazie vs **najwyższy numer** pliku `.sql` w kodzie | baza w tyle za kodem — awaria cicha, bo panel wstaje, a zapytanie wywala się w trakcie audytu |
 | `/health` pod publicznym adresem | **całą drogę**: DNS, certyfikat, proxy operatora, nginx |
 
 Trzeci punkt jest osobny celowo. 2026-09-02 zdarzyło się dokładnie to, co on
 wykrywa: aplikacja odpowiadała lokalnie, a z zewnątrz przychodziło 404, bo host
 przestał być podpięty u operatora. Kontrola pytająca tylko lokalnie pokazałaby
 wtedy „wszystko w porządku".
+
+Gdy cokolwiek zgłosi, **komplet idzie drugi raz** po krótkiej przerwie i dopiero
+to przejście jest werdyktem. Powód: `wdroz.sh` restartuje usługę, a timer potrafi
+trafić w to okno — a monitor, który raz na jakiś czas kłamie, przestaje być
+czytany.
 
 ### Czego ta kontrola NIE potrafi — i co z tym zrobić
 
@@ -481,14 +486,25 @@ awarię, której lokalny monitor z definicji nie zgłosi.
 URL_CZUWAKA=https://…        # w /etc/monday-audit.env, NIE w jednostce
 ```
 
+Pole czeka gotowe w `.env.example`, czyli w tym samym pliku, z którego powstaje
+`/etc/monday-audit.env` (krok 3).
+
 W jednostce nie, bo `systemctl show` pokazuje `Environment=` każdemu na
 maszynie, a URL czuwaka jest sekretem: kto go zna, może pingować za serwer
-i udawać, że wszystko żyje.
+i udawać, że wszystko żyje. Skrypt czyta tę zmienną — i `ADRES_PUBLICZNY` —
+sam, po jednej linii z pliku; jednostka **nie ma** `EnvironmentFile=`, bo
+wciągnęłaby do środowiska kontroli także sól i tokeny.
+
+**Zielony ping znaczy „cała droga sprawdzona".** Dlatego przy pustym
+`ADRES_PUBLICZNY` skrypt **nie pinguje** czuwaka, choćby pętla zwrotna
+odpowiadała: inaczej przez tydzień dostawałbyś zielono od monitora, który
+nie patrzy na nginx ani na DNS.
 
 **Dopóki `URL_CZUWAKA` jest pusty, Z4 nie jest domknięte.** Wynik kontroli
-trafia wyłącznie do journala i do `systemctl --failed` — czyli tam, gdzie
-trzeba zajrzeć z własnej woli. Skrypt mówi to przy każdym uruchomieniu i ma
-mówić, dopóki czuwak nie zostanie skonfigurowany.
+trafia wtedy wyłącznie do journala — bo `systemctl --failed` pokazuje awarię
+tylko do najbliższego udanego przejścia, czyli najdalej przez pięć minut.
+Skrypt mówi to przy każdym uruchomieniu i ma mówić, dopóki czuwak nie zostanie
+skonfigurowany.
 
 ---
 
