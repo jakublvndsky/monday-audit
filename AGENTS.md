@@ -49,7 +49,7 @@ Python 3.12, `uv`, `httpx` (collector **i** narzędzia agenta), Agent SDK
 na serwer idą gotowe pliki z `front/dist`.
 
 **Node NIE jest potrzebny w produkcji** (sprawdzone 2026-08-25): Agent SDK wozi
-własny plik wykonywalny `_bundled/Codex` i sprawdza go przed szukaniem w PATH.
+własny plik wykonywalny `_bundled/claude` i sprawdza go przed szukaniem w PATH.
 Node bierze udział tylko w `npm run build` na maszynie deweloperskiej.
 
 **Caddy wypadł ze stacku** (2026-08-25): Mikr.us to kontener LXC bez portu
@@ -68,6 +68,7 @@ nie przypadek.
 | Plik | Kiedy czytać |
 |---|---|
 | `STATUS.md` | zawsze, pierwszy |
+| `docs/HANDOFF_ETAP6.md` | **wejście do pracy nad wdrożeniem** — co stoi na produkcji, jak wdrażać, co zostało z kolejki zerowej, konfiguracja ręczna poza repo |
 | `docs/PODSUMOWANIE.md` | stan projektu bez kodu — gdy ktoś pyta „na czym stoimy" |
 | `docs/ZBUDOWANE.md` | **co już stoi i co zostało zmierzone** — zanim zaczniesz cokolwiek budować |
 | `docs/WYBOR_ZAKRESU.md` | wybór zakresu audytu: dwie bramki, flagi, podłoga kosztu, co niedokończone |
@@ -76,8 +77,10 @@ nie przypadek.
 | `docs/OTWARTE.md` | założenia niepotwierdzone — nie traktuj ich jako faktów |
 | `rubryka_znalezisk.yaml` | definicje klas znalezisk |
 | `docs/PROMPT_AGENTA.md` | prompt agenta produkcyjnego (runtime, nie build) |
+| `docs/HANDOFF_PORTAL.md` | makieta frontu portalu: ekrany, stany interfejsu, zawartość wyniku. **Świadomie bez kontraktu API** |
+| `docs/NOTATKA_PORTAL_DECYZJE.md` | decyzje do podjęcia przy wpinaniu audytu w portal — magazyn klucza, harmonogram, kolejka, baza. Należą do Kuby |
 
-Skille (`.Codex/skills/`) wczytują się same, gdy zadanie do nich pasuje.
+Skille (`.agents/skills/`) wczytują się same, gdy zadanie do nich pasuje.
 
 ## Zasada, gdy masz wątpliwość
 
