@@ -136,6 +136,67 @@ if [ ! -d front/dist ]; then
     echo "       Zbuduj front lokalnie (npm run build) i wypchnij." >&2
 fi
 
+# ── konfiguracja poza kodem ──────────────────────────────────────────────
+#
+# `wdroz.sh` wdraża KOD. Jednostki systemd, vhost nginxa i reguła sudo leżą
+# poza repo i nikt ich stąd nie kopiuje — świadomie: podmiana jednostki w środku
+# wdrożenia, na maszynie dzielonej z sześcioma cudzymi aplikacjami (D19), to zły
+# pomysł, a vhost wymaga podstawienia portu.
+#
+# Ale MILCZENIE o rozjeździe jest gorsze. 2026-09-21 commit ze zmianą w jednostce
+# kontroli i w jej timerze wjechał samym `wdroz.sh`: skrypt był nowy, jednostki
+# stare — bez limitu czasu, z `EnvironmentFile` wciągającym sól i tokeny do
+# każdego `curl`-a, z `Persistent=true`, które systemd i tak ignoruje. Wdrożenie
+# powiedziało „wdrożone" i miało rację co do kodu.
+#
+# Więc: porównujemy i mówimy. Nie instalujemy i nie przerywamy.
+porownaj() {
+    etykieta="$1"; zainstalowany="$2"; w_repo="$3"; normalizuj="${4:-}"
+
+    if [ ! -f "$w_repo" ]; then
+        return 0    # nie każde wdrożenie ma wszystkie elementy
+    fi
+    if [ ! -e "$zainstalowany" ]; then
+        echo "UWAGA: $etykieta — nie ma $zainstalowany, a repo ma $w_repo" >&2
+        ROZJAZD=$((ROZJAZD + 1))
+        return 0
+    fi
+    if [ ! -r "$zainstalowany" ]; then
+        # Reguła sudo ma prawa 440 root:root, a ten skrypt biegnie jako `audyt`.
+        # Mówimy, że NIE sprawdziliśmy — cicha utrata kontroli jest tym, co ją psuje.
+        echo "UWAGA: $etykieta — $zainstalowany nieczytelny dla $(id -un), NIE sprawdziłem" >&2
+        return 0
+    fi
+
+    if [ -n "$normalizuj" ]; then
+        roznica=$(diff -q <(sed "$normalizuj" "$zainstalowany") "$w_repo" >/dev/null 2>&1; echo $?)
+    else
+        roznica=$(diff -q "$zainstalowany" "$w_repo" >/dev/null 2>&1; echo $?)
+    fi
+    if [ "$roznica" != "0" ]; then
+        echo "UWAGA: $etykieta rozjechany — $zainstalowany != $w_repo" >&2
+        ROZJAZD=$((ROZJAZD + 1))
+    fi
+}
+
+echo "==> konfiguracja poza kodem"
+ROZJAZD=0
+porownaj "jednostka usługi"    /etc/systemd/system/monday-audit.service          deploy/monday-audit.service
+porownaj "jednostka kontroli"  /etc/systemd/system/monday-audit-kontrola.service deploy/monday-audit-kontrola.service
+porownaj "timer kontroli"      /etc/systemd/system/monday-audit-kontrola.timer   deploy/monday-audit-kontrola.timer
+porownaj "reguła sudo"         /etc/sudoers.d/monday-audit                       deploy/sudoers-monday-audit
+# Vhost ma podstawiony port przekierowany, więc porównujemy po zamianie go
+# z powrotem na `NNNNN`. Pięciocyfrowych liczb nie ma w tym pliku nic innego.
+porownaj "vhost nginx"         /etc/nginx/sites-available/audyt                  deploy/nginx-audyt.conf 's/[0-9]\{5\}/NNNNN/g'
+
+if [ "$ROZJAZD" -gt 0 ]; then
+    echo "UWAGA: $ROZJAZD element(y) konfiguracji poza kodem rozjechane z repo." >&2
+    echo "       Kod wdrożony, ale to NIE jest pełne wdrożenie — patrz deploy/README.md" >&2
+    echo "       (jednostki: cp + systemctl daemon-reload; vhost: podstaw port, nginx -t)" >&2
+else
+    echo "    zgodna z repo"
+fi
+
 sprawdz_kolejke "przed restartem"
 
 echo "==> restart usługi"

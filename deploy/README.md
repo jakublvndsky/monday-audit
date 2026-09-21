@@ -609,9 +609,33 @@ poprawną bazę — a to jest gorsze niż brak kopii, bo wygląda na kopię.
 cd /opt/monday-audit && sudo -u audyt ./deploy/wdroz.sh
 ```
 
-Skrypt: sprawdza brak lokalnych zmian → `git pull --ff-only` →
-`uv sync --frozen --no-dev` → restart → czeka na `/health` do 10 s.
-Przerywa przy pierwszym niepowodzeniu i mówi, co nie wyszło.
+Skrypt: sprawdza brak lokalnych zmian → **kolejkę zadań** → `git pull --ff-only`
+→ `uv sync --frozen --no-dev` → **kolejkę drugi raz** → **konfigurację poza
+kodem** → restart → czeka na `/health` do 10 s. Przerywa przy pierwszym
+niepowodzeniu i mówi, co nie wyszło.
+
+> **`wdroz.sh` wdraża KOD, nie konfigurację.** Jednostki systemd, vhost nginxa
+> i reguła sudo leżą poza repo i skrypt ich **nie kopiuje** — świadomie: podmiana
+> jednostki w środku wdrożenia, na maszynie dzielonej z sześcioma cudzymi
+> aplikacjami, to zły pomysł, a vhost wymaga podstawienia portu.
+>
+> Od 2026-09-21 skrypt przynajmniej **porównuje i mówi**, co się rozjechało.
+> Powód: commit ze zmianą w jednostce kontroli i w jej timerze wjechał samym
+> `wdroz.sh` — skrypt był nowy, jednostki stare (bez limitu czasu, z
+> `EnvironmentFile` wciągającym sól i tokeny do każdego `curl`-a). Wdrożenie
+> powiedziało „wdrożone" i miało rację co do kodu.
+>
+> Gdy zgłosi rozjazd, dołóż ręcznie:
+>
+> ```bash
+> cp deploy/monday-audit*.service deploy/monday-audit*.timer /etc/systemd/system/
+> systemctl daemon-reload && systemctl restart monday-audit-kontrola.timer
+> # vhost: podstaw port (patrz krok 2b), potem `nginx -t && systemctl reload nginx`
+> ```
+>
+> **Sprawdzaj skutek, nie wykonanie kroku:** `systemctl show <jednostka> -p <klucz>`,
+> nie zajrzenie do pliku. Tak wyszło, że `StartLimitBurst` stał w złej sekcji
+> i `Persistent=true` było ignorowane.
 
 **Przeczytaj go przed pierwszym uruchomieniem.** Restartuje usługę; skryptu,
 który to robi, nie testuje się na produkcji „na próbę".
