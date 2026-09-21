@@ -68,6 +68,7 @@ nie przypadek.
 | Plik | Kiedy czytać |
 |---|---|
 | `STATUS.md` | zawsze, pierwszy |
+| `docs/HANDOFF_ETAP6.md` | **wejście do pracy nad wdrożeniem** — co stoi na produkcji, jak wdrażać, co zostało z kolejki zerowej, konfiguracja ręczna poza repo |
 | `docs/PODSUMOWANIE.md` | stan projektu bez kodu — gdy ktoś pyta „na czym stoimy" |
 | `docs/ZBUDOWANE.md` | **co już stoi i co zostało zmierzone** — zanim zaczniesz cokolwiek budować |
 | `docs/WYBOR_ZAKRESU.md` | wybór zakresu audytu: dwie bramki, flagi, podłoga kosztu, co niedokończone |
@@ -76,6 +77,8 @@ nie przypadek.
 | `docs/OTWARTE.md` | założenia niepotwierdzone — nie traktuj ich jako faktów |
 | `rubryka_znalezisk.yaml` | definicje klas znalezisk |
 | `docs/PROMPT_AGENTA.md` | prompt agenta produkcyjnego (runtime, nie build) |
+| `docs/HANDOFF_PORTAL.md` | makieta frontu portalu: ekrany, stany interfejsu, zawartość wyniku. **Świadomie bez kontraktu API** |
+| `docs/NOTATKA_PORTAL_DECYZJE.md` | decyzje do podjęcia przy wpinaniu audytu w portal — magazyn klucza, harmonogram, kolejka, baza. Należą do Kuby |
 
 Skille (`.claude/skills/`) wczytują się same, gdy zadanie do nich pasuje.
 
