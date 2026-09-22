@@ -2198,3 +2198,53 @@ z wielkiej litery" zjadłby połowę nazw tablic.
 istnieje. `wejscie_analizy` wypisuje licznik trafień maskowania do dokumentu,
 więc widać, ile złapał — ale ta liczba nic nie mówi o nazwiskach, bo tych nie
 liczy. Zero trafień nie znaczy „czysto".
+
+---
+
+## O51. Dla monday Service nie rozpoznajemy lejka W OGÓLE
+
+**Status: ZMIERZONE 2026-09-22. Otwarte — brak taniej reguły.**
+**Dotyczy:** `itemy.py` (reguła lejka), `zestawienia.py`, wytyczne punkt 3
+
+Pełny przebieg po poprawkach pokazał, że rollup dla obsługi zgłoszeń jest
+**pusty, i to uczciwie pusty**:
+
+```
+SERVICE: 64 tablic (0 z lejkiem), 768 itemów
+         w toku 0, wygrane 0, odpadło 0, zamknięte 0
+         bez lejka 768
+```
+
+Reguła z O46 uznaje za lejek wyłącznie kolumny kanoniczne z szablonu monday
+CRM (`lead_status`, `deal_stage`). **Żadna tablica produktu `service` ich nie
+ma**, więc wszystkie 64 lądują w „bez rozpoznanego lejka". Wytyczne pytają
+„ile ticketów" i „ile zamknięć dziennie" — a my na to nie odpowiadamy.
+
+**Poprzednia wersja odpowiadała i było to gorsze:** liczyła rozkład po GRUPACH
+i raportowała `w toku 599, zamknięte 151`. Te liczby były zbudowane z nazw grup
+(`Do zrobienia`, `Available Assets`), nie z etapów. Wyglądały wiarygodnie
+i nie znaczyły nic.
+
+**Droga, która wydawała się oczywista, jest zamknięta.** Nasuwało się:
+„kolumna statusu z ustawionym `done_colors` (O48) to lejek, niezależnie od id".
+ZMIERZONE na próbce 75 tablic:
+
+```
+ma done_colors           57
+status bez done_colors    9
+bez kolumny statusu       9
+```
+
+`done_colors` ma **76% tablic**, bo to ustawienie DOMYŚLNE w monday. Reguła
+oparta na nim zrobiłaby lejek sprzedaży z tablicy projektowej, z repozytorium
+dokumentów i z listy sprzętu — czyli dokładnie pułapka, przed którą broni O46.
+
+Prefiksy id kolumn statusu w próbce: `color` 34, `status` 32, `portfolio` 6,
+`activity` 6, `project` 6, `deal` 3. **Nie widać kanonicznego id dla Service**
+analogicznego do `lead_status` w CRM.
+
+**Czego trzeba, żeby to ruszyć** — i to jest pytanie do człowieka, nie do
+kolejnego zapytania: która kolumna na tablicy Service niesie stan zgłoszenia.
+Odpowiedź wymaga spojrzenia w panel monday na konkretną tablicę serwisową,
+tak samo jak O47. Bez niej lepiej raportować pustkę z wyjaśnieniem niż liczbę
+z nazw grup.
