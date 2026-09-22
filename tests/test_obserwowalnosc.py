@@ -182,3 +182,141 @@ def test_brak_rozstrzygniecia_nie_wywraca_budowania() -> None:
 
     assert trace.metadane["rozstrzygniecie"] == "brak"
     assert trace.obserwacje[0].wyjscie is None
+
+
+# ── WPIĘCIE w pętlę audytu ───────────────────────────────────────────────
+#
+# Ta sekcja istnieje, bo w tym module zdarzyły się już DWIE usterki klasy
+# „przeszło testy, a nie było podpięte" (`can_use_tool` i klucz API). Testy
+# samego `zbuduj_trace` nie wykryłyby, że nikt go nie woła.
+
+
+class AtrapaSladu:
+    def __init__(self, blad: Exception | None = None) -> None:
+        self.wyslane: list[Any] = []
+        self.zamkniety = False
+        self.blad = blad
+
+    def wyslij(self, trace: Any) -> None:
+        if self.blad:
+            raise self.blad
+        self.wyslane.append(trace)
+
+    def zamknij(self) -> None:
+        self.zamkniety = True
+
+
+def test_petla_audytu_przyjmuje_slad() -> None:
+    """Kontrakt sygnatury. Bez tego parametru cała obserwowalność jest fikcją —
+    dokładnie tak, jak `postep` w tej samej pętli."""
+    import inspect
+
+    from monday_audit.agent import zbadaj_hipotezy
+
+    assert "slad" in inspect.signature(zbadaj_hipotezy).parameters
+
+
+async def test_petla_faktycznie_wysyla_trace(monkeypatch: Any) -> None:
+    """Hipoteza szablonowa nie woła modelu, więc pętlę da się przejechać
+    w całości bez podprocesu — i sprawdzić, że trace naprawdę wychodzi."""
+    from monday_audit import agent as modul_agenta
+    from monday_audit.detektory import Hipoteza
+    from monday_audit.rubryka import wczytaj_rubryke
+
+    monkeypatch.setattr(modul_agenta, "_inwentarz", lambda _: "{}")
+
+    class AtrapaZestawu:
+        snapshot_id = 7
+
+    slad = AtrapaSladu()
+    hipoteza = Hipoteza(
+        klasa_id="ZOMBIE_ACCOUNT",
+        obiekt_id="u1",
+        fakty={"user_hash": "abc", "dni_nieaktywnosci": 200},
+        budzet_wywolan=0,
+    )
+
+    await modul_agenta.zbadaj_hipotezy(
+        [hipoteza],
+        zestaw=AtrapaZestawu(),  # type: ignore[arg-type]
+        rubryka=wczytaj_rubryke(),
+        run_id="run-7",
+        klucz_api="",
+        slad=slad,
+    )
+
+    assert len(slad.wyslane) == 1
+    trace = slad.wyslane[0]
+    assert trace.nazwa == "hipoteza:ZOMBIE_ACCOUNT"
+    assert trace.metadane["run_id"] == "run-7"
+    assert trace.metadane["snapshot_id"] == 7
+    # Hasz promptu liczony RAZ, poza pętlą, i faktycznie dochodzi.
+    assert trace.metadane["prompt_hash"]
+
+
+async def test_padniety_slad_nie_przerywa_audytu(monkeypatch: Any, caplog: Any) -> None:
+    """Klient zapłacił za run, nie za trace'y. Langfuse niedostępny nie może
+    kosztować wyniku audytu."""
+    from monday_audit import agent as modul_agenta
+    from monday_audit.detektory import Hipoteza
+    from monday_audit.rubryka import wczytaj_rubryke
+
+    monkeypatch.setattr(modul_agenta, "_inwentarz", lambda _: "{}")
+
+    class AtrapaZestawu:
+        snapshot_id = 7
+
+    hipoteza = Hipoteza(
+        klasa_id="ZOMBIE_ACCOUNT",
+        obiekt_id="u1",
+        fakty={"user_hash": "abc", "dni_nieaktywnosci": 200},
+        budzet_wywolan=0,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        odpowiedz = await modul_agenta.zbadaj_hipotezy(
+            [hipoteza],
+            zestaw=AtrapaZestawu(),  # type: ignore[arg-type]
+            rubryka=wczytaj_rubryke(),
+            run_id="run-7",
+            klucz_api="",
+            slad=AtrapaSladu(blad=ConnectionError("Langfuse leży")),
+        )
+
+    assert odpowiedz["findings"], "finding musi wrócić mimo padniętego trace'u"
+    assert "nie udało się wysłać" in caplog.text
+
+
+async def test_bezpiecznik_maskowania_krzyczy_ale_run_konczy(monkeypatch: Any, caplog: Any) -> None:
+    """Dwa poziomy logu, nie jeden. `MaskowanieError` znaczy, że payload
+    zawierał coś, czego nie umiemy zamaskować — i trace NIE wyszedł. To jest
+    ERROR do obejrzenia, a nie stracony ślad."""
+    from monday_audit import agent as modul_agenta
+    from monday_audit.detektory import Hipoteza
+    from monday_audit.maskowanie import MaskowanieError
+    from monday_audit.rubryka import wczytaj_rubryke
+
+    monkeypatch.setattr(modul_agenta, "_inwentarz", lambda _: "{}")
+
+    class AtrapaZestawu:
+        snapshot_id = 7
+
+    hipoteza = Hipoteza(
+        klasa_id="ZOMBIE_ACCOUNT",
+        obiekt_id="u1",
+        fakty={"user_hash": "abc", "dni_nieaktywnosci": 200},
+        budzet_wywolan=0,
+    )
+
+    with caplog.at_level(logging.ERROR):
+        odpowiedz = await modul_agenta.zbadaj_hipotezy(
+            [hipoteza],
+            zestaw=AtrapaZestawu(),  # type: ignore[arg-type]
+            rubryka=wczytaj_rubryke(),
+            run_id="run-7",
+            klucz_api="",
+            slad=AtrapaSladu(blad=MaskowanieError("nieznany typ w polu x")),
+        )
+
+    assert odpowiedz["findings"], "audyt ma się dokończyć mimo bezpiecznika"
+    assert "trace NIE wyszedł" in caplog.text

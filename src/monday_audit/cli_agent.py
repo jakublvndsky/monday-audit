@@ -41,6 +41,7 @@ from monday_audit.kontrakt import (
 from monday_audit.narzedzia import Narzedzia
 from monday_audit.przebieg import przerwij_run, zapisz_zuzycie
 from monday_audit.rubryka import Rubryka, wczytaj_rubryke
+from monday_audit.wysylka_langfuse import wysylka_z_ustawien
 
 logger = logging.getLogger(__name__)
 
@@ -286,16 +287,25 @@ async def _zbadaj_i_zapisz(
             sol=sol,
             klient=klient,
         )
-        odpowiedz = await zbadaj_hipotezy(
-            hipotezy,
-            zestaw=zestaw,
-            rubryka=rubryka,
-            run_id=run_id,
-            model=argumenty.model,
-            effort=argumenty.effort,
-            stawki=stawki,
-            klucz_api=klucz_anthropic(ustawienia),
-        )
+        # `None`, gdy Langfuse nie jest skonfigurowany — i to jest stan
+        # domyślny. `finally` z `zamknij()`, bo bez dosłania bufora krótki
+        # proces CLI kończy się przed eksportem i trace'y nie wychodzą wcale.
+        slad = wysylka_z_ustawien(ustawienia)
+        try:
+            odpowiedz = await zbadaj_hipotezy(
+                hipotezy,
+                zestaw=zestaw,
+                rubryka=rubryka,
+                run_id=run_id,
+                model=argumenty.model,
+                effort=argumenty.effort,
+                stawki=stawki,
+                klucz_api=klucz_anthropic(ustawienia),
+                slad=slad,
+            )
+        finally:
+            if slad is not None:
+                slad.zamknij()
 
     # Te same stawki idą do walidacji. Kontrakt sprawdza MECHANICZNIE, czy
     # kwota ma z czego wyjść — prompt też o tym mówi, ale prompt jest warstwą

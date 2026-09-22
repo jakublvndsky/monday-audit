@@ -65,6 +65,7 @@ from monday_audit.wybor_zakresu import (
     wczytaj_payload,
     zapisz_pominiete,
 )
+from monday_audit.wysylka_langfuse import wysylka_z_ustawien
 from monday_audit.zadania import (
     STAN_ANALIZUJE,
     STAN_BLAD,
@@ -458,15 +459,24 @@ async def _analizuj(
                     postep=62 + int(udzial * 32),
                 )
 
-            odpowiedz = await zbadaj_hipotezy(
-                hipotezy,
-                zestaw=zestaw,
-                rubryka=rubryka,
-                run_id=run_agenta,
-                klucz_api=klucz_modelu,
-                stawki=stawki,
-                postep=melduj,
-            )
+            # Ten sam układ co w CLI: `None` przy braku konfiguracji, a bufor
+            # dosyłany w `finally`, żeby trace'y przeżyły także run, który padł.
+            # To właśnie run, który padł, jest najciekawszy w trace'ach.
+            slad = wysylka_z_ustawien(ustawienia)
+            try:
+                odpowiedz = await zbadaj_hipotezy(
+                    hipotezy,
+                    zestaw=zestaw,
+                    rubryka=rubryka,
+                    run_id=run_agenta,
+                    klucz_api=klucz_modelu,
+                    stawki=stawki,
+                    postep=melduj,
+                    slad=slad,
+                )
+            finally:
+                if slad is not None:
+                    slad.zamknij()
 
         # ── walidacja ────────────────────────────────────────────────
         zapisz_stan(con, zadanie_id, etap="sprawdzam znaleziska", postep=95)

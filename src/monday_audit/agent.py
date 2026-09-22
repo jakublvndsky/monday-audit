@@ -71,7 +71,9 @@ from claude_agent_sdk.types import SyncHookJSONOutput
 
 from monday_audit.cennik import Stawka
 from monday_audit.detektory import Hipoteza
+from monday_audit.maskowanie import MaskowanieError
 from monday_audit.narzedzia import Narzedzia, NarzedziaHipotezy, NarzedzieError
+from monday_audit.obserwowalnosc import Wysylka, zbuduj_trace
 from monday_audit.rubryka import Klasa, Rubryka
 from monday_audit.szablony_findingow import z_szablonu
 
@@ -694,6 +696,62 @@ def _zuzycie(wiadomosc: ResultMessage) -> dict[str, float]:
     return zuzycie
 
 
+def _wyslij_slad(
+    slad: Wysylka | None,
+    wynik: WynikHipotezy,
+    *,
+    run_id: str,
+    snapshot_id: int,
+    model: str,
+    prompt_hash: str,
+) -> None:
+    """Trace jednej hipotezy. NIGDY nie wywraca runu — ale nie milczy.
+
+    Warstwy odpowiedzialności są tu rozdzielone celowo i to jest cała treść
+    tej funkcji:
+
+    * `WysylkaLangfuse.wyslij` **nie połyka** `MaskowanieError`, bo w środku
+      odbiorcy zrównanie bezpiecznika z awarią sieci zamieniłoby go w ozdobę,
+    * tutaj, w pętli audytu, decyzja jest odwrotna: audyt ma się dokończyć.
+      Klient zapłacił za run, nie za trace'y.
+
+    Stąd dwa poziomy logu, a nie jeden. `MaskowanieError` to ERROR, bo znaczy,
+    że payload zawierał coś, czego nie umiemy zamaskować — i trace NIE wyszedł.
+    Reszta to WARNING: stracony ślad, nic więcej.
+    """
+    if slad is None:
+        return
+    try:
+        slad.wyslij(
+            zbuduj_trace(
+                wynik,
+                run_id=run_id,
+                snapshot_id=snapshot_id,
+                model=model,
+                prompt_hash=prompt_hash,
+            )
+        )
+    except MaskowanieError:
+        # `exception`, nie `error`: ślad stosu pokazuje, KTÓRE pole wywróciło
+        # maskowanie, a bez tego zgłoszenie jest nie do rozwiązania. Ślad stosu
+        # nie niesie wartości — Python nie wypisuje w nim zmiennych lokalnych,
+        # a sam komunikat `MaskowanieError` jest budowany bez danych.
+        logger.exception(
+            "hipoteza %s/%s: trace NIE wyszedł — maskowanie nie poradziło sobie "
+            "z payloadem. Audyt leci dalej, ale to jest do obejrzenia",
+            wynik.hipoteza.klasa_id,
+            wynik.hipoteza.obiekt_id,
+        )
+    except Exception as blad:  # obserwowalność nie jest produktem
+        logger.warning(
+            "hipoteza %s/%s: nie udało się wysłać trace'u (%s: %s)",
+            wynik.hipoteza.klasa_id,
+            wynik.hipoteza.obiekt_id,
+            type(blad).__name__,
+            blad,
+        )
+
+
 async def zbadaj_hipotezy(
     hipotezy: list[Hipoteza],
     *,
@@ -706,8 +764,14 @@ async def zbadaj_hipotezy(
     effort: str | None = None,
     sciezka_promptu: Path = SCIEZKA_PROMPTU,
     postep: Callable[[int, int, str], None] | None = None,
+    slad: Wysylka | None = None,
 ) -> dict[str, Any]:
     """Bada wszystkie hipotezy i składa dokument D8. Nie waliduje — to `kontrakt`.
+
+    `slad=None` (domyślnie) znaczy „bez trace'ów" i jest stanem poprawnym:
+    audyt bez obserwowalności działa tak samo, traci tylko podgląd. Parametr
+    zamiast odczytu konfiguracji w środku, z tego samego powodu co `klucz_api`
+    w `zbuduj_opcje` — inaczej test nie ma jak sprawdzić, co poszło na zewnątrz.
 
     `postep(zbadanych, wszystkich, klasa_id)` jest wołane po KAŻDEJ hipotezie.
     `None` = cisza, więc CLI i testy nie muszą nic podawać.
@@ -725,6 +789,9 @@ async def zbadaj_hipotezy(
     """
     prompt = _tekst_promptu(sciezka_promptu)
     inwentarz = _inwentarz(zestaw)
+    # Liczony RAZ, poza pętlą: ten sam prompt dla wszystkich hipotez runu,
+    # a do trace'u idzie hasz zamiast treści (powód w `obserwowalnosc`).
+    hasz_promptu = hash_promptu(sciezka_promptu)
     biezace: dict[str, NarzedziaHipotezy] = {}
     serwer = _zbuduj_narzedzia(biezace)
 
@@ -784,6 +851,14 @@ async def zbadaj_hipotezy(
                 effort=effort,
             )
         sekund = round(time.monotonic() - zaczeto, 3)
+        _wyslij_slad(
+            slad,
+            wynik,
+            run_id=run_id,
+            snapshot_id=zestaw.snapshot_id,
+            model=model,
+            prompt_hash=hasz_promptu,
+        )
         for klucz in ("tokens_in", "tokens_out", "tokens_cache_read", "tokens_cache_write"):
             zuzycie[klucz] += wynik.zuzycie.get(klucz, 0)
         zuzycie["koszt_usd"] += wynik.zuzycie.get("koszt_usd", 0.0)
