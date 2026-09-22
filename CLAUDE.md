@@ -40,12 +40,18 @@ Naruszenie któregokolwiek = błąd krytyczny, zatrzymaj się i zapytaj.
 - **Finding bez pola `dowod` nie przechodzi walidacji.** Bez wyjątków.
 - **Nie dodawaj zależności bez pytania.** Szczególnie: Postgres, Redis,
   Celery. Każda była rozważona i odrzucona — powody w `docs/ARCHITEKTURA.md`.
-- **Langfuse jest dopuszczony, ale tylko w fazie 4 i tylko warunkowo**
-  (D10 cofnięta 2026-09-22). Bierzemy **Cloud**, nie self-hosted. Warstwa
-  maskująca PII powstaje **przed** pierwszym trace'em i **zawodzi zamknięte** —
-  gdy nie potrafi przetworzyć payloadu, trace nie wychodzi wcale. Podpięcie
-  Langfuse'a „na próbę" przed maskowaniem jest naruszeniem tego zakazu, bo
-  pierwszego wysłanego trace'u nie da się cofnąć.
+- **Langfuse Cloud jest wdrożony** (D10 cofnięta 2026-09-22, faza 4). Reguły,
+  które zostają w mocy — naruszenie każdej to wysyłka danych klienta:
+  - **wszystko, co wychodzi poza serwer, przechodzi przez `maskowanie.py`.**
+    Nie ma drugiej drogi na zewnątrz i nie wolno jej dorabiać,
+  - **maskowanie zawodzi zamknięte.** `MaskowanieError` znaczy „trace nie
+    wychodzi", nigdy „wyślij surowe". Nie łap go razem z błędami transportu,
+  - **prompt systemowy nie wychodzi** — idzie sam hasz. Prompt niesie
+    inwentarz, czyli nazwy tablic i workspace'ów klienta,
+  - **trafienie wzorca to alarm, nie sukces.** Znaczy, że PII weszło do
+    kontekstu modelu wyżej. Ma iść do logu, nie zniknąć w podmianie,
+  - **trzy zmienne albo zero.** Konfiguracja połowiczna przerywa start, żeby
+    biblioteka nie spadła na swój domyślny region.
 
 ## Stack
 

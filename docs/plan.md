@@ -240,6 +240,60 @@ Trzy rzeczy poszły inaczej, niż zakładał plan:
   w 1000 tablicach. Nie dowód, więc metryka zostaje, ale z zastrzeżeniem, że
   zera nie należy traktować jako zmierzonego.
 
+**2026-09-22 — faza 4: kod gotowy, brak przebiegu na żywo przez pełną
+ścieżkę.** `maskowanie.py`, `obserwowalnosc.py`, `wysylka_langfuse.py`, plus
+wpięcie w `zbadaj_hipotezy`. Trzy kroki, w kolejności wymuszonej przez plan:
+warstwa maskująca → odbiorca → wpięcie.
+
+Cztery rzeczy poszły inaczej, niż zakładał plan:
+
+- **Model chodzi w PODPROCESIE, więc nie ma czego opakować.**
+  `ClaudeSDKClient` uruchamia CLI osobnym procesem, a `ClaudeAgentOptions` nie
+  ma żadnego pola o telemetrii (sprawdzone: 44 pola). Standardowa droga „owiń
+  klienta dekoratorem" w tej architekturze **nie istnieje**. Trace składamy
+  sami z `WynikHipotezy` — czyli z tego, co i tak zapisujemy do własnej bazy.
+  Wyszło to na nasze: Langfuse nie dostaje niczego, czego nie mamy u siebie.
+- **Trzy czwarte maskowania już istniało** w `osoby.py` (`zredaguj_pii`,
+  `waliduj_brak_pii` — już zawodzące zamknięte, `policz_podejrzenia_pii`).
+  Brakowało wyłącznie wzorców na ludzi, których NIE znamy: leadów, czyli
+  klientów naszego klienta. Nowy moduł komponuje istniejące, zamiast pisać
+  drugą implementację.
+- **Tabela mapowania PII okazała się w tej ścieżce zbędna** — i to jest
+  lepsza odpowiedź niż planowana. Snapshot jest pseudonimizowany i twardo
+  walidowany PRZED zapisem, więc agent nigdy nie widzi prawdziwych nazwisk.
+  Ciągnięcie prawdziwego PII do kodu, którego jedynym zadaniem jest wysyłka
+  na zewnątrz, byłoby odwrotnością celu tej fazy.
+- **Wzorzec telefonu wymagał pomiaru, nie intuicji.** Pierwsza wersja
+  zamieniała `2026-09-22 12:00` w `2026-[TELEFON]:00`. Identyfikatory monday
+  to gołe ciągi 9-10 cyfr, więc maskowanie, które je zjada, zostanie
+  wyłączone przez pierwszego człowieka czytającego trace — a wtedy nie
+  maskuje już nic. Wzorzec jest wąski świadomie i test pilnuje tego mocniej
+  niż tego, czy w ogóle trafia.
+
+**Skill Langfuse'a** (`github.com/langfuse/skills`, prośba Kuby z 2026-09-22)
+przeczytany i **nieprzydatny w tej fazie**: dotyczy odpytywania Langfuse'a
+przez API — trace'y, prompty, datasety — a nie instrumentacji. Wróci, gdy
+będziemy chcieli czytać trace'y z powrotem. Nie instalowany.
+
+**Zależność kosztowała 15 pakietów** (OpenTelemetry, protobuf, requests,
+wrapt, backoff) przy wybranej drodze oficjalnego SDK. Alternatywa bez ani
+jednego nowego pakietu istniała — Langfuse przyjmuje OTLP także w JSON-ie,
+więc wystarczyłby `httpx` — i została **świadomie odrzucona przez Kubę**
+2026-09-22 na rzecz wsparcia producenta. Auto-instrumentacja `httpx`,
+`requests` i `urllib3` jest zablokowana, żeby SDK nie wysyłało tego, czego mu
+nie daliśmy.
+
+**Czego brakuje do odhaczenia:** przebiegu na żywo przez PEŁNĄ ścieżkę, czyli
+prawdziwego runu agenta z włączonym śladem. Sam odbiorca jest sprawdzony na
+żywo (Langfuse Cloud EU, dane wymyślone: po tamtej stronie leży `[E-MAIL]`
+i `[TELEFON]`, adresu nie ma, zużycie i koszt na miejscu), wpięcie jest
+sprawdzone testem przechodzącym całą pętlę ścieżką szablonową. Brakuje
+złożenia jednego z drugim na prawdziwym koncie.
+
+**Zadanie dla człowieka, nie do domknięcia kodem:** Langfuse jest teraz
+**podprzetwarzającym dane klienta** i musi się znaleźć w tej samej rozmowie,
+co reszta subprocesorów.
+
 **2026-09-22 — faza 3 zamknięta.** `itemy.py` plus flaga `--itemy`. Zakaz D5
 zdjęty świadomie i tylko tutaj. Pełny przebieg na CXLABS: **1109 wywołań**,
 954 tablice objęte planem, zero pominiętych przez budżet.
