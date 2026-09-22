@@ -356,6 +356,26 @@ async def zbuduj_itemy(
             f"{len(plan.pominiete)} tablic pominiętych przez budżet {plan.budzet} wywołań "
             f"(największa ma {najwieksza} itemów) — ich LICZBA itemów jest znana, rozkład nie"
         )
+    # `items_count` NIE jest obietnicą, że da się te itemy pobrać. ZMIERZONE
+    # 2026-09-22 (O47): `👤 Leads` ma `items_count: 7076`, jest `active`, typu
+    # `board`, ma 28 grup — i oddaje ZERO itemów, zarówno przez `items_page`
+    # tablicy, jak i przez `items_page` każdej grupy. Bez błędu, po prostu pusto.
+    #
+    # Raport, który pokazuje „7076 itemów" obok pustego rozkładu, kłamie ciszej,
+    # niż gdyby się wywalił.
+    puste = [a for a in agregaty if a.itemow > 0 and a.pobranych == 0]
+    if puste:
+        zastrzezenia.append(
+            f"{len(puste)} tablic deklaruje itemy, ale nie oddaje ani jednego "
+            f"(np. {puste[0].nazwa or puste[0].board_id} — {puste[0].itemow} wg `items_count`) "
+            "— rozkład dla nich jest PUSTY, a nie zerowy (O47)"
+        )
+    niepelne = [a for a in agregaty if a.pobranych and a.pobranych < a.itemow]
+    if niepelne:
+        zastrzezenia.append(
+            f"{len(niepelne)} tablic oddało mniej itemów, niż deklaruje `items_count` "
+            "— rozkład liczony z tego, co przyszło"
+        )
     urwanych = [a for a in agregaty if a.urwane]
     if urwanych:
         zastrzezenia.append(f"{len(urwanych)} tablic urwanych sufitem stron — rozkład niepełny")

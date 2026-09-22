@@ -89,7 +89,12 @@ def _wypisz_itemy(itemy: WynikItemow) -> None:
     for t in itemy.tablice[:10]:
         stopien = {1: "lejek", 2: "grupy", 3: "—"}[t.lejek.stopien]
         czolo = ", ".join(f"{k} {v}" for k, v in list(t.rozklad.items())[:3])
-        print(f"  {t.itemow:>6} itemów  {t.nazwa or t.board_id}")
+        opis_ile = f"{t.itemow} itemów"
+        if t.pobranych != t.itemow:
+            # Rozbieżność `items_count` vs faktycznie pobrane ma być WIDOCZNA
+            # przy tablicy, nie tylko w zastrzeżeniach na końcu (O47).
+            opis_ile += f", pobrano {t.pobranych}"
+        print(f"  {opis_ile:>30}  {t.nazwa or t.board_id}")
         print(f"          {stopien}: {czolo}")
         print(
             f"          przyrost {t.przyrost_dzienny}/dzień "

@@ -2027,3 +2027,48 @@ nie może stać na samym typie workspace'u.
 2. **Grupy** → rozkład raportujemy jako GRUPY, nie jako etapy. Czy grupy są
    lejkiem, rozstrzyga faza 5; faza 3 tego nie zgaduje.
 3. **Ani jedno, ani drugie** → „nie rozpoznano lejka". Bez zgadywania po nazwach.
+
+---
+
+## O47. `items_count` nie jest obietnicą, że itemy da się pobrać
+
+**Status: ZMIERZONE 2026-09-22. Obejście wdrożone — rozbieżność jest zgłaszana, nie ukrywana.**
+**Dotyczy:** `itemy.py`, plan faza 3
+
+Pierwszy pełny przebieg fazy 3 na koncie CXLABS pokazał tablicę, która **deklaruje
+7076 itemów i nie oddaje ani jednego**:
+
+```
+👤 Leads:  items_count = 7076,  state = active,  type = board,  28 grup
+           items_page (limit 5) → 0 itemów, kursor = null
+           items_page KAŻDEJ z 28 grup → 0 itemów
+```
+
+**Bez błędu.** GraphQL zwraca 200, `errors` puste, po prostu pusta strona. To samo
+zachowanie na `✅ Client Projects & Forecast` (193 wg licznika, zero pobranych).
+
+**Czego nie wiemy:** czy `items_count` liczy itemy w koszu, czy licznik jest
+nieaktualny, czy itemy mają własne uprawnienia. Rozstrzygnięcie wymagałoby
+wejścia do panelu monday na tę tablicę — to zadanie dla człowieka, nie dla
+zapytania.
+
+**Co z tym zrobiliśmy:** tablica, która deklaruje itemy i nie oddaje żadnego,
+trafia do zastrzeżeń **z nazwą i liczbą**, a przy wierszu pojawia się „pobrano 0".
+Raport pokazujący „7076 itemów" obok pustego rozkładu kłamałby ciszej, niż gdyby
+się wywalił.
+
+**Konsekwencja dla planowania budżetu:** `zaplanuj_pobranie` liczy koszt
+z `items_count`, więc dla takich tablic rezerwuje 71 wywołań, a wydaje jedno.
+Błąd idzie w stronę bezpieczną (przeszacowanie), więc zostaje.
+
+### Przy okazji: ekstrapolacja kosztu z O43 była ZANIŻONA
+
+O43 mówiło „całe konto ≈ 476 wywołań" — z arytmetyki `itemy / 100`. Pomiar dał
+**1109**. Różnica to **podłoga jednego wywołania na tablicę**: konto ma ~1300
+aktywnych tablic, z czego większość ma po kilka itemów, a każda kosztuje minimum
+jedno zapytanie. Przy koncie z wieloma małymi tablicami to podłoga, a nie objętość
+danych, decyduje o rachunku.
+
+1109 wywołań to 8,9% budżetu `enterprise` (12 500 = połowa limitu dziennego),
+ale **dwa razy tyle, ile wynosi cały budżet planu `free`** — tam sampling
+z `zaplanuj_pobranie` nie jest optymalizacją, tylko warunkiem wykonalności.
