@@ -69,6 +69,18 @@ WERSJA_API = "2026-07"
 POLE_COMPLEXITY = "complexity { query after reset_in_x_seconds }"
 
 # Limity chwilowe (minuta, complexity, współbieżność) — ponawiamy.
+#
+# `internal server error` dołożony 2026-09-22 po zmierzonym przypadku: pełny
+# przebieg po itemach padł na siódmej stronie `boards`, a DOKŁADNIE TO SAMO
+# zapytanie na tej samej stronie przeszło minutę później. Awaria jest po ich
+# stronie i jest chwilowa, tylko przychodzi jako 200 z `errors`, a nie jako
+# HTTP 500 — ten drugi klient ponawiał od zawsze.
+#
+# Cena jest znana i przyjęta: zapytanie, które pada TRWALE tym komunikatem,
+# zje teraz trzy wywołania zamiast jednego. Taki przypadek jest udokumentowany
+# (O41: `trigger_events` z `nextPageOffset` > 0 pada zawsze), ale tamta ścieżka
+# nie używa już stronicowania, a jedno chwilowe 500 kosztowało nas przebieg za
+# ~1200 wywołań. Trzy wywołania wobec tysiąca dwustu to dobry zakład.
 _WZORCE_PRZEJSCIOWE = (
     "complexity",
     "rate limit exceeded",
@@ -76,6 +88,7 @@ _WZORCE_PRZEJSCIOWE = (
     "minuteratelimitexceeded",
     "concurrency",
     "too many requests",
+    "internal server error",
 )
 
 # Limit dzienny — NIE ponawiamy. Reset przychodzi po godzinach, nie po sekundach,
@@ -313,7 +326,14 @@ def _rozpakuj(odpowiedz: httpx.Response) -> dict[str, Any]:
         if any(wzorzec in maly for wzorzec in _WZORCE_DZIENNE):
             raise LimitDziennyError(f"dzienny limit wywołań konta klienta wyczerpany: {opis}")
         if any(wzorzec in maly for wzorzec in _WZORCE_PRZEJSCIOWE):
-            raise PrzejsciowyError(f"limit chwilowy: {opis}", _retry_after(odpowiedz))
+            # Dwie różne przyczyny, ten sam sposób obsługi — ale log ma je
+            # rozróżniać. „Limit chwilowy" przy awarii serwera monday wysłałby
+            # czytającego w złą stronę: kazałby szukać u siebie oszczędności
+            # tam, gdzie nie ma czego oszczędzać.
+            powod = (
+                "awaria po stronie monday" if "internal server error" in maly else "limit chwilowy"
+            )
+            raise PrzejsciowyError(f"{powod}: {opis}", _retry_after(odpowiedz))
         # Nieznany błąd traktujemy jako błąd zapytania, czyli BEZ ponowienia.
         # Ponowienie w najlepszym razie nic nie da, w najgorszym zje limit klienta.
         raise ZapytanieError(opis)

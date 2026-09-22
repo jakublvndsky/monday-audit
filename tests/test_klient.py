@@ -245,6 +245,40 @@ async def test_blad_sieci_jest_ponawiany(zbuduj: Any) -> None:
     assert len(proby) == 2
 
 
+async def test_internal_server_error_w_errors_jest_ponawiany(zbuduj: Any) -> None:
+    """ZMIERZONE 2026-09-22: pełny przebieg padł na siódmej stronie `boards`,
+    a to samo zapytanie na tej samej stronie przeszło minutę później.
+
+    Pułapka polega na tym, że monday zwraca to jako **200 z tablicą `errors`**,
+    a nie jako HTTP 500 — ten drugi był ponawiany od zawsze. Bez tego jedno
+    chwilowe potknięcie po ich stronie kosztuje przebieg za ~1200 wywołań.
+    """
+    proby: list[int] = []
+
+    def uchwyt(_: httpx.Request) -> httpx.Response:
+        proby.append(1)
+        if len(proby) == 1:
+            return httpx.Response(200, json={"errors": [{"message": "Internal Server Error"}]})
+        return odpowiedz_ok({"boards": []})
+
+    egzemplarz, _ = zbuduj(uchwyt)
+
+    assert await egzemplarz.query(ZAPYTANIE) == {"boards": []}
+    assert len(proby) == 2
+
+
+async def test_awaria_monday_nie_jest_opisana_jako_limit(zbuduj: Any) -> None:
+    """„Limit chwilowy" przy awarii serwera wysłałby czytającego w złą stronę —
+    kazałby szukać u siebie oszczędności tam, gdzie nie ma czego oszczędzać."""
+    egzemplarz, _ = zbuduj(
+        lambda _: httpx.Response(200, json={"errors": [{"message": "Internal Server Error"}]}),
+        maks_prob=2,
+    )
+
+    with pytest.raises(PrzejsciowyError, match="awaria po stronie monday"):
+        await egzemplarz.query(ZAPYTANIE)
+
+
 async def test_wyczerpanie_prob_rzuca_blad_przejsciowy(zbuduj: Any) -> None:
     egzemplarz, rejestr = zbuduj(lambda _: httpx.Response(429), maks_prob=3)
 
