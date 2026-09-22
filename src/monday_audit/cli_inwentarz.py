@@ -19,11 +19,12 @@ import logging
 import sys
 
 from monday_audit.inwentarz import zbuduj_inwentarz
+from monday_audit.itemy import WynikItemow, zbuduj_itemy
 from monday_audit.klient import MondayClient, MondayError
 from monday_audit.konfiguracja import wczytaj
 from monday_audit.konto import Zakres, rozpoznaj_konto
 from monday_audit.podglad_zakresu import RejestrPodgladu
-from monday_audit.przeglad_tablic import PrzegladTablic, zbuduj_przeglad
+from monday_audit.przeglad_tablic import PrzegladTablic, pobierz_tablice, zbuduj_przeglad
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,11 @@ logger = logging.getLogger(__name__)
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Inwentarz konta monday — sześć kafelków")
     parser.add_argument("--json", action="store_true", help="wypisz surowy JSON zamiast tabelki")
+    parser.add_argument(
+        "--itemy",
+        action="store_true",
+        help="dolicz itemy: leady, etapy lejka, przyrost dzienny (punkt 3 wytycznych)",
+    )
     parser.add_argument(
         "--tablice",
         action="store_true",
@@ -70,7 +76,32 @@ def _wypisz_przeglad(przeglad: PrzegladTablic) -> None:
         print(f"  UWAGA: {uwaga}")
 
 
-async def _wykonaj(jako_json: bool, z_tablicami: bool) -> int:
+def _wypisz_itemy(itemy: WynikItemow) -> None:
+    print(f"\n  Itemy — {itemy.itemow_razem} na koncie")
+    print(f"  {'─' * 46}")
+    for produkt, ile in itemy.itemow_per_produkt.items():
+        print(f"      {produkt:<14}{ile:>7}")
+    plan = itemy.plan
+    print(
+        f"  rozkład policzony dla {len(plan.do_pobrania)} tablic, pominięto {len(plan.pominiete)}"
+    )
+    print(f"  {'─' * 46}")
+    for t in itemy.tablice[:10]:
+        stopien = {1: "lejek", 2: "grupy", 3: "—"}[t.lejek.stopien]
+        czolo = ", ".join(f"{k} {v}" for k, v in list(t.rozklad.items())[:3])
+        print(f"  {t.itemow:>6} itemów  {t.nazwa or t.board_id}")
+        print(f"          {stopien}: {czolo}")
+        print(
+            f"          przyrost {t.przyrost_dzienny}/dzień "
+            f"({t.powstalo_w_oknie} w {t.okno_dni} dni)"
+        )
+    print(f"  {'─' * 46}")
+    print(f"  {itemy.wywolan} wywołań z limitu konta (itemy)\n")
+    for uwaga in itemy.zastrzezenia:
+        print(f"  UWAGA: {uwaga}")
+
+
+async def _wykonaj(jako_json: bool, z_tablicami: bool, z_itemami: bool) -> int:
     ustawienia = wczytaj()
     token = ustawienia.monday_token.get_secret_value() if ustawienia.monday_token else ""
     if not token:
@@ -84,14 +115,30 @@ async def _wykonaj(jako_json: bool, z_tablicami: bool) -> int:
         # i to jest właściwe zachowanie — lepiej brak liczby niż liczba zaniżona.
         konto = await rozpoznaj_konto(klient, Zakres(typ="cale_konto"))
         inwentarz = await zbuduj_inwentarz(klient, konto, rejestr)
+        surowe_tablice = await pobierz_tablice(klient) if (z_tablicami or z_itemami) else []
         przeglad = (
-            await zbuduj_przeglad(klient, rejestr, inwentarz.workspace_y) if z_tablicami else None
+            await zbuduj_przeglad(klient, rejestr, inwentarz.workspace_y, tablice=surowe_tablice)
+            if z_tablicami
+            else None
         )
+        if z_itemami:
+            # Budżet dla itemów to TO, CO ZOSTAŁO z limitu ustawionego przez
+            # `rozpoznaj_konto` (połowa dziennego limitu planu) — a nie osobna
+            # liczba wzięta z sufitu.
+            zostalo = max(0, klient.budzet_wywolan - klient.liczba_wywolan - 20)
+            produkty = {w.workspace_id: w.produkt_kind for w in inwentarz.workspace_y}
+            itemy = await zbuduj_itemy(
+                klient, rejestr, surowe_tablice, produkty=produkty, budzet=zostalo
+            )
+        else:
+            itemy = None
 
     if jako_json:
         dokument = inwentarz.do_json()
         if przeglad is not None:
             dokument["tablice"] = przeglad.do_json()
+        if itemy is not None:
+            dokument["itemy"] = itemy.do_json()
         print(json.dumps(dokument, ensure_ascii=False, indent=2))
         return 0
 
@@ -121,6 +168,8 @@ async def _wykonaj(jako_json: bool, z_tablicami: bool) -> int:
 
     if przeglad is not None:
         _wypisz_przeglad(przeglad)
+    if itemy is not None:
+        _wypisz_itemy(itemy)
     return 0
 
 
@@ -128,7 +177,9 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
     args = _parser().parse_args(argv)
     try:
-        return asyncio.run(_wykonaj(jako_json=args.json, z_tablicami=args.tablice))
+        return asyncio.run(
+            _wykonaj(jako_json=args.json, z_tablicami=args.tablice, z_itemami=args.itemy)
+        )
     except MondayError as blad:
         # Treść błędu z API może nieść fragment odpowiedzi, ale nie token —
         # `MondayClient` go nie wkłada do komunikatu.

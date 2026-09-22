@@ -1990,3 +1990,40 @@ koncie CRM.
 status mówią o stanie DZISIAJ, a nie o tym, kiedy item do niego wszedł.
 Przybliżenie: itemy w etapie końcowym z `updated_at` w oknie — i musi być
 opisane jako przybliżenie, nie jako zmierzona liczba zamknięć.
+
+### Hipoteza o identyfikatorach — potwierdzona, ale WĘŻEJ (2026-09-22)
+
+Sprawdzone na tablicach z trzech produktów tego samego konta:
+
+| produkt | tablica | kolumn `status` | semantyczne id |
+|---|---|---|---|
+| crm | `Deals` | 2 | **`deal_stage`** |
+| crm | `Leads e-commerce` | 14 | **`lead_status`** |
+| service | `Zlecenia serwisowe` | 2 | — |
+| service | `Czynności` | 2 | — |
+| core | `LANDCROS Audits` | 7 | — |
+| core | `Locations` | 3 | — |
+
+**Co z tego działa:** monday CRM zakłada kolumny o identyfikatorach `lead_status`
+i `deal_stage`. Gdzie one są, lejek rozpoznaje się deterministycznie — nawet
+przy czternastu kolumnach typu `status` na jednej tablicy.
+
+**Czego NIE wolno wywnioskować:** brak semantycznego id nie znaczy „nie ma
+lejka". Znaczy tylko, że tablica nie powstała z szablonu produktu monday.
+
+**Pułapka, w którą łatwo wpaść:** goły `status` też wygląda na semantyczny, ale
+to **domyślny identyfikator pierwszej kolumny statusu na dowolnej tablicy** —
+wyszedł na tablicach podelementów w crm i w core. Potraktowany równorzędnie
+z `lead_status` robiłby „lejek sprzedaży" z pierwszej lepszej kolumny.
+
+**Osobna niespodzianka:** workspace o produkcie `service` NIE gwarantuje tablic
+z szablonu Service. Tamtejsze nazywają się `Czynności`, `Części`, `Atrybuty` —
+to czyjaś własna konstrukcja. Więc „jeśli Service, analizuj tickety" z wytycznych
+nie może stać na samym typie workspace'u.
+
+### Reguła trójstopniowa dla fazy 3
+
+1. **`lead_status` albo `deal_stage`** → lejek znany, etapy liczone wprost.
+2. **Grupy** → rozkład raportujemy jako GRUPY, nie jako etapy. Czy grupy są
+   lejkiem, rozstrzyga faza 5; faza 3 tego nie zgaduje.
+3. **Ani jedno, ani drugie** → „nie rozpoznano lejka". Bez zgadywania po nazwach.

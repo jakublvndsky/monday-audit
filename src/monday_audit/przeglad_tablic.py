@@ -62,9 +62,12 @@ query ($limit: Int!, $p: Int!) {
     type
     board_kind
     updated_at
+    items_count
     workspace { id name }
     owners { id }
     subscribers { id }
+    groups { id }
+    columns { id type }
   }
 }
 """
@@ -293,7 +296,7 @@ def zbierz_uruchomienia(zdarzenia: list[dict[str, Any]]) -> dict[str, dict[str, 
     return wynik
 
 
-async def _pobierz_tablice(klient: MondayClient) -> list[dict[str, Any]]:
+async def pobierz_tablice(klient: MondayClient) -> list[dict[str, Any]]:
     zebrane: list[dict[str, Any]] = []
     strona = 1
     while True:
@@ -387,6 +390,7 @@ async def zbuduj_przeglad(
     workspace_y: tuple[WorkspaceDoWyboru, ...] = (),
     *,
     okno_dni: int = OKNO_DNI,
+    tablice: list[dict[str, Any]] | None = None,
 ) -> PrzegladTablic:
     """Agregaty po tablicach plus lista tablic z żywymi automatyzacjami.
 
@@ -402,7 +406,7 @@ async def zbuduj_przeglad(
         if isinstance(u, dict) and u.get("id") and u.get("kind") == RODZAJ_GOSC
     }
 
-    tablice = await _pobierz_tablice(klient)
+    tablice = tablice if tablice is not None else await pobierz_tablice(klient)
     zdarzenia, urwane = await pobierz_zdarzenia(klient, okno_dni=okno_dni)
 
     agregaty = policz_agregaty(tablice, goscie)
