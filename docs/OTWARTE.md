@@ -1644,3 +1644,123 @@ Po wdrożeniu na Mikrusa restart będzie też skutkiem `deploy/wdroz.sh`.
 
 **Czego to NIE blokuje:** wdrożenia. Blokuje spokój przy wdrażaniu w godzinach,
 w których ktoś może odpalać audyt.
+
+---
+
+## O40. Typ workspace'u JEST w API — `account_product`
+
+**Status: ROZSTRZYGNIĘTE 2026-09-22 — czyta się, nie zgaduje.**
+**Dotyczy:** plan przebudowy, faza 5 (rozpoznanie typu workspace'u)
+
+Zakładałem przy planowaniu, że monday nie oddaje typu produktu per workspace
+i że trzeba go wnioskować z nomenklatury tablic. **Założenie było błędne** —
+i to jest dokładnie ten przypadek, dla którego istnieje discovery-first.
+
+`Workspace` ma pole `account_product`, typu `AccountProduct` z polami
+`id`, `kind`, `tier`, `default_workspace_id`:
+
+```graphql
+query { workspaces (limit: 25, page: 1) { id name account_product { id kind } } }
+```
+
+`[DISCOVERY] ✅` zmierzone na koncie CXLABS 2026-09-22 — zwraca wartości
+`core`, `crm`, `service`, `software`, a `id` grupuje workspace'y po produkcie
+(np. wszystkie `crm` mają `id = 4299576`).
+
+**Co z tego wynika:** rozpoznanie typu workspace'u z wytycznych to **odczyt
+pola**, nie wnioskowanie. Analiza nomenklatury zostaje potrzebna tylko do
+drugiej rzeczy — sugestii „macie leady w zwykłych tablicach, rozważcie monday
+CRM", czyli tam, gdzie produkt NIE jest ustawiony, a dane wyglądają, jakby
+powinien być.
+
+**Nie sprawdzone:** czy `account_product.tier` mówi o licencji tego produktu
+osobno od `account.tier`. Jeśli tak, „rodzaj licencji" z punktu 2 wytycznych
+może być per produkt, a nie jeden na konto.
+
+---
+
+## O41. Liczby automatyzacji na tablicy nie da się pobrać wprost
+
+**Status: ROZSTRZYGNIĘTE 2026-09-22 — nie ma takiego pola. Da się tylko przybliżyć.**
+**Dotyczy:** plan przebudowy, faza 2; punkt 4 wytycznych
+
+W korzeniu schematu **nie ma** `automations`, a typy `Automation` i `Recipe`
+nie istnieją. Wszystko, co jest, to cztery pola, z których collector korzysta
+już dziś:
+
+```
+trigger_events, trigger_event,
+account_trigger_statistics, account_triggers_statistics_by_entity_id
+```
+
+`AccountTriggersByEntityId` niesie `id` oraz `automation_statistics`
+i `workflow_statistics` jako **surowy JSON** — kluczem jest automatyzacja,
+nie tablica. Przypisanie do tablicy daje wyłącznie
+`trigger_events (filters: {boardId})`, czyli **jedno zapytanie na tablicę**.
+
+**Co z tego wynika:** „liczba automatyzacji na tablicy" jest osiągalna tylko
+jako **liczba automatyzacji, które się URUCHOMIŁY** w oknie czasowym. Pomija
+te, które nigdy nie odpaliły — a w audycie to właśnie one są najciekawsze
+(`AUTOMATION_DEAD`). Raport musi tę różnicę nazwać, zamiast podawać liczbę,
+która wygląda na komplet.
+
+**Koszt:** N zapytań przy N tablicach. Dzisiejszy collector sonduje dziesięć
+(`maks_sond`) i to ograniczenie zostaje w mocy.
+
+---
+
+## O42. Właściciela automatyzacji nie ma w API
+
+**Status: ROZSTRZYGNIĘTE 2026-09-22 — nie da się. Pozycja wytycznych wypada.**
+**Dotyczy:** punkt 5 wytycznych („kto jest właścicielem automatyzacji")
+
+Introspekcja wszystkich trzech dostępnych typów nie pokazuje ani jednego pola
+o twórcy:
+
+- `AccountTriggerStatistics`: `id`, `success`, `failure`, `total`
+- `AccountTriggersByEntityId`: `id`, `automation_statistics`, `workflow_statistics`
+- `TriggerEvent`: 17 pól o przebiegu uruchomienia (`eventKind`, `eventState`,
+  `triggerStartedAt`, `errorReason`, `billingActionsCount`, `entityKind`…) —
+  **żadne nie mówi, kto tę automatyzację założył**
+
+Najbliżej jest `creatorAppFeatureReferenceId`, ale to odniesienie do funkcji
+aplikacji, nie do człowieka.
+
+**Co z tego wynika:** tej pozycji wytycznych nie da się dziś spełnić i trzeba to
+powiedzieć wprost zamawiającemu, zamiast podstawiać przybliżenie („ostatni,
+który edytował tablicę" nie jest właścicielem automatyzacji).
+
+---
+
+## O43. Koszt zejścia na itemy — 1 wywołanie na 100 itemów
+
+**Status: ZMIERZONE 2026-09-22, ale na za małej próbce.**
+**Dotyczy:** plan przebudowy, faza 3
+
+```graphql
+query ($board: ID!, $cursor: String) {
+  boards (ids: [$board]) {
+    items_page (limit: 100, cursor: $cursor) {
+      cursor
+      items { id created_at updated_at group { id title } }
+    }
+  }
+}
+```
+
+Zmierzone na koncie CXLABS: **100 itemów = 1 wywołanie, complexity 2020,
+0,99 s.** Bez `column_values` — do agregatów z wytycznych wystarczą znaczniki
+czasu i grupa, a `column_values { text }` przyniósłby nazwiska, maile
+i telefony leadów, czyli dane osobowe osób trzecich.
+
+**Ograniczenie tego pomiaru, i jest poważne:** najgrubsza tablica na koncie
+CXLABS ma **103 itemy**. To konto nie jest w stanie pokazać przypadku, o który
+naprawdę chodzi — CRM klienta z dziesiątkami tysięcy leadów.
+
+**Ekstrapolacja:** 40 000 leadów na jednej tablicy to ~400 wywołań. Przy planie
+`pro` (10 000 dziennie) to 4% dnia, przy `free` (1 000) — **40% dnia na jedną
+tablicę**, czyli powyżej progu przerwania 50% dla całego konta.
+
+**Czego to NIE rozstrzyga:** czy przy takim wolumenie complexity zaczyna wiązać
+szybciej niż limit dzienny, i czy `items_page` utrzyma ~1 s przy stronie 500.
+Do zmierzenia na prawdziwym koncie CRM, zanim faza 3 ustali regułę samplingu.
