@@ -39,8 +39,13 @@ Naruszenie któregokolwiek = błąd krytyczny, zatrzymaj się i zapytaj.
   procesu (D12), wczytywanej z `.env` albo ze środowiska.
 - **Finding bez pola `dowod` nie przechodzi walidacji.** Bez wyjątków.
 - **Nie dodawaj zależności bez pytania.** Szczególnie: Postgres, Redis,
-  Celery, Langfuse. Każda była rozważona i odrzucona — powody w
-  `docs/ARCHITEKTURA.md`.
+  Celery. Każda była rozważona i odrzucona — powody w `docs/ARCHITEKTURA.md`.
+- **Langfuse jest dopuszczony, ale tylko w fazie 4 i tylko warunkowo**
+  (D10 cofnięta 2026-09-22). Bierzemy **Cloud**, nie self-hosted. Warstwa
+  maskująca PII powstaje **przed** pierwszym trace'em i **zawodzi zamknięte** —
+  gdy nie potrafi przetworzyć payloadu, trace nie wychodzi wcale. Podpięcie
+  Langfuse'a „na próbę" przed maskowaniem jest naruszeniem tego zakazu, bo
+  pierwszego wysłanego trace'u nie da się cofnąć.
 
 ## Stack
 

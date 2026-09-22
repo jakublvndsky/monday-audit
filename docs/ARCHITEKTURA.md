@@ -390,7 +390,33 @@ Artura ma sens, bo pojawia się interaktywność i notyfikacje.
 
 ## D10. Obserwowalność własna, nie Langfuse
 
-**Decyzja:** tabela `wywolania` w SQLite.
+> **COFNIĘTA 2026-09-22.** Wchodzi **Langfuse Cloud**, z maskowaniem PII przed
+> wysyłką. Tabela `wywolania` zostaje — mierzy co innego (koszt wywołań monday),
+> więc nie ma tu zastępowania, tylko dołożenie drugiej warstwy.
+>
+> **Dlaczego decyzja upadła:** stała na trzech nogach i dwie się przewróciły.
+> ClickHouse nie mieścił się w RAM-ie Mikrusa — Cloud nie wymaga ani jego, ani
+> Redisa, ani storage'u na blobach. Wdrożenie idzie teraz do portalu, więc
+> ograniczenia Mikrusa przestały być ograniczeniami tej decyzji. Trzecia noga —
+> **„trace'y wychodzą poza naszą infrastrukturę" — nie przewróciła się i to
+> jest cena, którą świadomie płacimy.**
+>
+> **Co z tego wynika jako wymóg, nie jako intencja:**
+> - Langfuse staje się **podprzetwarzającym dane klienta** i musi się znaleźć
+>   w tej samej rozmowie, co reszta subprocesorów. To zadanie dla człowieka.
+> - Maskowanie idzie **przed** pierwszym trace'em, nie po. Pierwszy trace
+>   wysłany bez maskowania jest nie do cofnięcia.
+> - Maskowanie **zawodzi zamknięte**: jeśli warstwa nie potrafi przetworzyć
+>   payloadu, trace nie wychodzi wcale. Wysłanie „na wszelki wypadek" byłoby
+>   wysłaniem.
+> - Trafienia maskowania są **liczone i zgłaszane**. `[E-MAIL]` w trace to nie
+>   sukces maskowania, tylko sygnał, że wyżej coś przeciekło — pierwszą linią
+>   pozostaje zasada, że dane osobowe w ogóle nie wchodzą do kontekstu modelu.
+>
+> Szczegóły i kolejność: `docs/plan.md`, faza 4. **Kod jeszcze nie istnieje** —
+> ten wpis odnotowuje decyzję, nie wdrożenie.
+
+**Decyzja (kontekst historyczny):** tabela `wywolania` w SQLite.
 
 **Powód:** Langfuse od v3 wymaga ClickHouse + Redis + storage na blobach.
 Sam ClickHouse chce więcej RAM-u, niż zostaje na Mikrusie. Langfuse Cloud
