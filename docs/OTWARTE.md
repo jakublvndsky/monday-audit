@@ -1820,13 +1820,47 @@ Zmierzone na koncie CXLABS: **100 itemów = 1 wywołanie, complexity 2020,
 czasu i grupa, a `column_values { text }` przyniósłby nazwiska, maile
 i telefony leadów, czyli dane osobowe osób trzecich.
 
-**Ograniczenie tego pomiaru, i jest podwójne:** najgrubsza tablica na koncie
-CXLABS ma **103 itemy**, więc to konto nie pokazuje przypadku, o który naprawdę
-chodzi — CRM klienta z dziesiątkami tysięcy leadów. Do tego pomiar szedł tokenem
-o rodzaju `member`, nie `admin` (ustalone 2026-09-22), czyli „najgrubsza tablica"
-znaczy tu **najgrubsza WIDOCZNA TYM TOKENEM**. Uprawnienia ograniczają wynik
-bez ostrzeżenia i to jest dokładnie ta cicha niepełność, przed którą broni
-bramka w `rozpoznaj_konto`.
+### POPRAWKA 2026-09-22: pierwszy pomiar był o tokenie, nie o koncie
+
+Pierwotnie stało tu, że najgrubsza tablica na CXLABS ma **103 itemy**, więc konto
+nie pokazuje przypadku, o który chodzi. **To było nieprawdą** i pokazuje, ile
+kosztuje pomiar zrobiony niepełnymi uprawnieniami.
+
+Ten pomiar szedł tokenem o rodzaju `member`. Po podmianie na token **admina**
+to samo konto wygląda tak:
+
+| tablica | itemów |
+|---|---|
+| `Leads e-commerce` | **10 000** |
+| `👤 Leads` | 7 076 |
+| `Repozytorium BEGOLDEN` | 3 158 |
+| `Kolporter` | 1 027 |
+
+**30 707 itemów w workspace'ach CRM, 47 519 na całym koncie.** Czyli CXLABS
+nadaje się do zaprojektowania samplingu i faza 3 nie potrzebuje obcego konta.
+
+Ekstrapolacja przy zmierzonym koszcie (100 itemów = 1 wywołanie):
+
+| zakres | wywołań | udział budżetu (połowa limitu dziennego) |
+|---|---|---|
+| sama `Leads e-commerce` | 100 | 0,8% enterprise · 2% pro · **20% free** |
+| workspace'y CRM | ~307 | 2,5% · 6% · **61% free** |
+| całe konto | ~476 | 3,8% · 9,5% · **95% free** |
+
+**Wniosek dla fazy 3:** na `enterprise` i `pro` pełne zejście na itemy mieści się
+spokojnie; na `free` zjada niemal cały budżet i dopiero tam sampling jest
+warunkiem, a nie optymalizacją.
+
+**I rzecz, która to upraszcza:** `items_count` przychodzi przy każdej tablicy
+za darmo, w zapytaniu, które i tak wykonujemy. Koszt całego skanu da się więc
+policzyć **zanim wydamy pierwsze wywołanie na itemy** — reguła samplingu ma być
+wyliczana z góry, a nie strojona po fakcie.
+
+**Lekcja ogólniejsza:** uprawnienia tokena ograniczają wynik bez ostrzeżenia,
+a liczba policzona na niepełnym widoku wygląda dokładnie tak samo, jak policzona
+na pełnym. Przed tym broni bramka w `rozpoznaj_konto` — i dlatego pomiary
+eksperymentalne, które ją omijają, trzeba opisywać jako „widziane tym tokenem",
+a nie „na koncie".
 
 **Ekstrapolacja:** 40 000 leadów na jednej tablicy to ~400 wywołań. Przy planie
 `pro` (10 000 dziennie) to 4% dnia, przy `free` (1 000) — **40% dnia na jedną
@@ -1898,3 +1932,61 @@ gołego „0 gości na tablicach" byłoby stwierdzeniem faktu, którego nie znam
 **Jak to rozstrzygnąć taniej niż przeglądem 3268 tablic:** znaleźć w panelu
 monday jedną tablicę, na której gość NA PEWNO jest, i odpytać wyłącznie ją.
 Jedno zapytanie zamiast stu trzydziestu.
+
+---
+
+## O46. Itemy da się czytać bez danych osobowych — przez `column_values(ids:)`
+
+**Status: ZMIERZONE 2026-09-22. To jest fundament fazy 3.**
+**Dotyczy:** plan przebudowy, faza 3; zdjęcie D5
+
+Punkt 3 wytycznych chce leadów, szans sprzedaży, ticketów, przyrostu dziennego
+i zamknięć. Pytanie, od którego zależało wszystko: da się to policzyć, **nie
+wciągając do procesu nazwisk, maili i telefonów leadów**?
+
+**Da się.** `column_values` przyjmuje `ids`, więc pobiera się DOKŁADNIE te
+kolumny, które wskażemy:
+
+```graphql
+items_page (limit: 100) {
+  items { id created_at column_values (ids: ["lead_status"]) { id text } }
+}
+```
+
+Zwraca `{"id": "lead_status", "text": "Qualified"}` — etykietę etapu i nic poza
+tym. **Bez `name` itemu**, bo nazwa leada to zwykle imię i nazwisko albo firma.
+
+**Reguła dla fazy 3:** z itemu wolno brać `id`, `created_at`, `updated_at`,
+`group` oraz wartości kolumn **typu `status` i `date`, wskazanych po id**.
+Nigdy `name`, nigdy `column_values` bez `ids`.
+
+### Grupy NIE są uniwersalnym nośnikiem etapu
+
+Sprawdzone na trzech prawdziwych tablicach tego samego konta:
+
+| tablica | co niosą grupy |
+|---|---|
+| `🎫 Zgłoszenia` (service) | **etapy**: Nieprzypisane → Nowe → Otwarte → Oczekuje → Rozwiązane |
+| `Leads e-commerce` (crm) | `Leads`, `niszowe` — segmenty, nie etapy |
+| `👤 Leads` (crm) | **27 grup** = źródła i kampanie, nie etapy |
+
+Więc „szanse sprzedaży" z samych grup policzyć się nie da. Etap leada siedzi
+w kolumnie typu `status`.
+
+### Poszlaka: kanoniczne identyfikatory kolumn
+
+`Leads e-commerce` ma **czternaście** kolumn typu `status` (`Categories`,
+`Currency`, `Platform`, `Czy odpisał?`…), ale tylko jedna ma identyfikator
+semantyczny: **`lead_status`**. Pozostałe to wygenerowane `color_mks8s5y`
+i podobne.
+
+Hipoteza do potwierdzenia w fazie 3: **kolumny zakładane przez produkt monday
+mają identyfikatory znaczące, a dodane ręcznie przez użytkownika — generowane.**
+Jeśli to prawda, „która kolumna jest lejkiem" rozstrzyga się po identyfikatorze,
+a nie po nazwie ani przez model. Do sprawdzenia na tablicy Service i na drugim
+koncie CRM.
+
+**Czego to NIE rozstrzyga:** „zamknięć dziennie" nadal nie ma wprost. Grupa albo
+status mówią o stanie DZISIAJ, a nie o tym, kiedy item do niego wszedł.
+Przybliżenie: itemy w etapie końcowym z `updated_at` w oknie — i musi być
+opisane jako przybliżenie, nie jako zmierzona liczba zamknięć.
