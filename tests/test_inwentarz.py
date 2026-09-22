@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 
 from monday_audit.inwentarz import (
-    _PYTANIE_TABLIC,
+    _PYTANIE_LICZNIK_TABLIC,
     _PYTANIE_UZYTKOWNIKOW,
     LIMIT_TABLIC,
     LIMIT_UZYTKOWNIKOW,
@@ -134,7 +134,7 @@ class _KlientAtrapa:
         limit = int(zmienne.get("limit", 100))
         od = (strona - 1) * limit
 
-        if gql == _PYTANIE_TABLIC:
+        if gql == _PYTANIE_LICZNIK_TABLIC:
             return {"boards": self._tablice[od : od + limit]}
         if gql == _PYTANIE_UZYTKOWNIKOW:
             return {"users": self._uzytkownicy[od : od + limit]}
@@ -219,7 +219,7 @@ async def test_kosz_nie_wchodzi_do_kafelka_tablic() -> None:
 
     assert wynik.tablic_aktywnych == 5
     assert wynik.tablic_razem == 15
-    assert wynik.tablic_po_typie == {"board": 15}
+    assert wynik.tablic_po_typie == {"board": 5}  # tylko aktywne
     assert wynik.tablic_po_stanie == {"active": 5, "archived": 1, "deleted": 9}
 
 

@@ -54,7 +54,7 @@ OKNO_DNI = 90
 LIMIT_TABLIC = 25
 LIMIT_ZDARZEN = 200
 
-_PYTANIE_TABLIC = """
+_PYTANIE_TABLIC_Z_LUDZMI = """
 query ($limit: Int!, $p: Int!) {
   boards (limit: $limit, page: $p, state: active, order_by: created_at) {
     id
@@ -196,9 +196,25 @@ def kubelek_aktywnosci(updated_at: str | None, *, teraz: datetime | None = None)
     return "starsze"
 
 
+@dataclass(frozen=True, slots=True)
+class Agregaty:
+    """Wynik `policz_agregaty`. Dataclassa, nie słownik: do 2026-09-22 te siedem
+    pól jeździło jako `dict[str, Any]`, więc literówka w kluczu przechodziła
+    mypy i wywalała się dopiero w locie."""
+
+    tablic: int
+    po_rodzaju: dict[str, int]
+    po_typie: dict[str, int]
+    userow_srednio: float | None
+    userow_mediana: float | None
+    gosci_na_tablicach: int
+    tablic_z_goscmi: int
+    aktywnosc: dict[str, int]
+
+
 def policz_agregaty(
     tablice: list[dict[str, Any]], goscie: set[str], *, teraz: datetime | None = None
-) -> dict[str, Any]:
+) -> Agregaty:
     """Agregaty po tablicach. `goscie` to identyfikatory kont o rodzaju `guest`.
 
     **Liczone są wyłącznie obiekty `type: board`.** Rozbicie po typie obejmuje
@@ -235,28 +251,29 @@ def policz_agregaty(
         if ilu_gosci:
             z_goscmi += 1
 
-    return {
-        "tablic": tablic_wlasciwych,
-        "po_rodzaju": dict(sorted(po_rodzaju.items())),
-        "po_typie": dict(sorted(po_typie.items())),
-        "aktywnosc": dict(sorted(aktywnosc.items())),
-        "userow_srednio": round(statistics.fmean(userow), 1) if userow else None,
-        "userow_mediana": float(statistics.median(userow)) if userow else None,
-        "gosci_na_tablicach": gosci_razem,
-        "tablic_z_goscmi": z_goscmi,
-    }
+    return Agregaty(
+        tablic=tablic_wlasciwych,
+        po_rodzaju=dict(sorted(po_rodzaju.items())),
+        po_typie=dict(sorted(po_typie.items())),
+        aktywnosc=dict(sorted(aktywnosc.items())),
+        userow_srednio=round(statistics.fmean(userow), 1) if userow else None,
+        userow_mediana=float(statistics.median(userow)) if userow else None,
+        gosci_na_tablicach=gosci_razem,
+        tablic_z_goscmi=z_goscmi,
+    )
 
 
 def zbierz_uruchomienia(zdarzenia: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """`board_id` → `{uruchomien, bledow, ostatnie}`. Zdarzenia bez tablicy odpadają."""
     wynik: dict[str, dict[str, Any]] = {}
+    # Sparsowane znaczniki trzymamy OBOK wyniku, nie w nim — wynik ma mieć
+    # dokładnie te pola, które deklaruje docstring.
+    najnowsze: dict[str, datetime] = {}
     for zdarzenie in zdarzenia:
         board_id = zdarzenie.get("hostInstanceId")
         if not board_id:
             continue
-        wpis = wynik.setdefault(
-            str(board_id), {"uruchomien": 0, "bledow": 0, "ostatnie": None, "_ostatnie_dt": None}
-        )
+        wpis = wynik.setdefault(str(board_id), {"uruchomien": 0, "bledow": 0, "ostatnie": None})
         wpis["uruchomien"] += 1
         if str(zdarzenie.get("eventState") or "").lower() not in ("success", ""):
             wpis["bledow"] += 1
@@ -268,13 +285,11 @@ def zbierz_uruchomienia(zdarzenia: list[dict[str, Any]]) -> dict[str, dict[str, 
         kiedy = zdarzenie.get("triggerStartedAt")
         kiedy_dt = na_datetime(str(kiedy) if kiedy else None)
         if kiedy_dt is not None:
-            poprzednie = wpis["_ostatnie_dt"]
+            poprzednie = najnowsze.get(str(board_id))
             if poprzednie is None or kiedy_dt > poprzednie:
-                wpis["_ostatnie_dt"] = kiedy_dt
+                najnowsze[str(board_id)] = kiedy_dt
                 wpis["ostatnie"] = str(kiedy)
 
-    for wpis in wynik.values():
-        del wpis["_ostatnie_dt"]
     return wynik
 
 
@@ -283,7 +298,7 @@ async def _pobierz_tablice(klient: MondayClient) -> list[dict[str, Any]]:
     strona = 1
     while True:
         odpowiedz = await klient.query(
-            _PYTANIE_TABLIC,
+            _PYTANIE_TABLIC_Z_LUDZMI,
             {"limit": LIMIT_TABLIC, "p": strona},
             etykieta="przeglad_tablice",
         )
@@ -398,7 +413,7 @@ async def zbuduj_przeglad(
     # ani filtra przy `subscribers` (O45). Nie umiem rozstrzygnąć, czy to pole
     # gości nie zwraca, czy siedzą na tablicach spoza sprawdzonych — więc nie
     # pokazuję zera jako faktu.
-    podejrzane_zero = agregaty["gosci_na_tablicach"] == 0 and bool(goscie)
+    podejrzane_zero = agregaty.gosci_na_tablicach == 0 and bool(goscie)
     uruchomienia = zbierz_uruchomienia(zdarzenia)
 
     produkt_workspace = {w.workspace_id: w.produkt_kind for w in workspace_y}
@@ -441,14 +456,14 @@ async def zbuduj_przeglad(
         )
 
     przeglad = PrzegladTablic(
-        tablic=agregaty["tablic"],
-        po_rodzaju=agregaty["po_rodzaju"],
-        po_typie=agregaty["po_typie"],
-        userow_srednio=agregaty["userow_srednio"],
-        userow_mediana=agregaty["userow_mediana"],
-        gosci_na_tablicach=agregaty["gosci_na_tablicach"],
-        tablic_z_goscmi=agregaty["tablic_z_goscmi"],
-        aktywnosc=agregaty["aktywnosc"],
+        tablic=agregaty.tablic,
+        po_rodzaju=agregaty.po_rodzaju,
+        po_typie=agregaty.po_typie,
+        userow_srednio=agregaty.userow_srednio,
+        userow_mediana=agregaty.userow_mediana,
+        gosci_na_tablicach=agregaty.gosci_na_tablicach,
+        tablic_z_goscmi=agregaty.tablic_z_goscmi,
+        aktywnosc=agregaty.aktywnosc,
         zywe_automatyzacje=tuple(zywe),
         uruchomien_razem=sum(t.uruchomien for t in zywe),
         okno_dni=okno_dni,

@@ -61,7 +61,11 @@ def _wypisz_przeglad(przeglad: PrzegladTablic) -> None:
         bledy = f", {tablica.bledow} błędów" if tablica.bledow else ""
         nazwa = tablica.nazwa or tablica.board_id
         print(f"  {tablica.uruchomien:>5} uruchomień{bledy}  {nazwa}{produkt}")
-    print()
+    print(f"  {'─' * 46}")
+    # Koszt DROŻSZEJ połowy. Do 2026-09-22 CLI chwaliło się tylko wywołaniami
+    # kafelków, a te ~95 tutaj było niewidoczne — koszt, którego nie widać,
+    # nie istnieje dla decydującego.
+    print(f"  {przeglad.wywolan} wywołań z limitu konta (przegląd tablic)\n")
     for uwaga in przeglad.zastrzezenia:
         print(f"  UWAGA: {uwaga}")
 

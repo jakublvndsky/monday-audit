@@ -16,9 +16,9 @@ ze świadomym brakiem `me { name }`.
 ## Czego ten moduł NIE liczy
 
 Nie liczy itemów (to faza 3) ani niczego, co wymaga logów aktywności (faza 2b).
-Liczba tablic to liczba obiektów `boards` — razem z podelementami i dokumentami,
-bo na tym poziomie nie filtrujemy po `type`; rozbicie „tablice wg rodzaju"
-należy do punktu 4 wytycznych i do fazy 2b.
+„Liczba tablic" to obiekty **aktywne i typu `board`** — podelementy, dokumenty
+i obiekty własne są policzone osobno w `tablic_po_typie`, ale do kafelka nie
+wchodzą. Rozbicie „tablice wg rodzaju" należy do punktu 4 i do fazy 2b.
 """
 
 from __future__ import annotations
@@ -45,7 +45,17 @@ logger = logging.getLogger(__name__)
 # `state: all` i pole `state` przy każdej tablicy: jedno przejście daje
 # i aktywne, i zarchiwizowane, i kosz. Liczenie samych aktywnych wyglądałoby
 # tak samo jak konto, w którym ktoś zarchiwizował połowę pracy.
-_PYTANIE_TABLIC = """
+# W repo są CZTERY zapytania o `boards` i każde po co innego — mapa, żeby nikt
+# nie dokładał piątego w ciemno:
+#
+#   `tablice.py:_SZKIELET`            — collector, pełne pola, do snapshotu
+#   `podglad_zakresu.py:_PYTANIE_TABLIC` — tablice jednego workspace'u, do wyboru zakresu
+#   tutaj                             — sam licznik: trzy pola skalarne, strona 100
+#   `przeglad_tablic.py:_PYTANIE_TABLIC_Z_LUDZMI` — agregaty, ciągnie subskrybentów
+#
+# Nazwy są różne CELOWO: do 2026-09-22 dwie z nich nazywały się identycznie
+# w dwóch modułach i przy czytaniu diffu nie dało się powiedzieć, o które chodzi.
+_PYTANIE_LICZNIK_TABLIC = """
 query ($limit: Int!, $p: Int!) {
   boards (limit: $limit, page: $p, state: all) {
     id
@@ -193,7 +203,7 @@ async def _policz_tablice(klient: MondayClient) -> tuple[int, dict[str, int], di
     strona = 1
     while True:
         odpowiedz = await klient.query(
-            _PYTANIE_TABLIC,
+            _PYTANIE_LICZNIK_TABLIC,
             {"limit": LIMIT_TABLIC, "p": strona},
             etykieta="inwentarz_tablice",
         )
@@ -204,8 +214,13 @@ async def _policz_tablice(klient: MondayClient) -> tuple[int, dict[str, int], di
             stan = str(tablica.get("state") or "nieznany")
             typ = str(tablica.get("type") or "nieznany")
             po_stanie[stan] += 1
+            if stan != "active":
+                # Rozbicie po typie dotyczy AKTYWNYCH. Liczone po wszystkich
+                # stanach dawało 777 podelementów obok 484 w przeglądzie —
+                # dwie liczby o tym samym, w jednym bloku wyjścia.
+                continue
             po_typie[typ] += 1
-            if stan == "active" and typ == TYP_TABLICY:
+            if typ == TYP_TABLICY:
                 aktywnych_tablic += 1
         if len(surowe) < LIMIT_TABLIC:
             break

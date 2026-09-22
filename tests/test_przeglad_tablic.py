@@ -137,8 +137,8 @@ def test_srednia_i_mediana_stoja_obok_siebie() -> None:
 
     wynik = policz_agregaty(tablice, goscie=set(), teraz=TERAZ)
 
-    assert wynik["userow_srednio"] == 34.0
-    assert wynik["userow_mediana"] == 1.0
+    assert wynik.userow_srednio == 34.0
+    assert wynik.userow_mediana == 1.0
 
 
 def test_goscie_liczeni_po_rodzaju_konta() -> None:
@@ -149,8 +149,8 @@ def test_goscie_liczeni_po_rodzaju_konta() -> None:
 
     wynik = policz_agregaty(tablice, goscie={"g1"}, teraz=TERAZ)
 
-    assert wynik["gosci_na_tablicach"] == 1
-    assert wynik["tablic_z_goscmi"] == 1
+    assert wynik.gosci_na_tablicach == 1
+    assert wynik.tablic_z_goscmi == 1
 
 
 def test_rozbicie_po_rodzaju_i_typie() -> None:
@@ -165,9 +165,9 @@ def test_rozbicie_po_rodzaju_i_typie() -> None:
     # `po_typie` obejmuje WSZYSTKO, co zwróciło API — po to, żeby było widać,
     # co odpadło. `po_rodzaju` i reszta agregatów liczy już tylko `type: board`,
     # bo średnia userów po kontenerach podelementów nie opisuje niczego.
-    assert wynik["po_typie"] == {"board": 2, "document": 1}
-    assert wynik["po_rodzaju"] == {"private": 1, "public": 1}
-    assert wynik["tablic"] == 2
+    assert wynik.po_typie == {"board": 2, "document": 1}
+    assert wynik.po_rodzaju == {"private": 1, "public": 1}
+    assert wynik.tablic == 2
 
 
 class _KlientZdarzen:
@@ -237,5 +237,5 @@ async def test_pelny_tydzien_schodzi_na_dni_i_melduje_urwanie() -> None:
 def test_pusta_lista_tablic_nie_wywraca_sredniej() -> None:
     wynik = policz_agregaty([], goscie=set(), teraz=TERAZ)
 
-    assert wynik["userow_srednio"] is None
-    assert wynik["userow_mediana"] is None
+    assert wynik.userow_srednio is None
+    assert wynik.userow_mediana is None
