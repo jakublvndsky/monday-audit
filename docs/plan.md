@@ -61,7 +61,7 @@ koszt i różne źródła, a sklejone dawałyby jeden wynik dopiero na końcu ob
     URUCHOMIŁO" (O41), więc pomija te, które nigdy nie odpaliły — a w audycie
     to właśnie one są najciekawsze. Raport musi tę różnicę nazwać.
 
-- [ ] **3. Itemy i agregaty** — dla prawdziwego konta wychodzą liczby z punktu 3:
+- [x] **3. Itemy i agregaty** — dla prawdziwego konta wychodzą liczby z punktu 3:
   leady, szanse sprzedaży, tickety, przyrost dzienny i zamknięcia dziennie.
   Zdjęcie zakazu D5 (`items_count` jako granica) jest tu świadome i zapisane.
   - Ryzyko: **dane osobowe osób trzecich.** Item niesie imię, nazwisko, telefon
@@ -132,6 +132,12 @@ koszt i różne źródła, a sklejone dawałyby jeden wynik dopiero na końcu ob
   - Ryzyko drugie: przypadki użycia agentów opierają się na aktywności kont
     agentowych, bo `agent_runs` nie istnieje w żadnej wersji API (O20, pomiar
     z fazy 1), a `agents` działa dopiero w nieprzypiętej `2027-01`.
+  - **Doszło z fazy 3 (2026-09-22): rollupy produktowe** — „ile leadów",
+    „ile szans sprzedaży", „ile ticketów", „ile zamknięć dziennie". Surowce są
+    gotowe (rozkład etapów per tablica, przyrost dzienny, produkt workspace'u),
+    brakuje wyłącznie **reguły, co liczy się jako szansa i co jako zamknięcie**.
+    Ta reguła jest osądem, nie odczytem, więc należy tutaj, a nie do fazy
+    zbierania danych. Bez niej rollup byłby sumą, której nikt nie umie obronić.
 
 - [ ] **6. Przepływ: dwa kroki, jedno kliknięcie między nimi** — user story
   z 2026-09-21. Użytkownik jest już zalogowany w portalu, a klucz monday leży
@@ -233,6 +239,40 @@ Trzy rzeczy poszły inaczej, niż zakładał plan:
 - **Gości na tablicach nie widać** (O45): 12 aktywnych gości i zero wystąpień
   w 1000 tablicach. Nie dowód, więc metryka zostaje, ale z zastrzeżeniem, że
   zera nie należy traktować jako zmierzonego.
+
+**2026-09-22 — faza 3 zamknięta.** `itemy.py` plus flaga `--itemy`. Zakaz D5
+zdjęty świadomie i tylko tutaj. Pełny przebieg na CXLABS: **1109 wywołań**,
+954 tablice objęte planem, zero pominiętych przez budżet.
+
+Cztery rzeczy poszły inaczej, niż zakładał plan:
+
+- **`items_count` nie jest obietnicą, że itemy da się pobrać** (O47).
+  Dwanaście tablic deklaruje itemy i oddaje zero — bez błędu, GraphQL zwraca
+  200 i pustą stronę. Największa z nich mówi `7076`. Kolejne dwie oddają mniej,
+  niż deklarują. To ~1,5% konta, więc „ile itemów jest" i „ile umiemy opisać"
+  są od teraz dwiema osobnymi liczbami i obie są widoczne w wyjściu.
+  Rozstrzygnięcie przyczyny wymaga wejścia do panelu monday — zadanie dla
+  człowieka, nie dla zapytania.
+- **Ekstrapolacja kosztu z O43 była zaniżona 2,3×** — 476 wobec zmierzonych
+  1109. Powód: nie objętość danych, tylko **podłoga jednego wywołania na
+  tablicę**. Konto z tysiącem małych tablic kosztuje więcej niż konto z jedną
+  wielką. Liczba powtórzyła się co do jednego w drugim przebiegu, więc jest
+  przewidywalna, a nie przypadkowa. 1109 to 8,9% budżetu `enterprise`, ale
+  **dwukrotność całego limitu planu `free`**.
+- **Goły `status` nie jest lejkiem** (O46). Pierwsza wersja reguły robiła lejek
+  sprzedaży z dowolnej tablicy, bo `status` to domyślne id pierwszej kolumny
+  statusu wszędzie. Stąd trzy stopnie rozpoznania zamiast dwóch: kolumna
+  kanoniczna, grupy, „nie rozpoznano" — i stopień jest nazwany w wyjściu, żeby
+  nikt nie wziął podziału na grupy za etapy lejka.
+- **Sampling okazał się niepotrzebny na tym koncie**, ale reguła zostaje, bo na
+  planie `free` to warunek wykonalności, nie optymalizacja. `zaplanuj_pobranie`
+  bierze najmniejsze tablice najpierw: dwadzieścia małych mówi o koncie więcej
+  niż jedna wielka, a wielka i tak ma policzone itemy z licznika.
+
+Odchylenie od zakresu: **rollupy produktowe** (leady, szanse, tickety,
+zamknięcia dziennie) **przeniesione do fazy 5** — decyzja Kuby z 2026-09-22.
+Dane pod nie są zebrane; brakuje reguły, co jest szansą i co zamknięciem,
+a ta reguła jest osądem i należy do fazy analizy.
 
 ---
 

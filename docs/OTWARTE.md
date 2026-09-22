@@ -2047,6 +2047,12 @@ Pierwszy pełny przebieg fazy 3 na koncie CXLABS pokazał tablicę, która **dek
 **Bez błędu.** GraphQL zwraca 200, `errors` puste, po prostu pusta strona. To samo
 zachowanie na `✅ Client Projects & Forecast` (193 wg licznika, zero pobranych).
 
+**To nie są dwa wyjątki.** Powtórzony przebieg 2026-09-22 (już z licznikiem
+`pobranych`) naliczył **12 tablic oddających zero mimo niezerowego `items_count`**
+i kolejne **2 oddające mniej, niż deklarują** — na 954 tablicach objętych planem.
+Czyli ~1,5% konta. Dla raportu znaczy to, że „ile itemów jest na koncie" i „ile
+itemów umiemy opisać" to dwie różne liczby i obie muszą być widoczne.
+
 **Czego nie wiemy:** czy `items_count` liczy itemy w koszu, czy licznik jest
 nieaktualny, czy itemy mają własne uprawnienia. Rozstrzygnięcie wymagałoby
 wejścia do panelu monday na tę tablicę — to zadanie dla człowieka, nie dla
