@@ -25,6 +25,7 @@ from monday_audit.konfiguracja import wczytaj
 from monday_audit.konto import Zakres, rozpoznaj_konto
 from monday_audit.podglad_zakresu import RejestrPodgladu
 from monday_audit.przeglad_tablic import PrzegladTablic, pobierz_tablice, zbuduj_przeglad
+from monday_audit.zestawienia import WynikZestawien, zbuduj_zestawienia
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,36 @@ def _wypisz_itemy(itemy: WynikItemow) -> None:
     for uwaga in itemy.zastrzezenia:
         print(f"  UWAGA: {uwaga}")
 
+    _wypisz_zestawienia(zbuduj_zestawienia(itemy.tablice))
+
+
+def _wypisz_zestawienia(wynik: WynikZestawien) -> None:
+    """Rollupy produktowe. Zero wywołań — liczone z tego, co już mamy."""
+    if not wynik.zestawienia:
+        return
+    print("\n  Rollupy produktowe")
+    print(f"  {'─' * 46}")
+    for z in wynik.zestawienia:
+        print(f"  {z.produkt.upper()} — {z.tablic} tablic, {z.itemow_deklarowanych} itemów")
+        print(
+            f"      w toku {z.w_toku}, wygrane {z.wygrane}, odpadło {z.odpadlo}, "
+            f"zamknięte {z.zamkniete}, bez etapu {z.bez_etapu}"
+        )
+        print(
+            f"      przyrost {z.przyrost_dzienny}/dzień, "
+            f"zamknięć ~{z.zamkniec_dziennie}/dzień (szacunek z ilorazu)"
+        )
+        print(f"      pokrycie {z.pokrycie:.1%}")
+        # Etykiety policzone jako OTWARTE — to jest miejsce, w którym człowiek
+        # w dziesięć sekund wyłapie, że wśród szans siedzi „Archiwum".
+        if z.etykiety_w_toku:
+            widoczne = ", ".join(z.etykiety_w_toku[:8])
+            reszta = len(z.etykiety_w_toku) - 8
+            print(f"      jako otwarte: {widoczne}" + (f" (+{reszta})" if reszta > 0 else ""))
+    print(f"  {'─' * 46}\n")
+    for uwaga in wynik.zastrzezenia:
+        print(f"  UWAGA: {uwaga}")
+
 
 async def _wykonaj(jako_json: bool, z_tablicami: bool, z_itemami: bool) -> int:
     ustawienia = wczytaj()
@@ -144,6 +175,7 @@ async def _wykonaj(jako_json: bool, z_tablicami: bool, z_itemami: bool) -> int:
             dokument["tablice"] = przeglad.do_json()
         if itemy is not None:
             dokument["itemy"] = itemy.do_json()
+            dokument["zestawienia"] = zbuduj_zestawienia(itemy.tablice).do_json()
         print(json.dumps(dokument, ensure_ascii=False, indent=2))
         return 0
 
