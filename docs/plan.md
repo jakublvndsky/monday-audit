@@ -62,7 +62,45 @@ bez dowodu nie przechodzi walidacji.
     się nie mieści, raport ma **powiedzieć wprost, czego nie objął**, zamiast
     milczeć. Do tego służy istniejące pole `zastrzezenia`.
 
-- [ ] **4. Analiza: co to za konto** — model dostaje agregaty i produkuje cztery
+- [ ] **4. Langfuse z maskowaniem PII** — trace'y wywołań modelu trafiają do
+  Langfuse, a przed wysłaniem przechodzą przez warstwę maskującą: zamiast maila
+  w trace widać `[E-MAIL]`, zamiast telefonu `[TELEFON]`, i tak dalej.
+  Idzie **przed** analizą, bo faza 5 jest pierwszą, w której model pracuje na
+  prawdziwych danych — a obserwowalność dostawiona po fakcie nie pokaże tego,
+  co się działo, gdy była potrzebna najbardziej.
+
+  **To jest świadome cofnięcie D10** („obserwowalność własna, nie Langfuse").
+  Tamta decyzja stała na trzech nogach i dwie się przewróciły: ClickHouse nie
+  mieścił się w RAM-ie Mikrusa, a wdrożenie idzie teraz do portalu; wolumen był
+  tam wprost wymieniony jako to, co decyzję unieważni. Trzecia noga — „trace'y
+  wychodzą poza naszą infrastrukturę" — zostaje i to jej dotyczy maskowanie.
+  Przy zamykaniu tej fazy D10 w `docs/ARCHITEKTURA.md` wymaga dopisania powodu
+  i daty, a `CLAUDE.md` skreślenia Langfuse'a z listy zakazanych zależności.
+
+  **Maskowanie jest drugą linią, nie pierwszą.** Pierwszą pozostaje zasada, że
+  dane osobowe w ogóle nie wchodzą do kontekstu modelu. Dlatego warstwa ma nie
+  tylko zamieniać, ale **liczyć trafienia i je zgłaszać**: jeśli `[E-MAIL]`
+  faktycznie pojawi się w trace, to nie jest sukces maskowania, tylko sygnał,
+  że wyżej coś przeciekło. Cicha redakcja zamieniłaby alarm w kosmetykę.
+  **Bierzemy Langfuse Cloud, nie self-hosted** (decyzja 2026-09-22). Znika
+  ClickHouse, Redis i storage na blobach — czyli dokładnie to, co w D10 nie
+  mieściło się w RAM-ie. Cena jest jedna i trzeba ją nazwać: **trace'y wychodzą
+  do kogoś trzeciego**, więc Langfuse staje się podprzetwarzającym dane klienta
+  i musi się znaleźć w tej samej rozmowie, co reszta subprocesorów.
+
+  Przy Cloudzie **maskowanie przestaje być drugą linią i staje się pierwszą**
+  dla wszystkiego, co opuszcza serwer. Stąd wymóg twardy dla tej fazy:
+  **maskowanie zawodzi zamknięte** — jeśli warstwa nie potrafi przetworzyć
+  payloadu, trace nie wychodzi wcale. Wysłanie „na wszelki wypadek" byłoby
+  wysłaniem.
+  - Ryzyko: kolejność wdrożenia. Nie wolno podłączyć Langfuse'a „na próbę" przed
+    maskowaniem, bo pierwszy trace z prawdziwego konta wyjdzie bez niego i nie
+    da się go cofnąć.
+  - Ryzyko drugie: co dokładnie maskujemy. Mail i telefon są łatwe wzorcem;
+    imię i nazwisko w nazwie tablicy albo w treści itemu **nie są** — i trzeba
+    powiedzieć wprost, czego ta warstwa nie złapie.
+
+- [ ] **5. Analiza: co to za konto** — model dostaje agregaty i produkuje cztery
   rzeczy: typ workspace'u z uzasadnieniem, sugestię produktu z nomenklatury
   (CRM albo Service, z pytaniem do klienta), przypadki użycia agentów, oraz
   uwagi krytyczne. Każde stwierdzenie z dowodem.
@@ -70,7 +108,7 @@ bez dowodu nie przechodzi walidacji.
     kolumn bywa trafne i bywa mylące — potrzebny próg pewności i jawne „nie
     wiem" zamiast zgadywania. Przypadki użycia agentów zależą od pomiaru 1.
 
-- [ ] **5. Przepływ: dwa kroki, jedno kliknięcie między nimi** — user story
+- [ ] **6. Przepływ: dwa kroki, jedno kliknięcie między nimi** — user story
   z 2026-09-21. Użytkownik jest już zalogowany w portalu, a klucz monday leży
   w tamtej bazie, więc nigdzie go nie wpisuje.
 
@@ -92,7 +130,7 @@ bez dowodu nie przechodzi walidacji.
     z trzema workspace'ami i czterdziestoma tysiącami leadów trwa dłużej niż
     osiem pustych.
 
-- [ ] **6. Raport: przebudowa treści, HTML i PDF** — wejście w kafelek pogłębia
+- [ ] **7. Raport: przebudowa treści, HTML i PDF** — wejście w kafelek pogłębia
   do szczegółów, a sam raport jest **pogrupowany i opisany przez agenta**, nie
   wyliczany zdarzenie po zdarzeniu. Kwoty w dolarach.
 
@@ -100,7 +138,7 @@ bez dowodu nie przechodzi walidacji.
   do dopracowania"). Wiadomo tylko, czego ma nie być: listy pojedynczych
   zdarzeń. Tej fazy nie da się domknąć, dopóki nie wiadomo, w co grupujemy —
   i to jest w porządku, bo materiału do grupowania dostarczają dopiero fazy 3
-  i 4.
+  i 5.
   - Ryzyko: **PDF to nowa zależność.** Headless Chrome oznacza powrót Node'a na
     produkcję, czego świadomie unikaliśmy; WeasyPrint to czysty Python za cenę
     bibliotek systemowych (pango, cairo). Decyzja przed fazą, nie w trakcie.

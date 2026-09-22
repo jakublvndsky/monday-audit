@@ -68,6 +68,7 @@ nie przypadek.
 | Plik | Kiedy czytać |
 |---|---|
 | `STATUS.md` | zawsze, pierwszy |
+| `docs/plan.md` | **fazy przebudowy i gdzie w nich jesteśmy** — czytaj przy „co dalej"; jedna faza na raz, nie przepisuj planu przy okazji pytania |
 | `docs/HANDOFF_ETAP6.md` | **wejście do pracy nad wdrożeniem** — co stoi na produkcji, jak wdrażać, co zostało z kolejki zerowej, konfiguracja ręczna poza repo |
 | `docs/PODSUMOWANIE.md` | stan projektu bez kodu — gdy ktoś pyta „na czym stoimy" |
 | `docs/ZBUDOWANE.md` | **co już stoi i co zostało zmierzone** — zanim zaczniesz cokolwiek budować |
