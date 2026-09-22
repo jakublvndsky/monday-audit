@@ -25,6 +25,7 @@ from monday_audit.konfiguracja import wczytaj
 from monday_audit.konto import Zakres, rozpoznaj_konto
 from monday_audit.podglad_zakresu import RejestrPodgladu
 from monday_audit.przeglad_tablic import PrzegladTablic, pobierz_tablice, zbuduj_przeglad
+from monday_audit.wejscie_analizy import zbuduj_wejscie
 from monday_audit.zestawienia import WynikZestawien, zbuduj_zestawienia
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,14 @@ logger = logging.getLogger(__name__)
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Inwentarz konta monday — sześć kafelków")
     parser.add_argument("--json", action="store_true", help="wypisz surowy JSON zamiast tabelki")
+    parser.add_argument(
+        "--wejscie-modelu",
+        action="store_true",
+        help=(
+            "zamiast surowego JSON-a wypisz DOKUMENT DLA MODELU: złożony, "
+            "przycięty i przepuszczony przez bramkę maskującą (faza 5a)"
+        ),
+    )
     parser.add_argument(
         "--itemy",
         action="store_true",
@@ -140,7 +149,9 @@ def _wypisz_zestawienia(wynik: WynikZestawien) -> None:
         print(f"  UWAGA: {uwaga}")
 
 
-async def _wykonaj(jako_json: bool, z_tablicami: bool, z_itemami: bool) -> int:
+async def _wykonaj(
+    jako_json: bool, z_tablicami: bool, z_itemami: bool, wejscie_modelu: bool = False
+) -> int:
     ustawienia = wczytaj()
     token = ustawienia.monday_token.get_secret_value() if ustawienia.monday_token else ""
     if not token:
@@ -172,13 +183,30 @@ async def _wykonaj(jako_json: bool, z_tablicami: bool, z_itemami: bool) -> int:
         else:
             itemy = None
 
-    if jako_json:
+    if jako_json or wejscie_modelu:
         dokument = inwentarz.do_json()
-        if przeglad is not None:
-            dokument["tablice"] = przeglad.do_json()
-        if itemy is not None:
-            dokument["itemy"] = itemy.do_json()
-            dokument["zestawienia"] = zbuduj_zestawienia(itemy.tablice).do_json()
+        tablice_json = przeglad.do_json() if przeglad is not None else None
+        itemy_json = itemy.do_json() if itemy is not None else None
+        zestawienia_json = zbuduj_zestawienia(itemy.tablice).do_json() if itemy else None
+
+        if wejscie_modelu:
+            # JEDYNA droga do modelu w nowej ścieżce — składanie, przycięcie
+            # i bramka maskująca w jednym miejscu, bo bramka, którą da się
+            # obejść, nie jest bramką.
+            wejscie = zbuduj_wejscie(
+                inwentarz=dokument,
+                tablice=tablice_json,
+                itemy=itemy_json,
+                zestawienia=zestawienia_json,
+            )
+            print(json.dumps(wejscie.dokument, ensure_ascii=False, indent=2))
+            return 0
+
+        if tablice_json is not None:
+            dokument["tablice"] = tablice_json
+        if itemy_json is not None:
+            dokument["itemy"] = itemy_json
+            dokument["zestawienia"] = zestawienia_json
         print(json.dumps(dokument, ensure_ascii=False, indent=2))
         return 0
 
@@ -218,7 +246,12 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         return asyncio.run(
-            _wykonaj(jako_json=args.json, z_tablicami=args.tablice, z_itemami=args.itemy)
+            _wykonaj(
+                jako_json=args.json,
+                z_tablicami=args.tablice,
+                z_itemami=args.itemy,
+                wejscie_modelu=args.wejscie_modelu,
+            )
         )
     except MondayError as blad:
         # Treść błędu z API może nieść fragment odpowiedzi, ale nie token —

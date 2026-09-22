@@ -2157,3 +2157,44 @@ oddaje etap BIEŻĄCY, nie historię. Z logów dałoby się to policzyć, a nie 
 
 **Wniosek:** wdrażać dopiero, gdy ktoś poprosi o prawdziwą historię przejść
 i zaakceptuje drugi przebieg. Na dziś tańsze i uczciwsze jest O48.
+
+---
+
+## O50. Nowa ścieżka nie umie zamaskować nazwiska w nazwie tablicy
+
+**Status: OTWARTE — rozstrzygnięcie należy do człowieka, nie do kodu.**
+**Dotyczy:** `wejscie_analizy.py`, `inwentarz.py`, plan faza 5
+
+Dwie ścieżki radzą sobie z danymi osobowymi inaczej, i to nie przypadkiem.
+
+**Stara ścieżka** (`przebieg.py` → snapshot → agent) pobiera `name` i `email`
+użytkowników, buduje tabelę mapowania i dzięki niej potrafi podmienić nazwisko
+w treści pisanej przez klienta: tablica „Jan Kowalski — projekty" staje się
+„[OSOBA:a1b2c3]". Cena: prawdziwe nazwiska przechodzą przez proces.
+
+**Nowa ścieżka** (inwentarz → przegląd → itemy → zestawienia) **celowo ich nie
+pobiera.** Faza 2a odpytuje użytkowników o `id, kind, status, is_deleted`
+i świadomie pomija `name` oraz `email`, bo najtańszym sposobem na niewyciekanie
+danych jest ich nie pobrać. Cena jest dokładnie tutaj: **nie mamy z czym
+porównać**, więc nazwisko w nazwie tablicy przechodzi do modelu.
+
+Bramka w `wejscie_analizy.py` łapie wzorcem adresy, telefony i numery kont —
+czyli to, co ma kształt. Imię i nazwisko kształtu nie ma; wzorzec „dwa słowa
+z wielkiej litery" zjadłby połowę nazw tablic.
+
+**Trzy drogi, każda z ceną:**
+
+1. **Przyjąć ryzyko.** Nazwa tablicy to obiekt biznesowy, a nie rekord osobowy,
+   i klient sam ją napisał. Ryzyko realne, ale wąskie.
+2. **Wrócić po listę nazwisk** tylko do zbudowania tabeli mapowania. Odzyskuje
+   pełną redakcję, ale **kasuje zysk z fazy 2a** — nazwiska znów przechodzą
+   przez proces, tym razem po to, żeby ich nie było.
+3. **Pobrać nazwiska, zhaszować w locie i nie przechowywać.** Kompromis:
+   mapowanie powstaje w pamięci na czas runu i nigdzie nie ląduje. Wymaga
+   sprawdzenia, czy to się da pogodzić z D7 (porównywalność snapshotów między
+   runami wymaga STABILNEJ soli, a nie mapowania w pamięci).
+
+**Czego NIE robimy do czasu rozstrzygnięcia:** nie udajemy, że problem nie
+istnieje. `wejscie_analizy` wypisuje licznik trafień maskowania do dokumentu,
+więc widać, ile złapał — ale ta liczba nic nie mówi o nazwiskach, bo tych nie
+liczy. Zero trafień nie znaczy „czysto".
