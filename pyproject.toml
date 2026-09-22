@@ -16,6 +16,7 @@ dependencies = [
     "uvicorn>=0.52", # ASGI dla FastAPI; bez [standard] — uvloop/watchfiles zbędne przy jednym runie
     "claude-agent-sdk>=0.2.128", # pętla agenta w procesie workera (D1, 3.11)
     "jinja2>=3.1.6", # szablon raportu (3.12); powód to `autoescape` — dokument niesie nazwy tablic klienta, a ręczne html.escape() przy każdym polu to jedno pominięcie od cichej usterki w pliku wychodzącym na zewnątrz
+    "langfuse>=4.15.4",
 ]
 
 # Świadomie NIE ma tutaj:

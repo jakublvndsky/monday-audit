@@ -31,7 +31,7 @@ import os
 import stat
 from pathlib import Path
 
-from pydantic import SecretStr, ValidationError, field_validator
+from pydantic import SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from monday_audit.osoby import MIN_DLUGOSC_SOLI, PseudonimizacjaError
@@ -170,11 +170,37 @@ class Ustawienia(UstawieniaPoczty):
 
     agent_rozliczenie: str = ROZLICZENIE_KLUCZ
 
+    # ── Langfuse (plan, faza 4) ──────────────────────────────────────────
+    #
+    # Trace'y wychodzą POZA nasz serwer, do firmy trzeciej. To jedyne miejsce
+    # w tej konfiguracji, gdzie ustawienie zmiennej środowiskowej powoduje, że
+    # dane klienta opuszczają maszynę — stąd ostrzejsze reguły niż przy reszcie.
+    #
+    # Brak kluczy = wysyłki nie ma. Nie ma osobnej flagi `LANGFUSE_WLACZONY`,
+    # bo druga furtka do tego samego wyłącznika to drugie miejsce, w którym
+    # można się pomylić. Usunięcie klucza jest wyłącznikiem.
+    langfuse_public_key: SecretStr | None = None
+    langfuse_secret_key: SecretStr | None = None
+    # BEZ WARTOŚCI DOMYŚLNEJ, choć Langfuse ma oczywistą (`cloud.langfuse.com`).
+    # Domyślna oznaczałaby, że region przechowywania danych klienta wybiera się
+    # sam — a między EU a US różnica nie jest techniczna. Ma być decyzją, tak
+    # jak `agent_rozliczenie`. Walidator niżej pilnuje, żeby dało się o niej
+    # zapomnieć tylko razem z całą wysyłką.
+    langfuse_base_url: str | None = None
+
+    @property
+    def langfuse_wlaczony(self) -> bool:
+        """Wysyłamy tylko przy komplecie. Konfiguracja połowiczna nie przechodzi
+        przez walidator, więc tutaj wystarczy sprawdzić jedno pole."""
+        return self.langfuse_public_key is not None
+
     @field_validator(
         "monday_token",
         "sol_pseudonimizacji",
         "anthropic_api_key",
         "smtp_haslo",
+        "langfuse_public_key",
+        "langfuse_secret_key",
         mode="after",
     )
     @classmethod
@@ -219,6 +245,34 @@ class Ustawienia(UstawieniaPoczty):
         if dlugosc < MIN_DLUGOSC_SOLI:
             raise ValueError(f"ma {dlugosc} znaków, wymagane minimum {MIN_DLUGOSC_SOLI}")
         return wartosc
+
+    @model_validator(mode="after")
+    def _langfuse_w_komplecie(self) -> Ustawienia:
+        """Trzy zmienne albo zero. Konfiguracja połowiczna przerywa start.
+
+        Stan, przed którym to broni, jest konkretny: ktoś wkleja dwa klucze,
+        zapomina `LANGFUSE_BASE_URL`, a biblioteka spada na swój domyślny
+        region. Wtedy trace'y klienta z EU idą do US i **nikt się o tym nie
+        dowie**, bo wszystko działa. Awaria, która wygląda jak sukces, jest
+        gorsza od awarii.
+
+        Dlatego nie ma tu wartości domyślnej ani ostrzeżenia — jest przerwanie.
+        Ten sam kierunek, co maskowanie: przy wysyłce do firmy trzeciej
+        zawodzimy zamknięte.
+        """
+        pola = {
+            "LANGFUSE_PUBLIC_KEY": self.langfuse_public_key,
+            "LANGFUSE_SECRET_KEY": self.langfuse_secret_key,
+            "LANGFUSE_BASE_URL": self.langfuse_base_url,
+        }
+        brakujace = sorted(nazwa for nazwa, wartosc in pola.items() if not wartosc)
+        if brakujace and len(brakujace) < len(pola):
+            raise ValueError(
+                "konfiguracja Langfuse jest niepełna — brakuje: "
+                f"{', '.join(brakujace)}. Ustaw wszystkie trzy albo żadnej "
+                "(brak wszystkich = wysyłki nie ma)"
+            )
+        return self
 
 
 def _sciezka_pliku(plik: Path | None) -> Path:
