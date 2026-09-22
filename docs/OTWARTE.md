@@ -1706,6 +1706,65 @@ i `workflow_statistics` jako **surowy JSON** — kluczem jest automatyzacja,
 nie tablica. Przypisanie do tablicy daje wyłącznie
 `trigger_events (filters: {boardId})`, czyli **jedno zapytanie na tablicę**.
 
+**Sprawdzone wprost 2026-09-22**, bo nazwa typu („by entity id") sugerowała coś
+odwrotnego, a od tego zależał kształt całej fazy 2b:
+
+- `id` w odpowiedzi to **stały napis** `account-triggers-by-entity-id`, nie
+  identyfikator czegokolwiek;
+- kluczy było 94 (77 automatyzacji + 17 workflow) i `boards (ids: [...])`
+  zwrócił dla nich **zero tablic**;
+- prawdziwe identyfikatory tablic na tym koncie to dziesięciocyfrowe liczby od
+  piątki (`5104651172`), a klucze statystyk są dziewięciocyfrowe (`143135693`)
+  albo zaczynają się od `17` (`1717365130`, workflow).
+
+**Co to znaczy dla kosztu:** tabela tablic z liczbą automatyzacji dla CAŁEGO
+konta CXLABS to **2016 wywołań** (jedna aktywna tablica = jedno zapytanie).
+To 8% dziennego limitu na `enterprise`, 20% na `pro` i więcej niż cały dzień
+na `free`.
+
+### Ale jest droga tania — i to lepsza niż sampling
+
+Zmierzone 2026-09-22, po odrzuceniu dwóch poprzednich poszlak:
+
+`trigger_events` **nie wymaga filtra po tablicy**, przyjmuje `nextPageOffset`,
+a jego filtr ma m.in. `hostType`, `hostInstanceId`, `automationIds` i `dateRange`.
+
+Bez filtra przypisanie do hosta niesie **3% zdarzeń** (6 z 200) — czyli
+przemiatanie wszystkiego jest bezużyteczne. Ale z filtrem `hostType: "board"`:
+
+- zwróciło **53 zdarzenia i wszystkie 53 mają `hostInstanceId`**,
+- rozwiązały się na **7 unikalnych tablic**, rozpoznanych przez `boards(ids:)`
+  z nazwami (`Sprints`, `🎫 Zgłoszenia`, `www.annagorniak.pl`…),
+- **w jednym wywołaniu**.
+
+Czyli: „które tablice mają żywe automatyzacje" kosztuje jedno zapytanie, a nie
+dwa tysiące. Na koncie z 2016 aktywnymi tablicami takich tablic jest **siedem**.
+
+**Stronicowania w tym zapytaniu NIE MA**, mimo że wygląda, jakby było.
+`trigger_events` przyjmuje argument `nextPageOffset`, ale **każda wartość
+większa od zera kończy się `Internal server error`** po stronie monday
+(sprawdzone dla 200, 400 i 600). Typ `TriggerEventsPage` ma jedno pole,
+`triggerEvents` — bez kursora i bez licznika wszystkich. Pierwsza strona urywa
+się na **200 zdarzeniach**.
+
+Dlatego `przeglad_tablic.pobierz_zdarzenia` **kroi okno na tygodnie** zamiast
+stronicować, a tydzień, który dobije do 200, dzieli na dni. Dzień, który dalej
+jest pełny, trafia do zastrzeżeń z datą — bo urwanie się po cichu jest tu
+najgorszym możliwym zachowaniem.
+
+Skutek uboczny, warty zapamiętania: **z jawnym `dateRange` na 90 dni wychodzi
+200 zdarzeń, a bez niego 53** — czyli domyślne okno API jest węższe niż 90 dni
+i nieudokumentowane. Nie wolno go dziedziczyć.
+
+**Czego ta droga NIE pokazuje**, i trzeba to napisać w raporcie:
+
+- automatyzacji, które istnieją, ale nigdy nie odpaliły — problem z góry tego
+  wpisu zostaje w mocy,
+- automatyzacji o `hostType` innym niż `board` (w próbce były też
+  `account_level` i `app_feature_object`),
+- czegokolwiek spoza okna czasowego, którego wartość domyślną trzeba ustalić
+  jawnie przez `dateRange`, a nie odziedziczyć po API.
+
 **Co z tego wynika:** „liczba automatyzacji na tablicy" jest osiągalna tylko
 jako **liczba automatyzacji, które się URUCHOMIŁY** w oknie czasowym. Pomija
 te, które nigdy nie odpaliły — a w audycie to właśnie one są najciekawsze
@@ -1809,3 +1868,33 @@ stoi „co jest agentem"; `pulpit.py` i `inwentarz.py` z niego korzystają.
 odłączony od swojego twórcy", czy coś innego. Do kafelka liczymy go jako agenta
 (decyzja Kuby 2026-09-22), ale gdyby ta liczba miała trafić do wyceny licencji,
 trzeba najpierw wiedzieć, czy takie konto zajmuje płatne miejsce.
+
+---
+
+## O45. Gości nie widać w `Board.subscribers`
+
+**Status: NIEROZSTRZYGNIĘTE — mocna poszlaka, brak dowodu. Metryki nie pokazujemy jako zera.**
+**Dotyczy:** `przeglad_tablic`, punkt 4 wytycznych („liczba gości na tablicy")
+
+Zmierzone 2026-09-22 na koncie CXLABS tokenem admina:
+
+- konto ma **13 gości**, z czego **12 ze statusem `ACTIVE`** (jeden `PENDING`),
+  więc „jeszcze nie weszli" tego nie tłumaczy;
+- przeszukanie `subscribers` w **1000 tablicach ze wszystkich stanów** dało
+  **zero** wystąpień któregokolwiek z nich;
+- `Board` nie ma pola o gościach, a `subscribers` **nie przyjmuje argumentów**,
+  więc nie da się o nich zapytać wprost. Są `team_subscribers` i `team_owners`,
+  ale to zespoły, nie goście.
+
+**Czego to NIE dowodzi:** sprawdziliśmy 1000 z 3268 obiektów. Zerowe wystąpienie
+przy dwunastu aktywnych gościach jest mocno podejrzane, ale teoretycznie mogą
+siedzieć na pozostałych 2268.
+
+**Jak się zachowujemy do czasu rozstrzygnięcia:** liczymy tę metrykę normalnie,
+ale gdy wyjdzie **zero przy niezerowej liczbie gości na koncie**, raport dopisuje
+zastrzeżenie, że tej liczby nie należy traktować jako zmierzonej. Pokazanie
+gołego „0 gości na tablicach" byłoby stwierdzeniem faktu, którego nie znamy.
+
+**Jak to rozstrzygnąć taniej niż przeglądem 3268 tablic:** znaleźć w panelu
+monday jedną tablicę, na której gość NA PEWNO jest, i odpytać wyłącznie ją.
+Jedno zapytanie zamiast stu trzydziestu.

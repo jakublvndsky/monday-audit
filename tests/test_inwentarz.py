@@ -166,7 +166,7 @@ async def test_paginacja_nie_urywa_sie_na_pierwszej_stronie() -> None:
     To nie jest teoretyczne: `pobierz_workspace` brało samą pierwszą stronę do
     2026-09-22 i przy 120 workspace'ach pokazałoby równe 100 bez ostrzeżenia.
     """
-    tablice = [{"id": str(i), "state": "active"} for i in range(250)]
+    tablice = [{"id": str(i), "state": "active", "type": "board"} for i in range(250)]
     uzytkownicy = [_osoba(RODZAJ_CZLONEK) for _ in range(LIMIT_UZYTKOWNIKOW + 30)]
     klient = _KlientAtrapa(tablice, uzytkownicy)
 
@@ -180,7 +180,7 @@ async def test_paginacja_nie_urywa_sie_na_pierwszej_stronie() -> None:
 
 @pytest.mark.asyncio
 async def test_inwentarz_liczy_wywolania_i_niesie_licencje() -> None:
-    klient = _KlientAtrapa([{"id": "1", "state": "active"}], [_osoba(RODZAJ_GOSC)])
+    klient = _KlientAtrapa([{"id": "1", "state": "active", "type": "board"}], [_osoba(RODZAJ_GOSC)])
 
     wynik = await zbuduj_inwentarz(klient, _konto(), klient.rejestr)  # type: ignore[arg-type]
 
@@ -209,9 +209,9 @@ async def test_kosz_nie_wchodzi_do_kafelka_tablic() -> None:
     """ZMIERZONE na CXLABS: 3268 obiektów, z czego 1206 w koszu. Kafelek
     pokazujący 3268 byłby prawdziwy i bezużyteczny."""
     tablice = (
-        [{"id": f"a{i}", "state": "active"} for i in range(5)]
-        + [{"id": f"d{i}", "state": "deleted"} for i in range(9)]
-        + [{"id": "arch", "state": "archived"}]
+        [{"id": f"a{i}", "state": "active", "type": "board"} for i in range(5)]
+        + [{"id": f"d{i}", "state": "deleted", "type": "board"} for i in range(9)]
+        + [{"id": "arch", "state": "archived", "type": "board"}]
     )
     klient = _KlientAtrapa(tablice, [])
 
@@ -219,7 +219,28 @@ async def test_kosz_nie_wchodzi_do_kafelka_tablic() -> None:
 
     assert wynik.tablic_aktywnych == 5
     assert wynik.tablic_razem == 15
+    assert wynik.tablic_po_typie == {"board": 15}
     assert wynik.tablic_po_stanie == {"active": 5, "archived": 1, "deleted": 9}
+
+
+@pytest.mark.asyncio
+async def test_podelementy_i_dokumenty_nie_sa_tablicami() -> None:
+    """ZMIERZONE na CXLABS: z 2017 aktywnych obiektów tylko 1315 to `board`.
+    Reszta — 484 kontenery podelementów, 112 dokumentów, 106 obiektów własnych
+    — wchodziła do kafelka i zawyżała go o połowę."""
+    tablice = [
+        {"id": "1", "state": "active", "type": "board"},
+        {"id": "2", "state": "active", "type": "sub_items_board"},
+        {"id": "3", "state": "active", "type": "document"},
+        {"id": "4", "state": "active", "type": "custom_object"},
+    ]
+    klient = _KlientAtrapa(tablice, [])
+
+    wynik = await zbuduj_inwentarz(klient, _konto(), klient.rejestr)  # type: ignore[arg-type]
+
+    assert wynik.tablic_aktywnych == 1
+    assert wynik.tablic_razem == 4
+    assert wynik.tablic_po_typie["sub_items_board"] == 1
 
 
 @pytest.mark.asyncio

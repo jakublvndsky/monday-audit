@@ -233,6 +233,7 @@ export interface Inwentarz {
   tablic_aktywnych: number;
   tablic_razem: number;
   tablic_po_stanie: Record<string, number>;
+  tablic_po_typie: Record<string, number>;
   uzytkownikow: number;
   gosci: number;
   agentow_ai: number;

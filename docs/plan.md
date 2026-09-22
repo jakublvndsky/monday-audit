@@ -51,7 +51,7 @@ koszt i różne źródła, a sklejone dawałyby jeden wynik dopiero na końcu ob
     (O20). Rozstrzygnięte — kafelek liczy **konta agentowe** wszystkich trzech
     rodzajów (O44), a nie agentów z nieprzypiętej wersji API.
 
-- [ ] **2b. Tabela tablic i role** — punkt 4 wytycznych i reszta punktu 5:
+- [x] **2b. Tabela tablic i role** — punkt 4 wytycznych i reszta punktu 5:
   automatyzacje per tablica, tablice wg rodzaju, średnia userów i gości na
   tablicę, ostatnia aktywność. `owners` i `subscribers` tablicy są już zbierane,
   więc userzy i goście per tablica są policzalne bez nowego zapytania.
@@ -213,6 +213,26 @@ Trzy rzeczy wyszły dopiero na pełnym koncie i każda zmieniła kod:
 Odchylenie od planu: faza miała produkować **snapshot**, a produkuje odczyt
 na żywo. Tak wychodzi z user story — pierwszy ekran ma odpowiedzieć w sekundy
 i nie zakładać runu. Snapshot zostaje tam, gdzie był: przy pełnym audycie.
+
+**2026-09-22 — faza 2b zamknięta.** `przeglad_tablic.py` plus flaga `--tablice`.
+Punkt 4 okazał się listą metryk, nie specyfikacją tabeli, więc powstały agregaty
+plus krótka lista, a nie tabela na 2000 wierszy.
+
+Trzy rzeczy poszły inaczej, niż zakładał plan:
+
+- **`trigger_events` nie ma stronicowania**, choć przyjmuje `nextPageOffset`:
+  każda wartość powyżej zera daje po stronie monday błąd serwera, a strona
+  urywa się na 200 (O41). Zamiast stronicować **kroimy okno na tygodnie**,
+  a tydzień pełny na dni; dzień dalej pełny trafia do zastrzeżeń z datą.
+  Dzięki jawnemu oknu 90 dni wyszły **23 tablice z żywymi automatyzacjami**,
+  a nie 7 jak przy domyślnym oknie API.
+- **Kafelek „liczba tablic" był zawyżony o połowę.** Z 2017 aktywnych obiektów
+  tylko 1315 to `type: board`; reszta to kontenery podelementów, dokumenty
+  i obiekty własne. Poprawione w obu miejscach, bo dwie różne liczby o tej samej
+  nazwie w jednym wyjściu to ten sam rozjazd, przed którym bronią testy.
+- **Gości na tablicach nie widać** (O45): 12 aktywnych gości i zero wystąpień
+  w 1000 tablicach. Nie dowód, więc metryka zostaje, ale z zastrzeżeniem, że
+  zera nie należy traktować jako zmierzonego.
 
 ---
 

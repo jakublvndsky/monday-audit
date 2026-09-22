@@ -50,9 +50,17 @@ query ($limit: Int!, $p: Int!) {
   boards (limit: $limit, page: $p, state: all) {
     id
     state
+    type
   }
 }
 """
+
+# Obiekty, które `boards` zwraca, a których nikt nie nazwałby tablicą.
+# ZMIERZONE na CXLABS 2026-09-22: z 2017 aktywnych obiektów tylko 1315 to
+# `board`, a 484 to kontenery podelementów, 112 dokumenty i 106 obiekty własne.
+# Kafelek „liczba tablic" pokazujący 2017 byłby prawdziwy i mylący — tak samo
+# jak liczący kosz.
+TYP_TABLICY = "board"
 
 # ŚWIADOMIE BEZ `name` i `email`. Do liczenia po rodzaju są zbędne, a ich brak
 # znaczy, że dane osobowe nie wchodzą do tego procesu w ogóle — nie ma czego
@@ -96,6 +104,7 @@ class Inwentarz:
     tablic_aktywnych: int
     tablic_razem: int
     tablic_po_stanie: dict[str, int]
+    tablic_po_typie: dict[str, int]
 
     # Rozbicie po `kind`. „Użytkownicy" to admini i członkowie, czyli ci, którzy
     # zajmują płatne miejsca (O7) — goście, podgląd i agenty liczą się osobno,
@@ -125,6 +134,7 @@ class Inwentarz:
             "tablic_aktywnych": self.tablic_aktywnych,
             "tablic_razem": self.tablic_razem,
             "tablic_po_stanie": dict(self.tablic_po_stanie),
+            "tablic_po_typie": dict(self.tablic_po_typie),
             "uzytkownikow": self.uzytkownikow,
             "gosci": self.gosci,
             "agentow_ai": self.agentow_ai,
@@ -170,9 +180,16 @@ def policz_rodzaje(surowi: list[dict[str, Any]]) -> tuple[dict[str, int], tuple[
     return dict(sorted(licznik.items())), tuple(sorted(nieznane))
 
 
-async def _policz_tablice(klient: MondayClient) -> tuple[int, dict[str, int]]:
-    """Wszystkie tablice konta, po stanach. Paginuje do końca."""
-    licznik: Counter[str] = Counter()
+async def _policz_tablice(klient: MondayClient) -> tuple[int, dict[str, int], dict[str, int]]:
+    """Obiekty `boards` konta. Zwraca `(aktywnych tablic, po stanie, po typie)`.
+
+    „Aktywnych tablic" znaczy `state: active` **oraz** `type: board` — reszta to
+    kontenery podelementów, dokumenty i obiekty własne, których nikt nie nazywa
+    tablicą.
+    """
+    po_stanie: Counter[str] = Counter()
+    po_typie: Counter[str] = Counter()
+    aktywnych_tablic = 0
     strona = 1
     while True:
         odpowiedz = await klient.query(
@@ -182,16 +199,27 @@ async def _policz_tablice(klient: MondayClient) -> tuple[int, dict[str, int]]:
         )
         surowe = odpowiedz.get("boards") or []
         for tablica in surowe:
-            if isinstance(tablica, dict) and tablica.get("id"):
-                licznik[str(tablica.get("state") or "nieznany")] += 1
+            if not isinstance(tablica, dict) or not tablica.get("id"):
+                continue
+            stan = str(tablica.get("state") or "nieznany")
+            typ = str(tablica.get("type") or "nieznany")
+            po_stanie[stan] += 1
+            po_typie[typ] += 1
+            if stan == "active" and typ == TYP_TABLICY:
+                aktywnych_tablic += 1
         if len(surowe) < LIMIT_TABLIC:
             break
         strona += 1
-    return sum(licznik.values()), dict(sorted(licznik.items()))
+    return aktywnych_tablic, dict(sorted(po_stanie.items())), dict(sorted(po_typie.items()))
 
 
-async def _pobierz_uzytkownikow(klient: MondayClient) -> list[dict[str, Any]]:
-    """Wszyscy użytkownicy konta, bez pól z danymi osobowymi. Paginuje do końca."""
+async def pobierz_uzytkownikow(klient: MondayClient) -> list[dict[str, Any]]:
+    """Wszyscy użytkownicy konta, bez pól z danymi osobowymi. Paginuje do końca.
+
+    Publiczna, bo `przeglad_tablic` potrzebuje tego samego: mapy `id → kind`,
+    żeby policzyć gości na tablicy. Druga kopia tego zapytania byłaby drugim
+    miejscem, w którym ktoś kiedyś dopisze `name` i wpuści dane osobowe.
+    """
     zebrani: list[dict[str, Any]] = []
     strona = 1
     while True:
@@ -223,8 +251,8 @@ async def zbuduj_inwentarz(
     przed = rejestr.wywolan
 
     workspace_y = await pobierz_workspace(klient)
-    tablic_razem, po_stanie = await _policz_tablice(klient)
-    surowi = await _pobierz_uzytkownikow(klient)
+    aktywnych_tablic, po_stanie, po_typie = await _policz_tablice(klient)
+    surowi = await pobierz_uzytkownikow(klient)
     po_rodzajach, nieznane = policz_rodzaje(surowi)
 
     zastrzezenia = list(konto.zastrzezenia)
@@ -241,9 +269,10 @@ async def zbuduj_inwentarz(
         workspacow=len(workspace_y),
         workspace_y=workspace_y,
         po_produktach=policz_produkty(workspace_y),
-        tablic_aktywnych=po_stanie.get("active", 0),
-        tablic_razem=tablic_razem,
+        tablic_aktywnych=aktywnych_tablic,
+        tablic_razem=sum(po_stanie.values()),
         tablic_po_stanie=po_stanie,
+        tablic_po_typie=po_typie,
         uzytkownikow=po_rodzajach.get(RODZAJ_ADMIN, 0) + po_rodzajach.get(RODZAJ_CZLONEK, 0),
         gosci=po_rodzajach.get(RODZAJ_GOSC, 0),
         # Wszystkie rodzaje agentowe razem, nie sam `personal_agent_member`:
