@@ -74,7 +74,7 @@ koszt i różne źródła, a sklejone dawałyby jeden wynik dopiero na końcu ob
     się nie mieści, raport ma **powiedzieć wprost, czego nie objął**, zamiast
     milczeć. Do tego służy istniejące pole `zastrzezenia`.
 
-- [ ] **4. Langfuse z maskowaniem PII** — trace'y wywołań modelu trafiają do
+- [x] **4. Langfuse z maskowaniem PII** — trace'y wywołań modelu trafiają do
   Langfuse, a przed wysłaniem przechodzą przez warstwę maskującą: zamiast maila
   w trace widać `[E-MAIL]`, zamiast telefonu `[TELEFON]`, i tak dalej.
   Idzie **przed** analizą, bo faza 5 jest pierwszą, w której model pracuje na
@@ -240,10 +240,9 @@ Trzy rzeczy poszły inaczej, niż zakładał plan:
   w 1000 tablicach. Nie dowód, więc metryka zostaje, ale z zastrzeżeniem, że
   zera nie należy traktować jako zmierzonego.
 
-**2026-09-22 — faza 4: kod gotowy, brak przebiegu na żywo przez pełną
-ścieżkę.** `maskowanie.py`, `obserwowalnosc.py`, `wysylka_langfuse.py`, plus
-wpięcie w `zbadaj_hipotezy`. Trzy kroki, w kolejności wymuszonej przez plan:
-warstwa maskująca → odbiorca → wpięcie.
+**2026-09-22 — faza 4 zamknięta.** `maskowanie.py`, `obserwowalnosc.py`,
+`wysylka_langfuse.py`, plus wpięcie w `zbadaj_hipotezy`. Trzy kroki,
+w kolejności wymuszonej przez plan: warstwa maskująca → odbiorca → wpięcie.
 
 Cztery rzeczy poszły inaczej, niż zakładał plan:
 
@@ -283,12 +282,19 @@ więc wystarczyłby `httpx` — i została **świadomie odrzucona przez Kubę**
 `requests` i `urllib3` jest zablokowana, żeby SDK nie wysyłało tego, czego mu
 nie daliśmy.
 
-**Czego brakuje do odhaczenia:** przebiegu na żywo przez PEŁNĄ ścieżkę, czyli
-prawdziwego runu agenta z włączonym śladem. Sam odbiorca jest sprawdzony na
-żywo (Langfuse Cloud EU, dane wymyślone: po tamtej stronie leży `[E-MAIL]`
-i `[TELEFON]`, adresu nie ma, zużycie i koszt na miejscu), wpięcie jest
-sprawdzone testem przechodzącym całą pętlę ścieżką szablonową. Brakuje
-złożenia jednego z drugim na prawdziwym koncie.
+**Sprawdzone na żywo przez PEŁNĄ ścieżkę** (2026-09-22): snapshot 1 zawężony
+do jednego workspace'u CXLABS (`CRM DEMO 28.08`), run `agent-20260922T124624Z`
+na trzech hipotezach `AUTOMATION_DEAD` — 2 findingi przyjęte, 1 hipoteza
+odrzucona przez agenta, 0,42 USD. W Langfuse wylądowało **sześć obserwacji**:
+trzy korzenie z `run_id`, `snapshot_id` i rozstrzygnięciem oraz trzy generacje
+z modelem, zużyciem i kosztem.
+
+**`trafien_maskowania: 0` na wszystkich trzech** — i to jest właściwy wynik,
+a nie brak wyniku. Znaczy, że pierwsza linia obrony (dane osobowe nie wchodzą
+do kontekstu modelu) utrzymała się, a warstwa maskująca nie miała czego łapać.
+Wcześniejsza próba z danymi WYMYŚLONYMI pokazała, że gdy ma co złapać, to
+łapie: po stronie Langfuse leżało wtedy `[E-MAIL]` i `[TELEFON]`, adresu nie
+było. Dwie próby razem pokrywają oba przypadki.
 
 **Zadanie dla człowieka, nie do domknięcia kodem:** Langfuse jest teraz
 **podprzetwarzającym dane klienta** i musi się znaleźć w tej samej rozmowie,
