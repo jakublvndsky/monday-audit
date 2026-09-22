@@ -43,6 +43,31 @@ def test_deal_stage_tez_jest_kanoniczne() -> None:
     assert lejek.kolumna == "deal_stage"
 
 
+def test_status95_to_lejek_zgloszenia_w_service() -> None:
+    """O51: do pełnego przebiegu 2026-09-22 produkt `service` nie miał lejka
+    W OGÓLE — 64 tablice, zero rozpoznanych. ZMIERZONE na tablicy `Tickets`:
+    `status95` niesie New / Awaiting customer / Reopen / Resolved, czyli cykl
+    życia zgłoszenia — odpowiednik `lead_status` po stronie obsługi."""
+    ustawienia = json.dumps(
+        {
+            "labels": {
+                "5": "New",
+                "7": "Awaiting customer",
+                "11": "Resolved",
+                "1": "Self resolved",
+            },
+            "done_colors": [11, 1],
+        }
+    )
+    kolumny = [{"id": "status95", "type": "status", "settings_str": ustawienia}]
+
+    lejek = rozpoznaj_lejek(kolumny, grup=3)
+
+    assert lejek.stopien == 1
+    assert lejek.kolumna == "status95"
+    assert lejek.etapy_koncowe == frozenset({"Resolved", "Self resolved"})
+
+
 def test_lejek_niesie_etapy_zadeklarowane_przez_klienta() -> None:
     """O48: `done_colors` w ustawieniach kolumny to deklaracja klienta, które
     etapy kończą proces — mocniejsza od każdej naszej heurystyki i darmowa,

@@ -2243,8 +2243,30 @@ Prefiksy id kolumn statusu w próbce: `color` 34, `status` 32, `portfolio` 6,
 `activity` 6, `project` 6, `deal` 3. **Nie widać kanonicznego id dla Service**
 analogicznego do `lead_status` w CRM.
 
-**Czego trzeba, żeby to ruszyć** — i to jest pytanie do człowieka, nie do
-kolejnego zapytania: która kolumna na tablicy Service niesie stan zgłoszenia.
-Odpowiedź wymaga spojrzenia w panel monday na konkretną tablicę serwisową,
-tak samo jak O47. Bez niej lepiej raportować pustkę z wyjaśnieniem niż liczbę
-z nazw grup.
+### ROZSTRZYGNIĘTE tego samego dnia: `status95`
+
+Pytanie „która kolumna niesie stan zgłoszenia" okazało się rozstrzygalne
+zapytaniem, a nie wizytą w panelu — wystarczyło spojrzeć na tablice serwisowe
+zamiast na losową próbkę konta. ZMIERZONE na tablicy `Tickets`:
+
+```
+status95 „Status": New, New reply, Awaiting customer, Reopen,
+                   Self resolved, Resolved
+done_colors: [11, 1]  →  Resolved, Self resolved
+```
+
+To cykl życia ZGŁOSZENIA, czyli odpowiednik `lead_status` po stronie obsługi.
+Te same id (`status95`, `priority`, `request_type`) wychodzą na tablicach
+`Tickets` w czterech różnych workspace'ach — to szablon monday Service, a nie
+przypadek jednego klienta. Dopisane do `KOLUMNY_LEJKA`.
+
+**I — w odróżnieniu od odrzuconego `done_colors` — ten identyfikator
+ROZRÓŻNIA:** nie ma go wśród ośmiu najczęstszych id kolumn statusu na koncie
+(`status` 135, `portfolio_project_*` po 19, `color_*` po 13).
+
+**Co ZOSTAJE nierozwiązane:** tablice serwisowe, na których klient zbudował
+własną kolumnę stanu (`color_mm405wkg` na `🖥️ Backlog - Wsparcie`,
+`color_mm6ce53e` na `Zlecenia serwisowe`). Tam nie da się wskazać cyklu życia
+bez zgadywania, więc zostają stopniem 2 albo 3. To jest właściwa odpowiedź,
+nie brak — ale znaczy, że pokrycie Service będzie CZĘŚCIOWE i raport musi to
+powiedzieć.

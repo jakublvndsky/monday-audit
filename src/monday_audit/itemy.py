@@ -48,10 +48,28 @@ from monday_audit.przeglad_tablic import na_datetime
 
 logger = logging.getLogger(__name__)
 
-# Kanoniczne identyfikatory kolumn zakładanych przez produkt monday CRM.
+# Kanoniczne identyfikatory kolumn zakładanych przez SZABLONY monday.
+#
 # ZMIERZONE 2026-09-22 (O46): `Leads e-commerce` ma czternaście kolumn typu
 # `status`, a tylko `lead_status` niesie lejek. `Deals` ma `deal_stage`.
-KOLUMNY_LEJKA = ("lead_status", "deal_stage")
+#
+# `status95` doszło po pełnym przebiegu (O51), który pokazał, że dla produktu
+# `service` nie rozpoznawaliśmy lejka W OGÓLE — 64 tablice, zero z lejkiem.
+# ZMIERZONE na tablicy `Tickets`:
+#
+#     status95 „Status": New, New reply, Awaiting customer, Reopen,
+#                        Self resolved, Resolved
+#     done_colors: [11, 1] → Resolved, Self resolved
+#
+# To cykl życia ZGŁOSZENIA, czyli dokładny odpowiednik `lead_status` po stronie
+# obsługi. I — w odróżnieniu od odrzuconego pomysłu „kolumna z `done_colors`
+# to lejek" — ten identyfikator ROZRÓŻNIA: nie ma go wśród ośmiu najczęstszych
+# id kolumn statusu na koncie, podczas gdy `done_colors` ma 76% tablic.
+#
+# Czego to świadomie NIE obejmuje: tablic serwisowych, na których klient zbudował
+# własną kolumnę (`color_*`). Tam nie da się wskazać cyklu życia bez zgadywania,
+# więc zostają stopniem 2 albo 3 — i to jest właściwa odpowiedź, nie brak.
+KOLUMNY_LEJKA = ("lead_status", "deal_stage", "status95")
 
 # ZMIERZONE (O43): 100 itemów = 1 wywołanie, complexity 2020, ~1 s.
 LIMIT_ITEMOW = 100
