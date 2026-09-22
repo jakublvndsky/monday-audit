@@ -116,7 +116,10 @@ def _wypisz_zestawienia(wynik: WynikZestawien) -> None:
     print("\n  Rollupy produktowe")
     print(f"  {'─' * 46}")
     for z in wynik.zestawienia:
-        print(f"  {z.produkt.upper()} — {z.tablic} tablic, {z.itemow_deklarowanych} itemów")
+        print(
+            f"  {z.produkt.upper()} — {z.tablic} tablic ({z.tablic_z_lejkiem} z lejkiem), "
+            f"{z.itemow_deklarowanych} itemów"
+        )
         print(
             f"      w toku {z.w_toku}, wygrane {z.wygrane}, odpadło {z.odpadlo}, "
             f"zamknięte {z.zamkniete}, bez etapu {z.bez_etapu}"

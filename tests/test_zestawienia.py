@@ -20,8 +20,9 @@ from monday_audit.zestawienia import (
 
 @dataclass
 class Lejek:
-    """Atrapa `itemy.Lejek` — z tej warstwy widać tylko etapy zadeklarowane."""
+    """Atrapa `itemy.Lejek`. `stopien=1` znaczy „rozkład po ETAPACH"."""
 
+    stopien: int = 1
     etapy_koncowe: frozenset[str] = frozenset()
 
 
@@ -223,6 +224,48 @@ def test_rollup_bierze_etapy_z_lejka_tablicy() -> None:
     assert z.zamkniete == 6
     assert z.w_toku == 4
     assert z.etykiety_w_toku == ("Scheduled",)
+
+
+# ── grupa nie jest etapem ────────────────────────────────────────────────
+
+
+def test_tablica_bez_lejka_nie_wchodzi_do_etapow() -> None:
+    """DEFEKT ZNALEZIONY PRZEZ PEŁNY PRZEBIEG 2026-09-22, nie przez rozumowanie.
+
+    Pierwsza wersja liczyła wszystkie tablice produktu CRM jednakowo i dała
+    **223 różne etykiety „otwarte"**, wśród nich `Active Projects` i `Admin
+    overview & account setup`. To nazwy GRUP z tablic rozpoznanych stopniem 2,
+    nie etapy lejka. `Repozytorium BEGOLDEN` (3158 itemów po grupach) lądowało
+    w „otwartych szansach" — liczba wyglądała wiarygodnie i nie znaczyła nic.
+    """
+    agregaty = [
+        Agregat(itemow=100, rozklad={"Qualified": 100}, lejek=Lejek(stopien=1)),
+        Agregat(itemow=3158, rozklad={"Umowy_CRM.xlsx": 3155}, lejek=Lejek(stopien=2)),
+    ]
+
+    wynik = zbuduj_zestawienia(agregaty)
+    z = wynik.po_produkcie[PRODUKT_CRM]
+
+    assert z.w_toku == 100, "itemy z tablicy po grupach nie mogą być szansami"
+    assert z.itemow_bez_lejka == 3158
+    assert z.tablic_z_lejkiem == 1
+    assert z.tablic == 2
+    assert "Umowy_CRM.xlsx" not in z.etykiety_w_toku
+    assert any("BEZ rozpoznanego lejka" in u for u in wynik.zastrzezenia)
+
+
+def test_brak_lejka_to_nie_to_samo_co_brak_rozkladu() -> None:
+    """Tablica bez lejka nie „zgubiła" rozkładu — ona go nie ma i mieć nie
+    miała. Mieszanie tego z O47 raportowałoby brak lejka jako awarię API."""
+    agregaty = [
+        Agregat(itemow=100, rozklad={"Qualified": 100}, lejek=Lejek(stopien=1)),
+        Agregat(itemow=500, rozklad={"Grupa": 500}, lejek=Lejek(stopien=2)),
+    ]
+
+    z = zbuduj_zestawienia(agregaty).po_produkcie[PRODUKT_CRM]
+
+    assert z.itemow_bez_rozkladu == 0, "brak lejka to nie brak rozkładu"
+    assert z.pokrycie == 1.0, "pokrycie liczy się od tablic Z LEJKIEM"
 
 
 def test_crm_i_service_licza_sie_osobno() -> None:

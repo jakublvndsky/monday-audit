@@ -186,6 +186,11 @@ class Zestawienie:
     itemow_deklarowanych: int
     # Ile faktycznie weszło do rozkładów. Różnica jest w `itemow_bez_rozkladu`.
     itemow_w_rozkladach: int
+    # Ile tablic ma ROZPOZNANY LEJEK (stopień 1) — tylko one zasilają kubełki.
+    tablic_z_lejkiem: int = 0
+    # Itemy z tablic bez rozpoznanego lejka: policzone, ale świadomie NIE
+    # wrzucone do żadnego etapu. Patrz `zbuduj_zestawienia`.
+    itemow_bez_lejka: int = 0
     w_toku: int = 0
     wygrane: int = 0
     odpadlo: int = 0
@@ -197,22 +202,35 @@ class Zestawienie:
     zamkniec_dziennie: float = 0.0
 
     @property
+    def itemow_na_tablicach_z_lejkiem(self) -> int:
+        """Itemy, których w ogóle dotyczy lejek — czyli bez tablic po grupach."""
+        return max(0, self.itemow_deklarowanych - self.itemow_bez_lejka)
+
+    @property
     def itemow_bez_rozkladu(self) -> int:
-        """Itemy zadeklarowane, których nie objął żaden kubełek (O47)."""
-        return max(0, self.itemow_deklarowanych - self.itemow_w_rozkladach)
+        """Itemy z tablic Z LEJKIEM, których nie objął żaden kubełek (O47).
+
+        Liczone od `itemow_na_tablicach_z_lejkiem`, nie od wszystkich: tablica
+        bez lejka nie „zgubiła" rozkładu, tylko go nie ma i mieć nie miała.
+        Mieszanie tych dwóch rzeczy raportowałoby brak lejka jako awarię API.
+        """
+        return max(0, self.itemow_na_tablicach_z_lejkiem - self.itemow_w_rozkladach)
 
     @property
     def pokrycie(self) -> float:
-        """Jaka część zadeklarowanych itemów weszła do rozkładów."""
-        if not self.itemow_deklarowanych:
+        """Jaka część itemów NA TABLICACH Z LEJKIEM weszła do rozkładów."""
+        podstawa = self.itemow_na_tablicach_z_lejkiem
+        if not podstawa:
             return 1.0
-        return round(self.itemow_w_rozkladach / self.itemow_deklarowanych, 3)
+        return round(self.itemow_w_rozkladach / podstawa, 3)
 
     def do_json(self) -> dict[str, Any]:
         return {
             "produkt": self.produkt,
             "tablic": self.tablic,
+            "tablic_z_lejkiem": self.tablic_z_lejkiem,
             "itemow_deklarowanych": self.itemow_deklarowanych,
+            "itemow_bez_lejka": self.itemow_bez_lejka,
             "itemow_w_rozkladach": self.itemow_w_rozkladach,
             "itemow_bez_rozkladu": self.itemow_bez_rozkladu,
             "pokrycie": self.pokrycie,
@@ -283,9 +301,35 @@ def zbuduj_zestawienia(
         przyrost = 0.0
         zamkniec = 0.0
 
+        z_lejkiem = 0
+        bez_lejka = 0
+
         for agregat in nasze:
             deklarowanych += agregat.itemow
             przyrost += agregat.przyrost_dzienny
+
+            # ── TYLKO STOPIEŃ 1 ZASILA KUBEŁKI ────────────────────────────
+            #
+            # Poprawka wymuszona przez pełny przebieg 2026-09-22, nie przez
+            # rozumowanie. Pierwsza wersja liczyła wszystkie tablice produktu
+            # CRM jednakowo i wyszło **223 różne etykiety „otwarte"**, wśród
+            # nich `Active Projects`, `Available Assets` i `Admin overview &
+            # account setup`. To nie są etapy lejka — to NAZWY GRUP z tablic
+            # rozpoznanych stopniem 2 (O46), gdzie rozkład jest po grupach,
+            # a nie po kolumnie etapu.
+            #
+            # Skutek był poważny: `Repozytorium BEGOLDEN` (3158 itemów),
+            # `👥 Klienci` (260) i `Accounts` (169) to tablice produktu CRM
+            # bez lejka, a ich itemy lądowały w „otwartych szansach". Liczba
+            # wyglądała wiarygodnie i nie znaczyła nic.
+            #
+            # Grupa NIE jest etapem i nie ma jak nią zostać. Dlatego takie
+            # tablice mają własny licznik i nie wchodzą do lejka wcale.
+            if getattr(agregat.lejek, "stopien", 3) != 1:
+                bez_lejka += agregat.itemow
+                continue
+
+            z_lejkiem += 1
             w_tablicy = 0
             zamykajacych = 0
             koncowe: frozenset[str] = getattr(agregat.lejek, "etapy_koncowe", frozenset())
@@ -303,8 +347,10 @@ def zbuduj_zestawienia(
         zestawienie = Zestawienie(
             produkt=produkt,
             tablic=len(nasze),
+            tablic_z_lejkiem=z_lejkiem,
             itemow_deklarowanych=deklarowanych,
             itemow_w_rozkladach=w_rozkladach,
+            itemow_bez_lejka=bez_lejka,
             etykiety_w_toku=tuple(sorted(etykiety)),
             przyrost_dzienny=round(przyrost, 2),
             zamkniec_dziennie=round(zamkniec, 2),
@@ -312,6 +358,13 @@ def zbuduj_zestawienia(
         )
         zestawienia.append(zestawienie)
 
+        if zestawienie.itemow_bez_lejka:
+            zastrzezenia.append(
+                f"{produkt}: {zestawienie.itemow_bez_lejka} itemów leży na "
+                f"{len(nasze) - z_lejkiem} tablicach BEZ rozpoznanego lejka — ich rozkład jest "
+                "po GRUPACH, nie po etapach, więc nie wchodzą do lejka wcale. Liczby etapów "
+                f"dotyczą {z_lejkiem} tablic z {len(nasze)}"
+            )
         if zestawienie.itemow_bez_rozkladu:
             zastrzezenia.append(
                 f"{produkt}: {zestawienie.itemow_bez_rozkladu} itemów zadeklarowanych przez "
