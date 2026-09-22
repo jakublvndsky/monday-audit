@@ -71,11 +71,19 @@ MAKS_STRON_PODGLADU = 4
 # jest do przejrzenia; bez niego byłaby bezużyteczna.
 LIMIT_WORKSPACE = 100
 
+# `account_product` daje TYP workspace'u wprost — `core`, `crm`, `service`,
+# `software`. Zmierzone 2026-09-22 na koncie CXLABS (O40).
+#
+# Zakładaliśmy przy planowaniu przebudowy, że monday tego nie oddaje i że typ
+# trzeba wnioskować z nazw tablic i kolumn. Założenie było błędne, a kosztowało
+# tyle, co jedno zapytanie introspekcyjne. `id` grupuje workspace'y po produkcie:
+# wszystkie `crm` na CXLABS mają to samo `id`.
 _PYTANIE_WORKSPACE = """
 query ($limit: Int!, $p: Int!) {
   workspaces (limit: $limit, page: $p) {
     id
     name
+    account_product { id kind }
   }
 }
 """
@@ -141,6 +149,10 @@ class WorkspaceDoWyboru:
 
     workspace_id: str
     nazwa: str
+    # Produkt monday, do którego workspace należy (O40). `None` znaczy „konto
+    # nie przypisało go do żadnego" — a nie „nie umiemy odczytać".
+    produkt_id: str | None = None
+    produkt_kind: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,18 +252,37 @@ async def pobierz_workspace(klient: MondayClient) -> tuple[WorkspaceDoWyboru, ..
 
     Do 2026-08-25 twierdziłem, że takiego zapytania nie ma — szukałem go
     w naszym kodzie, nie w API monday. To założenie blokowało cały ten ekran.
+
+    **Paginuje**, i to nie jest nadmiarowość. Do 2026-09-22 brała się stąd sama
+    pierwsza strona: dla ekranu wyboru sto pozycji wystarczało z zapasem, ale
+    kafelek „liczba workspace'ów" z tego samego źródła pokazywałby przy koncie
+    ze 120 workspace'ami równe 100 i nie powiedziałby, że urwał.
     """
-    odpowiedz = await klient.query(
-        _PYTANIE_WORKSPACE,
-        {"limit": LIMIT_WORKSPACE, "p": 1},
-        etykieta="workspaces",
-    )
-    surowe = odpowiedz.get("workspaces") or []
-    return tuple(
-        WorkspaceDoWyboru(workspace_id=str(w["id"]), nazwa=str(w.get("name") or w["id"]))
-        for w in surowe
-        if isinstance(w, dict) and w.get("id")
-    )
+    zebrane: list[WorkspaceDoWyboru] = []
+    strona = 1
+    while True:
+        odpowiedz = await klient.query(
+            _PYTANIE_WORKSPACE,
+            {"limit": LIMIT_WORKSPACE, "p": strona},
+            etykieta="workspaces",
+        )
+        surowe = odpowiedz.get("workspaces") or []
+        for w in surowe:
+            if not isinstance(w, dict) or not w.get("id"):
+                continue
+            produkt = w.get("account_product")
+            produkt = produkt if isinstance(produkt, dict) else {}
+            zebrane.append(
+                WorkspaceDoWyboru(
+                    workspace_id=str(w["id"]),
+                    nazwa=str(w.get("name") or w["id"]),
+                    produkt_id=str(produkt["id"]) if produkt.get("id") else None,
+                    produkt_kind=str(produkt["kind"]) if produkt.get("kind") else None,
+                )
+            )
+        if len(surowe) < LIMIT_WORKSPACE:
+            return tuple(zebrane)
+        strona += 1
 
 
 async def pobierz_tablice(

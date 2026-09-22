@@ -194,6 +194,8 @@ export interface WyborZakresu {
 export interface WorkspaceDoWyboru {
   workspace_id: string;
   nazwa: string;
+  produkt_id: string | null;
+  produkt_kind: string | null;
 }
 
 export interface TablicaDoWyboru {
@@ -218,6 +220,27 @@ export interface PodgladKonta {
   zgrubnie_do_usd: number;
   // dokładane przez endpoint: ile wywołań monday zużył podgląd
   wywolan: number;
+}
+
+export interface Inwentarz {
+  konto_nazwa: string;
+  licencja_tier: string | null;
+  licencja_period: string | null;
+  licencja_max_users: number | null;
+  workspacow: number;
+  workspace_y: WorkspaceDoWyboru[];
+  po_produktach: Record<string, number>;
+  tablic_aktywnych: number;
+  tablic_razem: number;
+  tablic_po_stanie: Record<string, number>;
+  uzytkownikow: number;
+  gosci: number;
+  agentow_ai: number;
+  podgladajacych: number;
+  po_rodzajach: Record<string, number>;
+  nieznane_rodzaje: string[];
+  wywolan: number;
+  zastrzezenia: string[];
 }
 
 export interface Ja {

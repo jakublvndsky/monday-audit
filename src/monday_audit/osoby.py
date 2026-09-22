@@ -57,7 +57,22 @@ RODZAJ_GOSC = "guest"
 RODZAJ_CZLONEK = "member"
 RODZAJ_PODGLAD = "view_only"
 RODZAJ_AGENT = "personal_agent_member"
-ZNANE_RODZAJE = frozenset({RODZAJ_ADMIN, RODZAJ_GOSC, RODZAJ_CZLONEK, RODZAJ_PODGLAD, RODZAJ_AGENT})
+
+# Dwa kolejne rodzaje agentowe, zmierzone na CXLABS 2026-09-22 (4 konta: trzy
+# `external_agent_member`, jedno `external_agent_detached_member`). Potwierdzenie
+# ostrzeżenia wyżej: zbiór faktycznie nie był zamknięty.
+RODZAJ_AGENT_ZEWNETRZNY = "external_agent_member"
+RODZAJ_AGENT_ODLACZONY = "external_agent_detached_member"
+
+# JEDNO miejsce, w którym stoi „co jest agentem". Do 2026-09-22 ta wiedza była
+# w dwóch kopiach — tutaj i jako literał w `pulpit.py` — więc dopisanie rodzaju
+# w jednym miejscu zostawiało drugie nieaktualne. Skutek był widoczny: cztery
+# konta agentów zewnętrznych pokazywały się w zakładce „Ludzie" JAKO LUDZIE.
+RODZAJE_AGENTOW = frozenset({RODZAJ_AGENT, RODZAJ_AGENT_ZEWNETRZNY, RODZAJ_AGENT_ODLACZONY})
+
+ZNANE_RODZAJE = frozenset(
+    {RODZAJ_ADMIN, RODZAJ_GOSC, RODZAJ_CZLONEK, RODZAJ_PODGLAD} | RODZAJE_AGENTOW
+)
 
 # `UserStatus` JEST zamkniętym enumem: ACTIVE, INACTIVE, PENDING.
 STATUS_AKTYWNY = "ACTIVE"

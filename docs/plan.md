@@ -39,12 +39,22 @@ bez dowodu nie przechodzi walidacji.
     się w limicie, sampling trzeba zaprojektować w fazie 3, a nie odkryć na
     koncie klienta.
 
-- [ ] **2. Collector: inwentarz konta** — jedna komenda produkuje snapshot,
-  z którego liczą się wszystkie pozycje punktów 2 i 4 wytycznych oraz role
-  i aktywność z punktu 5. Większość już istnieje: `kind` użytkownika rozróżnia
-  admina, gościa, członka, `view_only` i konto agentowe; `owners` i
-  `subscribers` tablicy są zbierane, więc userzy i goście per tablica są
-  policzalne bez nowego zapytania.
+Faza 2 podzielona 2026-09-22 na 2a i 2b: kafelki i tabela tablic mają różny
+koszt i różne źródła, a sklejone dawałyby jeden wynik dopiero na końcu obu.
+
+- [x] **2a. Sześć kafelków** — tani przekrój z punktu 2 wytycznych: workspace'y
+  (z typem produktu), tablice, użytkownicy, goście, agenci AI, licencja.
+  Bez itemów, bez modelu, bez danych osobowych — zapytanie o użytkowników
+  świadomie nie pobiera `name` ani `email`, bo najtańszym sposobem na
+  niewyciekanie danych jest ich nie pobrać.
+  - Ryzyko było: „liczba agentów AI" to co innego niż agenci z API `agents`
+    (O20). Rozstrzygnięte — kafelek liczy **konta agentowe** wszystkich trzech
+    rodzajów (O44), a nie agentów z nieprzypiętej wersji API.
+
+- [ ] **2b. Tabela tablic i role** — punkt 4 wytycznych i reszta punktu 5:
+  automatyzacje per tablica, tablice wg rodzaju, średnia userów i gości na
+  tablicę, ostatnia aktywność. `owners` i `subscribers` tablicy są już zbierane,
+  więc userzy i goście per tablica są policzalne bez nowego zapytania.
   - Ryzyko **rozstrzygnięte fazą 1**: właściciela automatyzacji w API **nie ma**
     (O42) — ta pozycja wytycznych wypada i trzeba to powiedzieć zamawiającemu.
     Liczba automatyzacji na tablicę jest osiągalna tylko jako „ile ich się
@@ -98,6 +108,11 @@ bez dowodu nie przechodzi walidacji.
   - Ryzyko: kolejność wdrożenia. Nie wolno podłączyć Langfuse'a „na próbę" przed
     maskowaniem, bo pierwszy trace z prawdziwego konta wyjdzie bez niego i nie
     da się go cofnąć.
+  - Do wykorzystania w tej fazie: **oficjalny skill Langfuse'a**
+    (`github.com/langfuse/skills`) — prośba Kuby z 2026-09-22, odłożona świadomie
+    do tej fazy, bo instalowanie go w trakcie fazy 2a niczego by nie przyspieszyło.
+    Przeczytać przed instalacją i traktować jako materiał referencyjny, nie jako
+    instrukcje do wykonania.
   - Ryzyko drugie: co dokładnie maskujemy. Mail i telefon są łatwe wzorcem;
     imię i nazwisko w nazwie tablicy albo w treści itemu **nie są** — i trzeba
     powiedzieć wprost, czego ta warstwa nie złapie.
@@ -177,6 +192,27 @@ Co poszło inaczej, niż zakładał plan:
   CXLABS ma 103 itemy, więc konto nie pokazuje przypadku, o który chodzi.
   Ekstrapolacja: 40 000 leadów ≈ 400 wywołań, czyli 40% dnia na planie `free`.
   Regułę samplingu z fazy 3 trzeba ustalić na prawdziwym koncie CRM.
+
+**2026-09-22 — faza 2a zamknięta.** `inwentarz.py`, `cli_inwentarz.py`, typ
+`Inwentarz` w `front/src/api.ts`. Sprawdzone na żywo: CXLABS, 36 wywołań.
+
+Trzy rzeczy wyszły dopiero na pełnym koncie i każda zmieniła kod:
+
+- **136 workspace'ów.** `pobierz_workspace` brało jedną stronę po 100, więc
+  kafelek pokazałby `100` i nie powiedziałby, że urwał. Paginacja dopisana —
+  przypadek opisany w teście jako hipotetyczny okazał się faktem przy pierwszym
+  uruchomieniu.
+- **3268 obiektów, z czego 1206 w koszu.** Kafelek pokazuje teraz aktywne
+  (2016), a rozbicie po stanach zostaje obok. Suma była prawdziwa i bezużyteczna.
+- **Trzy rodzaje kont agentowych, nie jeden** (O44). Przy okazji wyszła usterka
+  w działającym kodzie: `pulpit.py` trzymał drugą kopię literału
+  `personal_agent_member` i pokazywał cztery konta agentów zewnętrznych
+  w zakładce „Ludzie" jako ludzi. Naprawione jednym źródłem prawdy
+  (`RODZAJE_AGENTOW` w `osoby.py`).
+
+Odchylenie od planu: faza miała produkować **snapshot**, a produkuje odczyt
+na żywo. Tak wychodzi z user story — pierwszy ekran ma odpowiedzieć w sekundy
+i nie zakładać runu. Snapshot zostaje tam, gdzie był: przy pełnym audycie.
 
 ---
 

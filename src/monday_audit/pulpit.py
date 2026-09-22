@@ -44,6 +44,7 @@ from pathlib import Path
 from typing import Any
 
 from monday_audit.deanonimizacja import Deanonimizacja
+from monday_audit.osoby import RODZAJE_AGENTOW
 from monday_audit.raport import (
     KATALOG_SZABLONOW,
     ODBIORCA_KLIENT,
@@ -304,7 +305,11 @@ def _liczby(zrodlo: dict[str, Any], klucz: str) -> int:
 # Rodzaje kont, które nie są ludźmi. Ta sama stała co w detektorze — importujemy,
 # nie kopiujemy napisu, bo dwa źródła prawdy o tym, co jest człowiekiem, rozjadą się
 # przy pierwszej zmianie w API monday.
-_RODZAJ_AGENT = "personal_agent_member"
+# Było tu `_RODZAJ_AGENT = "personal_agent_member"` — druga kopia wiedzy, która
+# w `osoby.py` już była. Kopia się zestarzała: konta `external_agent_member`
+# i `external_agent_detached_member` (4 na CXLABS, 2026-09-22) wpadały do
+# gałęzi `return "czlowiek"`, czyli do zakładki „Ludzie" obok pracowników.
+# Dokładnie to, przed czym ostrzega docstring `_rodzaj_autora` niżej.
 
 
 def _rodzaj_autora(kind: str | None, jest_na_liscie: bool) -> str:
@@ -319,7 +324,7 @@ def _rodzaj_autora(kind: str | None, jest_na_liscie: bool) -> str:
     """
     if not jest_na_liscie:
         return "nieznany"
-    if kind == _RODZAJ_AGENT:
+    if kind in RODZAJE_AGENTOW:
         return "agent_ai"
     return "czlowiek"
 

@@ -28,6 +28,7 @@ import types
 import typing
 from pathlib import Path
 
+from monday_audit.inwentarz import Inwentarz
 from monday_audit.podglad_zakresu import PodgladKonta, TablicaDoWyboru, WorkspaceDoWyboru
 from monday_audit.pulpit import (
     KLUCZE_WEWNETRZNE,
@@ -86,6 +87,10 @@ KLASY = (
     WorkspaceDoWyboru,
     TablicaDoWyboru,
     PodgladKonta,
+    # Sześć kafelków pierwszego ekranu (plan, faza 2a). PO `WorkspaceDoWyboru`,
+    # bo `Inwentarz` niesie ich listę — tam siedzi `account_product`, czyli typ
+    # workspace'u, który front pokazuje obok liczby.
+    Inwentarz,
 )
 
 NAGLOWEK = """// PLIK GENEROWANY — nie edytuj ręcznie.

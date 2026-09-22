@@ -1663,9 +1663,17 @@ i to jest dokładnie ten przypadek, dla którego istnieje discovery-first.
 query { workspaces (limit: 25, page: 1) { id name account_product { id kind } } }
 ```
 
-`[DISCOVERY] ✅` zmierzone na koncie CXLABS 2026-09-22 — zwraca wartości
-`core`, `crm`, `service`, `software`, a `id` grupuje workspace'y po produkcie
-(np. wszystkie `crm` mają `id = 4299576`).
+`[DISCOVERY] ✅` zmierzone na koncie CXLABS 2026-09-22, a `id` grupuje
+workspace'y po produkcie (np. wszystkie `crm` mają `id = 4299576`).
+
+**Siedem rodzajów na 136 workspace'ach** — pełne konto, token admina:
+`core` 66, `crm` 40, `service` 18, `software` 9 oraz po jednym
+`agent_builder`, `forms` i `marketing_campaigns`.
+
+Pierwszy pomiar widział tylko cztery pierwsze, bo szedł jedną stroną wyników
+i tokenem bez admina. Paginacja i uprawnienia zmieniają nie tylko liczby, ale
+i **listę wartości, jakie się w ogóle zobaczy** — wniosek wyciągnięty
+z czterech wartości byłby niepełny, a wyglądałby na kompletny.
 
 **Co z tego wynika:** rozpoznanie typu workspace'u z wytycznych to **odczyt
 pola**, nie wnioskowanie. Analiza nomenklatury zostaje potrzebna tylko do
@@ -1753,9 +1761,13 @@ Zmierzone na koncie CXLABS: **100 itemów = 1 wywołanie, complexity 2020,
 czasu i grupa, a `column_values { text }` przyniósłby nazwiska, maile
 i telefony leadów, czyli dane osobowe osób trzecich.
 
-**Ograniczenie tego pomiaru, i jest poważne:** najgrubsza tablica na koncie
-CXLABS ma **103 itemy**. To konto nie jest w stanie pokazać przypadku, o który
-naprawdę chodzi — CRM klienta z dziesiątkami tysięcy leadów.
+**Ograniczenie tego pomiaru, i jest podwójne:** najgrubsza tablica na koncie
+CXLABS ma **103 itemy**, więc to konto nie pokazuje przypadku, o który naprawdę
+chodzi — CRM klienta z dziesiątkami tysięcy leadów. Do tego pomiar szedł tokenem
+o rodzaju `member`, nie `admin` (ustalone 2026-09-22), czyli „najgrubsza tablica"
+znaczy tu **najgrubsza WIDOCZNA TYM TOKENEM**. Uprawnienia ograniczają wynik
+bez ostrzeżenia i to jest dokładnie ta cicha niepełność, przed którą broni
+bramka w `rozpoznaj_konto`.
 
 **Ekstrapolacja:** 40 000 leadów na jednej tablicy to ~400 wywołań. Przy planie
 `pro` (10 000 dziennie) to 4% dnia, przy `free` (1 000) — **40% dnia na jedną
@@ -1764,3 +1776,36 @@ tablicę**, czyli powyżej progu przerwania 50% dla całego konta.
 **Czego to NIE rozstrzyga:** czy przy takim wolumenie complexity zaczyna wiązać
 szybciej niż limit dzienny, i czy `items_page` utrzyma ~1 s przy stronie 500.
 Do zmierzenia na prawdziwym koncie CRM, zanim faza 3 ustali regułę samplingu.
+
+---
+
+## O44. Rodzajów kont agentowych są trzy, nie jeden
+
+**Status: ROZSTRZYGNIĘTE 2026-09-22 — zbiór rodzajów naprawdę nie był zamknięty.**
+**Dotyczy:** `osoby.py`, `pulpit.py`, `inwentarz.py`; potwierdza ostrzeżenie z O17
+
+O17 zapisało, że `UserKind` w schemacie to typ argumentu filtrującego, nie lista
+wartości zwracanych, więc API **nie deklaruje** zbioru rodzajów. Pełny przebieg
+po koncie CXLABS tokenem admina (2026-09-22) pokazał dwa nowe:
+
+| kind | ile |
+|---|---|
+| `personal_agent_member` | 37 |
+| `external_agent_member` | 3 |
+| `external_agent_detached_member` | 1 |
+
+**Skutek, który to miało w działającym kodzie:** `pulpit.py` trzymał własny
+literał `_RODZAJ_AGENT = "personal_agent_member"` — drugą kopię wiedzy, która
+w `osoby.py` już była. Kopia się zestarzała, więc `_rodzaj_autora` klasyfikował
+te cztery konta jako **`czlowiek`** i pokazywał je w zakładce „Ludzie" obok
+pracowników. Dokładnie to, przed czym ostrzega docstring tej samej funkcji:
+„lista pokazująca »Quotation Agent« obok pracownika sugeruje, że pracuje osiem
+osób; pracują trzy".
+
+**Poprawione:** `RODZAJE_AGENTOW` w `osoby.py` jest jedynym miejscem, w którym
+stoi „co jest agentem"; `pulpit.py` i `inwentarz.py` z niego korzystają.
+
+**Czego to NIE rozstrzyga:** czy `external_agent_detached_member` znaczy „agent
+odłączony od swojego twórcy", czy coś innego. Do kafelka liczymy go jako agenta
+(decyzja Kuby 2026-09-22), ale gdyby ta liczba miała trafić do wyceny licencji,
+trzeba najpierw wiedzieć, czy takie konto zajmuje płatne miejsce.
