@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
+
+import pytest
 
 from monday_audit.itemy import (
     LIMIT_ITEMOW,
@@ -38,6 +41,43 @@ def test_deal_stage_tez_jest_kanoniczne() -> None:
 
     assert lejek.stopien == 1
     assert lejek.kolumna == "deal_stage"
+
+
+def test_lejek_niesie_etapy_zadeklarowane_przez_klienta() -> None:
+    """O48: `done_colors` w ustawieniach kolumny to deklaracja klienta, które
+    etapy kończą proces — mocniejsza od każdej naszej heurystyki i darmowa,
+    bo `settings_str` idzie w tym samym zapytaniu co reszta kolumn."""
+    ustawienia = json.dumps(
+        {"labels": {"0": "Eligible", "4": "Branding Completed"}, "done_colors": [4]}
+    )
+    kolumny = [
+        {"id": "lead_status", "title": "Status", "type": "status", "settings_str": ustawienia}
+    ]
+
+    lejek = rozpoznaj_lejek(kolumny, grup=2)
+
+    assert lejek.etapy_koncowe == frozenset({"Branding Completed"})
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        None,
+        "",
+        "to nie jest JSON",
+        "[]",
+        json.dumps({"labels": {"0": "A"}}),  # bez `done_colors`
+        json.dumps({"done_colors": [0]}),  # bez `labels`
+        json.dumps({"labels": {"0": "A"}, "done_colors": "cztery"}),
+        json.dumps({"labels": {"0": "A"}, "done_colors": [7]}),  # indeks poza zakresem
+    ],
+)
+def test_popsute_ustawienia_nie_wywracaja_audytu(settings: str | None) -> None:
+    """Ustawienia kolumny to treść pisana przez klienta. Wywrócenie przebiegu
+    na cudzym JSON-ie byłoby oddaniem mu kontroli nad naszym audytem."""
+    kolumny = [{"id": "lead_status", "type": "status", "settings_str": settings}]
+
+    assert rozpoznaj_lejek(kolumny, grup=2).etapy_koncowe == frozenset()
 
 
 def test_goly_status_nie_jest_lejkiem() -> None:

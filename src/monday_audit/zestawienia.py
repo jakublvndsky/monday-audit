@@ -130,23 +130,47 @@ def znormalizuj(etykieta: str) -> str:
     return _NIESLOWA.sub(" ", etykieta).strip().lower()
 
 
-def sklasyfikuj(etykieta: str) -> str:
+def sklasyfikuj(etykieta: str, zadeklarowane_koncowe: frozenset[str] = frozenset()) -> str:
     """Etap → `wygrane` / `odpadlo` / `zamkniete` / `bez_etapu` / `w_toku`.
 
-    Kolejność sprawdzeń NIE jest dowolna: `Closed Won` niesie jednocześnie
-    słowo zamknięcia i słowo wygranej, więc wygrana musi iść pierwsza. Odwrotna
-    kolejność zamieniłaby każdą wygraną w bezbarwne „zamknięte" i zabrała
-    raportowi jedyną liczbę, która mówi o skuteczności.
+    ## Dwa źródła, w jasnej hierarchii (O48)
+
+    `zadeklarowane_koncowe` to etykiety, które **klient sam oznaczył** jako
+    kończące proces (`done_colors` w ustawieniach kolumny). Deklaracja bije
+    słownik: skoro klient powiedział, że `Branding Completed` kończy proces, to
+    kończy, niezależnie od tego, czy nasza lista słów go zna.
+
+    **Deklaracja nie zastępuje słownika, tylko go uzupełnia**, i to z konkretnego
+    powodu: `done_colors` w monday znaczy „zakończone pomyślnie" — zielony
+    znaczek. Etap `Lost` prawie nigdy nie jest tam wpisany, bo przegrana nie
+    jest sukcesem. Gdyby deklaracja była jedynym źródłem, cała strona odpadów
+    lądowałaby w „w toku" i zestawienie zawyżałoby szanse dokładnie tam, gdzie
+    najbardziej boli.
+
+    Dlatego: deklaracja rozstrzyga, ŻE etap jest końcowy, a słownik dopowiada,
+    JAKI to koniec. Etap zadeklarowany, którego słownik nie zna, to `zamkniete` —
+    neutralne domknięcie, bez orzekania o wyniku.
+
+    Kolejność w samym słowniku też nie jest dowolna: `Closed Won` niesie
+    jednocześnie słowo zamknięcia i słowo wygranej, więc wygrana musi iść
+    pierwsza. Odwrotna kolejność zamieniłaby każdą wygraną w bezbarwne
+    „zamknięte" i zabrała raportowi jedyną liczbę mówiącą o skuteczności.
     """
     czysta = znormalizuj(etykieta)
     if not czysta or czysta == znormalizuj(BEZ_ETAPU):
         return "bez_etapu"
+
     slowa = set(czysta.split())
     if slowa & WYGRANE:
         return "wygrane"
     if slowa & ODPADLO:
         return "odpadlo"
     if slowa & ZAMKNIETE:
+        return "zamkniete"
+    # Słownik nie zna tej etykiety. Dopiero teraz pytamy o deklarację —
+    # porównanie po znormalizowanej postaci, bo klient zapisuje etykietę
+    # w ustawieniach i w itemie tak samo, ale wielkość liter bywa różna.
+    if any(znormalizuj(e) == czysta for e in zadeklarowane_koncowe):
         return "zamkniete"
     return "w_toku"
 
@@ -264,8 +288,9 @@ def zbuduj_zestawienia(
             przyrost += agregat.przyrost_dzienny
             w_tablicy = 0
             zamykajacych = 0
+            koncowe: frozenset[str] = getattr(agregat.lejek, "etapy_koncowe", frozenset())
             for etykieta, ile in agregat.rozklad.items():
-                kubelek = sklasyfikuj(etykieta)
+                kubelek = sklasyfikuj(etykieta, koncowe)
                 kubelki[kubelek] += ile
                 w_tablicy += ile
                 if kubelek == "w_toku":

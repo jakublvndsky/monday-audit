@@ -36,6 +36,7 @@ kolumny statusu na dowolnej tablicy, więc robiłby lejek z czegokolwiek.
 
 from __future__ import annotations
 
+import json
 import logging
 from collections import Counter
 from dataclasses import dataclass, field
@@ -83,6 +84,48 @@ class Lejek:
     stopien: int  # 1 = kolumna kanoniczna, 2 = grupy, 3 = nierozpoznany
     kolumna: str | None
     opis: str
+    # Etykiety, które KLIENT oznaczył jako kończące proces (O48). Nie nasza
+    # heurystyka, tylko odczyt `done_colors` z ustawień kolumny — czyli
+    # deklaracja, a nie zgadywanie. Puste, gdy kolumna nie niesie ustawień
+    # albo lejek jest rozpoznany po grupach.
+    etapy_koncowe: frozenset[str] = frozenset()
+
+
+def etapy_zadeklarowane(kolumna: dict[str, Any]) -> frozenset[str]:
+    """`settings_str` kolumny statusu → etykiety oznaczone jako końcowe (O48).
+
+    ZMIERZONE 2026-09-22 na tablicy 5095638019:
+
+        labels:      {"0": "Eligible", ..., "4": "Branding Completed"}
+        done_colors: [4]
+
+    `Branding Completed` jest końcowy **dlatego, że klient tak ustawił kolumnę**,
+    a nie dlatego, że pasuje do słownika słów. To źródło mocniejsze od każdej
+    naszej reguły i darmowe: `settings_str` idzie w tym samym zapytaniu, co
+    reszta kolumn.
+
+    Zwraca pusty zbiór przy czymkolwiek nieoczekiwanym. Ustawienia kolumny są
+    treścią pisaną przez klienta — wywracanie audytu na cudzym JSON-ie byłoby
+    oddaniem mu kontroli nad naszym przebiegiem.
+    """
+    surowe = kolumna.get("settings_str")
+    if not isinstance(surowe, str) or not surowe.strip():
+        return frozenset()
+    try:
+        ustawienia = json.loads(surowe)
+    except (ValueError, TypeError):
+        return frozenset()
+    if not isinstance(ustawienia, dict):
+        return frozenset()
+    etykiety = ustawienia.get("labels")
+    konczace = ustawienia.get("done_colors")
+    if not isinstance(etykiety, dict) or not isinstance(konczace, list):
+        return frozenset()
+    return frozenset(
+        tekst
+        for indeks in konczace
+        if isinstance(tekst := etykiety.get(str(indeks)), str) and tekst.strip()
+    )
 
 
 def rozpoznaj_lejek(kolumny: list[dict[str, Any]], grup: int) -> Lejek:
@@ -94,6 +137,7 @@ def rozpoznaj_lejek(kolumny: list[dict[str, Any]], grup: int) -> Lejek:
                 stopien=1,
                 kolumna=kanoniczna,
                 opis=f"kolumna `{kanoniczna}` z szablonu monday CRM",
+                etapy_koncowe=etapy_zadeklarowane(po_id[kanoniczna]),
             )
     if grup > 1:
         return Lejek(

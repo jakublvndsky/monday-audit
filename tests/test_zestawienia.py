@@ -19,6 +19,13 @@ from monday_audit.zestawienia import (
 
 
 @dataclass
+class Lejek:
+    """Atrapa `itemy.Lejek` — z tej warstwy widać tylko etapy zadeklarowane."""
+
+    etapy_koncowe: frozenset[str] = frozenset()
+
+
+@dataclass
 class Agregat:
     """Atrapa `AgregatTablicy` — tylko pola, których dotyka ta warstwa."""
 
@@ -26,6 +33,7 @@ class Agregat:
     itemow: int = 0
     rozklad: dict[str, int] = field(default_factory=dict)
     przyrost_dzienny: float = 0.0
+    lejek: Lejek = field(default_factory=Lejek)
 
 
 # ── normalizacja i słownik ───────────────────────────────────────────────
@@ -173,6 +181,48 @@ def test_itemy_bez_etapu_nie_wchodza_do_zamkniec() -> None:
     assert z.bez_etapu == 10
     assert z.zamkniec_dziennie == 0.0
     assert any("POZA lejkiem" in u for u in wynik.zastrzezenia)
+
+
+# ── deklaracja klienta bije słownik (O48) ────────────────────────────────
+
+
+def test_etap_zadeklarowany_przez_klienta_jest_koncowy() -> None:
+    """ZMIERZONE na tablicy 5095638019: `done_colors: [4]` wskazuje
+    `Branding Completed`. Żaden słownik słów tego nie zna i nie ma szans znać —
+    ale klient powiedział wprost, że to koniec procesu."""
+    assert sklasyfikuj("Branding Completed") == "w_toku"
+    assert sklasyfikuj("Branding Completed", frozenset({"Branding Completed"})) == "zamkniete"
+
+
+def test_deklaracja_nie_zabiera_slownikowi_odpadow() -> None:
+    """Sedno hierarchii. `done_colors` w monday znaczy „zakończone POMYŚLNIE",
+    więc `Lost` prawie nigdy tam nie trafia. Gdyby deklaracja była jedynym
+    źródłem, cała strona odpadów lądowałaby w „w toku" i zestawienie zawyżałoby
+    szanse dokładnie tam, gdzie najbardziej boli."""
+    koncowe = frozenset({"Branding Completed"})
+
+    assert sklasyfikuj("Closed Lost", koncowe) == "odpadlo"
+    assert sklasyfikuj("Closed Won", koncowe) == "wygrane"
+
+
+def test_deklaracja_porownuje_sie_bez_wzgledu_na_wielkosc_liter() -> None:
+    assert sklasyfikuj("branding completed", frozenset({"Branding Completed"})) == "zamkniete"
+
+
+def test_rollup_bierze_etapy_z_lejka_tablicy() -> None:
+    """Wpięcie, nie tylko funkcja obok: zestawienie ma sięgnąć po deklarację
+    do lejka TEJ tablicy, a nie liczyć wszystkiego jednym słownikiem."""
+    agregat = Agregat(
+        itemow=10,
+        rozklad={"Branding Completed": 6, "Scheduled": 4},
+        lejek=Lejek(etapy_koncowe=frozenset({"Branding Completed"})),
+    )
+
+    z = zbuduj_zestawienia([agregat]).po_produkcie[PRODUKT_CRM]
+
+    assert z.zamkniete == 6
+    assert z.w_toku == 4
+    assert z.etykiety_w_toku == ("Scheduled",)
 
 
 def test_crm_i_service_licza_sie_osobno() -> None:

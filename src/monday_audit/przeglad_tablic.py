@@ -67,7 +67,11 @@ query ($limit: Int!, $p: Int!) {
     owners { id }
     subscribers { id }
     groups { id }
-    columns { id type }
+    # `settings_str` niesie `done_colors` — deklarację klienta, które etapy
+    # kończą proces (O48). ZERO dodatkowych wywołań: kolumny i tak pobieramy,
+    # więc to samo zapytanie, tylko szersze. Rośnie complexity, ale wiążący
+    # jest limit dzienny, nie complexity.
+    columns { id type settings_str }
   }
 }
 """

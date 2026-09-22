@@ -2078,3 +2078,82 @@ danych, decyduje o rachunku.
 1109 wywołań to 8,9% budżetu `enterprise` (12 500 = połowa limitu dziennego),
 ale **dwa razy tyle, ile wynosi cały budżet planu `free`** — tam sampling
 z `zaplanuj_pobranie` nie jest optymalizacją, tylko warunkiem wykonalności.
+
+---
+
+## O48. `done_colors` — monday sam mówi, który etap jest końcowy
+
+**Status: ZMIERZONE 2026-09-22. Do wdrożenia w fazie 5a jako źródło lepsze niż słownik.**
+**Dotyczy:** `zestawienia.py`, `przeglad_tablic.py`
+
+Ustawienia kolumny statusu niosą **deklarację klienta**, które etykiety kończą
+proces. Zmierzone na tablicy `5095638019`:
+
+```graphql
+boards(ids: ["5095638019"]) { columns { id title type settings_str } }
+```
+```json
+{
+  "labels": {"0":"Eligible","1":"Scheduled","2":"Ineligible",
+             "3":"Material Order","4":"Branding Completed","5":"⚪️ New"},
+  "done_colors": [4]
+}
+```
+
+`Branding Completed` jest końcowy **nie dlatego, że tak wynika ze słownika**,
+tylko dlatego, że klient tak ustawił kolumnę. To jest źródło lepsze od reguły
+słownikowej z `zestawienia.py` pod każdym względem: bez zgadywania języka, bez
+fałszywych trafień, bez listy słów do utrzymywania.
+
+**I jest za darmo.** `przeglad_tablic.py` już pobiera `columns { id type }` per
+tablica — dołożenie `settings_str` nie dodaje ani jednego wywołania. Rośnie
+complexity, ale wiążący jest limit dzienny, nie complexity.
+
+**Czego to nie rozwiązuje:** tablic rozpoznanych stopniem 2 (rozkład po
+GRUPACH, nie po kolumnie statusu — O46). Tam `done_colors` nie ma zastosowania
+i słownik zostaje jedyną regułą. Czyli słownik nie znika, tylko schodzi do roli
+zapasowej.
+
+---
+
+## O49. `activity_logs.data` niesie przejścia między etapami — i nazwy itemów
+
+**Status: ZMIERZONE 2026-09-22. NIE wdrożone — patrz koszt i PII.**
+**Dotyczy:** `logi.py`, plan faza 5
+
+Pytanie brzmiało: czy możemy sprawdzać też logi aktywności. Odpowiedź: tak,
+i jest tam więcej, niż bierzemy dziś. `logi.py` pobiera `id event entity
+created_at user_id`, **bez pola `data`** — a to w `data` siedzi cała treść:
+
+```json
+{"event": "update_column_value",
+ "column_id": "color_mm2ykewd", "column_title": "Brand", "column_type": "color",
+ "previous_value": null,
+ "value": {"label": {"text": "Other", "is_done": false, "index": 0}},
+ "pulse_name": "Incoming form answer", "pulse_id": 3216746301}
+```
+
+**Co to daje:** `previous_value` → `value` z etykietami i znacznikiem czasu, czyli
+**prawdziwą historię przejść**. Dzisiejsze „zamknięć dziennie" w `zestawienia.py`
+to szacunek z ilorazu (przyrost × udział etapów końcowych), bo `column_values`
+oddaje etap BIEŻĄCY, nie historię. Z logów dałoby się to policzyć, a nie oszacować.
+
+**Trzy powody, dla których tego nie wdrażam bez decyzji:**
+
+1. **PII.** `data` niesie `pulse_name` — nazwę itemu. W próbce to „Incoming form
+   answer", ale na tablicy leadów nazwa itemu to imię i nazwisko. Wejście w to
+   pole wymaga tej samej dyscypliny co w fazie 3 (O46): parsujemy i wyrzucamy,
+   nigdy nie przechowujemy. Różnica wobec fazy 3 jest jednak istotna — tam dało
+   się **nie pobrać** nazwy (`column_values(ids:)`), tu `data` przychodzi
+   w całości i nie ma jak poprosić o jej część.
+2. **Koszt.** To jest per tablica, limit 100 wpisów, a **stronicowanie nie
+   działa** — zmierzone wcześniej, `logi.py` ostrzega o tym wprost. Czyli
+   ~1 wywołanie na tablicę za ostatnie 100 zdarzeń. Przy ~1300 aktywnych
+   tablicach to drugi pełny przebieg obok itemów.
+3. **Okno.** Widać tylko ostatnie zdarzenia, a retencja logów zależy od planu.
+   Konto z ruchem wyczerpie 100 wpisów w kilka dni, więc „zamknięć dziennie"
+   z logów byłoby liczone z okna o nieznanej i różnej dla każdej tablicy długości —
+   co jest gorsze niż jawny szacunek, bo wygląda na pomiar.
+
+**Wniosek:** wdrażać dopiero, gdy ktoś poprosi o prawdziwą historię przejść
+i zaakceptuje drugi przebieg. Na dziś tańsze i uczciwsze jest O48.
