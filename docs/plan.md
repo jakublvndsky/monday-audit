@@ -335,8 +335,14 @@ na nich napisał.
   Panel na Mikrusie zostaje z wstrzymanymi audytami — portal go zastąpi.
 
   **Kroki:**
-  - [ ] **6-1** — `przeglad_konta`: kafelki z `inwentarz` pod publicznym
-    kontraktem (dataclassa + `do_json`), bez bazy i bez modelu. Na żywo CXLABS.
+  - [x] **6-1** — `usluga.przeglad_konta`: sześć kafelków (`Kafelek` ze
+    stałym `klucz`, `wartosc`, `szczegoly`) pod publicznym kontraktem, bez bazy
+    i bez modelu; błędy konta jako `UslugaError` bez treści odpowiedzi API.
+    Na żywo CXLABS: 36 wywołań, liczby 1:1 z `cli_inwentarz` (138 workspace'ów,
+    1316 tablic, 19 użytkowników, 13 gości, 41 agentów, enterprise).
+    `cli_inwentarz` NIE przepięty — to narzędzie rozszerzone (tablice, itemy,
+    obraz dla modelu), a nie same kafelki. Nazwy workspace'ów świadomie poza
+    kontraktem (O50); pogłębienie to faza 7.
   - [ ] **6-2** — `analiza_konta`: wydzielenie z `cli_analiza.uruchom`;
     CLI staje się cienką nakładką na funkcję pakietu.
   - [ ] **6-3** — szacunek przed krokiem 2 (wywołania monday i USD) liczony
