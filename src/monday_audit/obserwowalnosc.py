@@ -40,13 +40,16 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from monday_audit.maskowanie import MaskowanieError, zamaskuj
+from monday_audit.maskowanie import MaskowanieError, bez_tozsamosci, zamaskuj
 from monday_audit.osoby import MaPII
 
 logger = logging.getLogger(__name__)
 
 RODZAJ_GENERACJA = "generation"
 RODZAJ_SPAN = "span"
+
+# Hasze PLIKÓW, nie osób — mają kształt pseudonimu, więc `bez_tozsamosci` je omija.
+KLUCZE_HASZY = frozenset({"prompt_hash", "obraz_hash"})
 
 
 @dataclass(frozen=True)
@@ -170,7 +173,8 @@ def zbuduj_trace(
             zamaskowane.podsumowanie(),
         )
 
-    czyste = zamaskowane.dane
+    # Bez tożsamości: pseudonim → [OSOBA] (decyzja Kuby 2026-09-23).
+    czyste = bez_tozsamosci(zamaskowane.dane, pomin_klucze=KLUCZE_HASZY)
     metadane = dict(czyste["metadane"])
     metadane["trafien_maskowania"] = zamaskowane.ile
     metadane["pola_z_trafieniami"] = list(zamaskowane.sciezki)
@@ -307,7 +311,8 @@ def zbuduj_trace_analizy(
             zamaskowane.podsumowanie(),
         )
 
-    czyste = zamaskowane.dane
+    # Bez tożsamości: pseudonim → [OSOBA] (decyzja Kuby 2026-09-23).
+    czyste = bez_tozsamosci(zamaskowane.dane, pomin_klucze=KLUCZE_HASZY)
     metadane = dict(czyste["metadane"])
     metadane["trafien_maskowania"] = zamaskowane.ile
     metadane["pola_z_trafieniami"] = list(zamaskowane.sciezki)

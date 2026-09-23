@@ -369,7 +369,9 @@ async def test_tresc_klienta_w_kluczach_nie_zostaje_na_dysku(
 
     trace = srodowisko["slad"].wyslane[0]
     assert NAZWISKO not in repr(trace)
-    assert f"[OSOBA:{PSEUDONIM}]" in repr(trace.obserwacje[0].wejscie)
+    assert "[IMIĘ] [NAZWISKO]" in repr(trace.obserwacje[0].wejscie)
+    # Do Langfuse'a nie wychodzi też pseudonim (decyzja Kuby 2026-09-23).
+    assert PSEUDONIM not in repr(trace)
 
 
 async def test_padniete_statystyki_nie_kasuja_zapisanych_uwag(

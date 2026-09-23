@@ -15,8 +15,10 @@ wyżej coś puściło. Cicha redakcja zamieniłaby alarm w kosmetykę.
 
 1. **Ludzie z konta klienta** — znamy ich, mamy tabelę mapowania. Idą przez
    `zredaguj_pii` z `osoby.py` i dostają **pseudonim** (`[OSOBA:a1b2…]`), bo
-   pseudonim zachowuje tożsamość między trace'ami: widać, że ta sama osoba
-   występuje w trzech miejscach, bez wiedzy kto to.
+   pseudonim zachowuje tożsamość między polami: widać, że ta sama osoba
+   występuje w trzech miejscach, bez wiedzy kto to. **Do trace'ów pseudonim
+   już nie wychodzi** — `bez_tozsamosci` zamienia go na `[OSOBA]` /
+   `[IMIĘ] [NAZWISKO]` (decyzja Kuby z 2026-09-23).
 2. **Klienci naszego klienta** — leady w itemach. Ich nie znamy i nie mamy jak
    poznać, więc zostaje wzorzec i zamiennik **bez tożsamości** (`[E-MAIL]`).
    Dwa różne maile dadzą ten sam `[E-MAIL]` i to jest cena, nie usterka.
@@ -147,6 +149,54 @@ class Zamaskowane:
             return "maskowanie: czysto"
         rozbicie = ", ".join(f"{kat} {ile}" for kat, ile in sorted(self.trafienia.items()))
         return f"maskowanie: {self.ile} trafień ({rozbicie}) w {len(self.sciezki)} polach"
+
+
+# ── trace'y bez tożsamości (decyzja Kuby 2026-09-23) ─────────────────────
+#
+# `zamaskuj` zostawia pseudonim (`[OSOBA:a1b2…]`, gołe `user_hash`), bo
+# pseudonim zachowuje tożsamość między polami. Dla Langfuse'a Kuba zdecydował
+# inaczej: do trace'u ma trafiać `[OSOBA]` / `[IMIĘ] [NAZWISKO]`, bez hasza.
+# Hasz liczony stałą solą da się odwrócić, mając dostęp do konta — więc jest
+# daną osobową, a trace'om wystarczy wiedza, ŻE chodzi o osobę.
+#
+# Cena, nazwana wprost: w trace nie widać już, że dwa pola dotyczą TEJ SAMEJ
+# osoby.
+ZAMIENNIK_OSOBY = "[OSOBA]"
+ZAMIENNIK_IMIENIA = "[IMIĘ] [NAZWISKO]"
+_ZREDAGOWANA_OSOBA = re.compile(r"\[OSOBA:[^\]]*\]")
+_ZREDAGOWANY_EMAIL = re.compile(r"\[EMAIL:[^\]]*\]")
+_PSEUDONIM = re.compile(r"\b[0-9a-f]{16}\b")
+
+
+def _bez_tozsamosci_tekst(tekst: str) -> str:
+    tekst = _ZREDAGOWANA_OSOBA.sub(ZAMIENNIK_IMIENIA, tekst)
+    tekst = _ZREDAGOWANY_EMAIL.sub(ZAMIENNIK_EMAILA, tekst)
+    return _PSEUDONIM.sub(ZAMIENNIK_OSOBY, tekst)
+
+
+def bez_tozsamosci(dane: Any, *, pomin_klucze: frozenset[str] = frozenset()) -> Any:
+    """Pseudonimy → `[OSOBA]`, zredagowane nazwiska → `[IMIĘ] [NAZWISKO]`.
+
+    Wołane PO `zamaskuj`, tylko dla trace'ów. Klucze z `pomin_klucze` zostają
+    nietknięte — `prompt_hash` i `obraz_hash` mają ten sam kształt co
+    pseudonim (16 znaków szesnastkowych), a są haszem PLIKU, nie osoby.
+    Klucze słowników przechodzą tę samą zamianę co wartości (review
+    2026-09-23: treść bywa kluczem).
+    """
+    if isinstance(dane, str):
+        return _bez_tozsamosci_tekst(dane)
+    if isinstance(dane, dict):
+        wynik: dict[Any, Any] = {}
+        for klucz, pod in dane.items():
+            if klucz in pomin_klucze:
+                wynik[klucz] = pod
+                continue
+            czysty = _bez_tozsamosci_tekst(klucz) if isinstance(klucz, str) else klucz
+            wynik[unikalny_klucz(czysty, wynik)] = bez_tozsamosci(pod, pomin_klucze=pomin_klucze)
+        return wynik
+    if isinstance(dane, (list, tuple)):
+        return [bez_tozsamosci(pod, pomin_klucze=pomin_klucze) for pod in dane]
+    return dane
 
 
 def zamaskuj_tekst(tekst: str) -> tuple[str, Counter[str]]:

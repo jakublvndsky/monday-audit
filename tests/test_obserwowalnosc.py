@@ -129,15 +129,17 @@ def test_czysty_trace_nie_ostrzega(caplog: Any) -> None:
     assert not caplog.text
 
 
-def test_uzytkownik_konta_dostaje_pseudonim_a_nie_zamiennik() -> None:
-    """Ta sama reguła, co w `maskowanie`: znanego człowieka pseudonimizujemy,
-    żeby w trace było widać, że w dwóch miejscach chodzi o TĘ SAMĄ osobę."""
+def test_uzytkownik_konta_dostaje_zamiennik_bez_hasza() -> None:
+    """Decyzja Kuby z 2026-09-23: do Langfuse'a trafia `[IMIĘ] [NAZWISKO]`,
+    nie `[OSOBA:hash]`. Hasz liczony stałą solą jest daną osobową; trace'om
+    wystarcza wiedza, że chodzi o osobę."""
     wpisy = [WpisPII("a1b2c3", "Zdzisława Wąchockańska", "zdzislawa@klient.test")]
     wynik = AtrapaWyniku(finding={"dowod": "właściciel: Zdzisława Wąchockańska"})
 
     trace = _zbuduj(wynik, wpisy)
 
-    assert trace.obserwacje[0].wyjscie["dowod"] == "właściciel: [OSOBA:a1b2c3]"
+    assert trace.obserwacje[0].wyjscie["dowod"] == "właściciel: [IMIĘ] [NAZWISKO]"
+    assert "a1b2c3" not in repr(trace)
     assert trace.czysty
 
 
@@ -273,7 +275,7 @@ async def test_petla_faktycznie_wysyla_trace(monkeypatch: Any) -> None:
     # Lista znanych osób DOCHODZI do maskowania. Do review 2026-09-23 parametr
     # `wpisy` istniał, ale nikt go nie podawał — druga siatka była martwa.
     assert ZNANA_OSOBA not in repr(trace)
-    assert "[OSOBA:abc]" in repr(trace.obserwacje[0].wejscie)
+    assert "[IMIĘ] [NAZWISKO]" in repr(trace.obserwacje[0].wejscie)
 
 
 async def test_padniety_slad_nie_przerywa_audytu(monkeypatch: Any, caplog: Any) -> None:
@@ -472,3 +474,52 @@ def test_stara_sciezka_korzysta_z_tej_samej_reguly() -> None:
 
     assert "wyslij_bezpiecznie" in inspect.getsource(agent._wyslij_slad)
     assert "except MaskowanieError" not in inspect.getsource(agent._wyslij_slad)
+
+
+# ── bez tożsamości w trace (decyzja Kuby 2026-09-23) ─────────────────────
+
+
+PSEUDONIM = "1dcfeabe7fa5d9a7"
+
+
+def test_pseudonim_w_faktach_i_metadanych_staje_sie_osoba() -> None:
+    """`user_hash` w faktach ZOMBIE_ACCOUNT i `obiekt_id` w metadanych to ten
+    sam pseudonim. Oba wychodziły do Langfuse'a wprost."""
+    hipoteza = AtrapaHipotezy(
+        klasa_id="ZOMBIE_ACCOUNT",
+        obiekt_id=PSEUDONIM,
+        zapis={
+            "obiekt_id": PSEUDONIM,
+            "fakty": {"user_hash": PSEUDONIM, "guest_hash": [PSEUDONIM]},
+        },
+    )
+
+    trace = _zbuduj(AtrapaWyniku(hipoteza=hipoteza, finding={"dowod": {"user_hash": PSEUDONIM}}))
+
+    assert PSEUDONIM not in repr(trace)
+    assert trace.metadane["obiekt_id"] == "[OSOBA]"
+    assert trace.obserwacje[0].wejscie["fakty"] == {
+        "user_hash": "[OSOBA]",
+        "guest_hash": ["[OSOBA]"],
+    }
+
+
+def test_hasz_promptu_nie_jest_mylony_z_osoba() -> None:
+    """`prompt_hash` i `obraz_hash` mają kształt pseudonimu, a są haszem pliku —
+    bez nich trace traci porównywalność między runami."""
+    from monday_audit.obserwowalnosc import zbuduj_trace_analizy
+
+    trace = zbuduj_trace_analizy(
+        run_id="r",
+        snapshot_id=1,
+        model="m",
+        prompt_hash="e434645e0836d635",
+        obraz_hash="44136fa355b3678a",
+        hipotezy=[{"obiekt_id": PSEUDONIM}],
+        odpowiedz={"uwagi": [], "pominiete": []},
+        z_szablonu=0,
+    )
+
+    assert trace.metadane["prompt_hash"] == "e434645e0836d635"
+    assert trace.metadane["obraz_hash"] == "44136fa355b3678a"
+    assert trace.obserwacje[0].wejscie == {"hipotezy": [{"obiekt_id": "[OSOBA]"}]}
