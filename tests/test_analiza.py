@@ -146,3 +146,92 @@ async def test_brak_hipotez_przerywa_zamiast_placic_za_pusta_sesje() -> None:
 
     with pytest.raises(AgentError, match="brak hipotez"):
         await zbadaj_konto([], zestaw=None, wejscie={}, klucz_api="")  # type: ignore[arg-type]
+
+
+# ── regresje z pierwszego prawdziwego runu (2026-09-23) ──────────────────
+
+
+def test_zombie_account_idzie_szablonem_a_nie_do_modelu() -> None:
+    """ZMIERZONE: pierwsza wersja wysłała do modelu wszystkie 24 hipotezy,
+    w tym 8 `ZOMBIE_ACCOUNT` rozstrzygalnych szablonem. Model zgubił
+    `obecnosc_w_logach` w 7 z 8 — 7 z 9 odrzuceń tamtego runu. Stara ścieżka
+    nigdy nie wysyła tej klasy do modelu, bo szablon daje trafność 1,000 za 0 USD."""
+    from monday_audit.analiza import rozdziel_hipotezy
+    from monday_audit.rubryka import wczytaj_rubryke
+
+    zombie = Hipoteza(
+        klasa_id="ZOMBIE_ACCOUNT",
+        obiekt_id="u1",
+        fakty={
+            "user_hash": "a1b2c3",
+            "kind": "member",
+            "status": "ACTIVE",
+            "last_activity": "2025-01-15T10:00:00Z",
+            "obecnosc_w_logach": False,
+            "plan_tier": "enterprise",
+        },
+        budzet_wywolan=0,
+    )
+    ghost = _hipotezy(1)[0]
+
+    do_modelu, z_szablonow = rozdziel_hipotezy([zombie, ghost], wczytaj_rubryke())
+
+    assert [h.klasa_id for h in do_modelu] == ["BOARD_GHOST"]
+    assert len(z_szablonow) == 1
+    # Fakt o wartości `false` przeżywa szablon — to właśnie go gubił model.
+    assert z_szablonow[0]["dowod"]["obecnosc_w_logach"] is False
+
+
+def test_uwaga_z_szablonu_ma_nowy_ksztalt() -> None:
+    """Szablon wciąż produkuje `waga` i `kwota_pln` dla starej ścieżki. Do nowej
+    idą tylko cztery pola plus `zrodlo`, żeby czytający wiedział, że tego nie
+    pisał model."""
+    from monday_audit.analiza import rozdziel_hipotezy
+    from monday_audit.rubryka import wczytaj_rubryke
+
+    zombie = Hipoteza(
+        klasa_id="ZOMBIE_ACCOUNT", obiekt_id="u1", fakty={"user_hash": "h"}, budzet_wywolan=0
+    )
+
+    _, z_szablonow = rozdziel_hipotezy([zombie], wczytaj_rubryke())
+
+    uwaga = z_szablonow[0]
+    assert "waga" not in uwaga
+    assert "kwota_pln" not in uwaga
+    assert uwaga["zrodlo"] == "szablon"
+
+
+def test_zadanie_podaje_wymagane_pola_dowodu() -> None:
+    """ZMIERZONE: `PLAN_MISMATCH` miał w faktach wszystkie pięć wymaganych pól,
+    a model wpisał trzy — bo nikt mu nie powiedział, które są obowiązkowe.
+    Stara ścieżka podaje je od zawsze; pierwsza wersja nowej to zgubiła."""
+    from monday_audit.rubryka import wczytaj_rubryke
+
+    rubryka = wczytaj_rubryke()
+    zadanie = zbuduj_zadanie(_hipotezy(1), WEJSCIE, rubryka)
+    hipotezy = json.loads(
+        zadanie.split("## HIPOTEZY DO ROZSTRZYGNIĘCIA (1)")[1].split("Rozstrzygnij")[0]
+    )
+
+    wymagane = [p.rstrip("[]") for p in rubryka.po_id["BOARD_GHOST"].dowod]
+    assert hipotezy[0]["dowod_wymagany"] == wymagane
+
+
+def test_prompt_mowi_ze_false_jest_faktem() -> None:
+    """Druga lekcja z tego samego runu: model traktował `false` jak „nie ma
+    o czym mówić" i pomijał pole. Prompt musi to powiedzieć wprost."""
+    from monday_audit.agent import _tekst_promptu
+
+    tresc = _tekst_promptu(SCIEZKA_PROMPTU_ANALIZY)
+
+    assert "TEŻ JEST FAKTEM" in tresc
+    assert "dowod_wymagany" in tresc
+
+
+def test_surowa_odpowiedz_laduje_na_dysku(tmp_path: Any) -> None:
+    """Płatny wynik ma przeżyć każdą awarię, która przyjdzie po nim."""
+    from monday_audit.cli_analiza import zapisz_surowa_odpowiedz
+
+    sciezka = zapisz_surowa_odpowiedz("r1", {"uwagi": [{"a": 1}]}, tmp_path)
+
+    assert json.loads(sciezka.read_text(encoding="utf-8")) == {"uwagi": [{"a": 1}]}

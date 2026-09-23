@@ -28,6 +28,16 @@ krytyczną, albo trafia do pominiętych z powodem. Trzeciej możliwości nie ma.
 Nie wolno wpisać tam niczego, czego nie ma w faktach albo w obrazie konta.
 Uwaga bez dowodu jest odrzucana mechanicznie — nie przejdzie.
 
+Każda hipoteza ma listę `dowod_wymagany`. **Dowód musi zawierać KAŻDE pole
+z tej listy**, z wartością przepisaną z faktów. Brak jednego pola = uwaga
+odrzucona. Jeśli pola nie ma w faktach, sięgnij po nie narzędziem; jeśli
+narzędzie też go nie da, hipoteza idzie do pominiętych z powodem
+„brak danych: <nazwa pola>".
+
+**Wartość `false`, `0` albo pusta lista TEŻ JEST FAKTEM.** `obecnosc_w_logach:
+false` znaczy „nie pojawia się w logach" — to jest ustalenie, a nie brak
+ustalenia. Przepisz je do dowodu tak samo jak każdą inną wartość.
+
 **ZASTRZEŻENIA SĄ CZĘŚCIĄ DANYCH, nie przypisem.** Jeśli zastrzeżenie mówi,
 że liczba jest niepełna, nie wolno budować na niej uwagi tak, jakby była
 pełna. Przykład: „pokrycie 61%" znaczy, że 39% itemów nie weszło do

@@ -46,6 +46,9 @@ from monday_audit.agent import (
 )
 from monday_audit.detektory import Hipoteza
 from monday_audit.narzedzia import Narzedzia
+from monday_audit.rubryka import Rubryka, wczytaj_rubryke
+from monday_audit.szablony_findingow import z_szablonu
+from monday_audit.uwagi import POLA_UWAGI
 
 logger = logging.getLogger(__name__)
 
@@ -61,16 +64,75 @@ BUDZET_NARZEDZI = 30
 MAKS_OBROTOW_ANALIZY = 40
 
 
-def zbuduj_zadanie(hipotezy: list[Hipoteza], wejscie: dict[str, Any]) -> str:
+def rozdziel_hipotezy(
+    hipotezy: list[Hipoteza], rubryka: Rubryka
+) -> tuple[list[Hipoteza], list[dict[str, Any]]]:
+    """Hipotezy → (do modelu, uwagi gotowe z szablonu).
+
+    ## Regresja, którą to naprawia — ZMIERZONA na pierwszym runie 5b-2
+
+    Pierwsza wersja `zbadaj_konto` wysyłała do modelu WSZYSTKIE hipotezy.
+    Na snapshocie 1 było ich 24, z czego **8 to `ZOMBIE_ACCOUNT`, rozstrzygalne
+    szablonem**. Stara ścieżka nigdy nie wysyła ich do modelu, bo szablon daje
+    trafność 1,000 za 0 USD (`agent.zbadaj_hipotezy`, gałąź „ścieżka bez
+    modelu"). Nowa wysłała — i **model zgubił `obecnosc_w_logach` w 7 z 8**,
+    choć fakt był w danych. Wartość wynosiła `false`, a model potraktował ją
+    jak „nie ma o czym mówić" i pominął pole. 7 z 9 odrzuceń walidacji tamtego
+    runu miało tę jedną przyczynę.
+
+    Wniosek szerszy niż ta klasa: w 5b-2 przeniosłem hydraulikę starej ścieżki,
+    ale nie jej wiedzę. Szablon jest wiedzą — mówi „tej klasy model nie
+    poprawia, tylko psuje".
+
+    Uwaga z szablonu jest przycinana do czterech pól nowego kształtu, żeby
+    raport nie niósł `waga` ani `kwota_pln`, które szablon wciąż produkuje dla
+    starej ścieżki. `zrodlo` mówi czytającemu, że tego nie pisał model.
+    """
+    do_modelu: list[Hipoteza] = []
+    z_szablonow: list[dict[str, Any]] = []
+    for hipoteza in hipotezy:
+        klasa = rubryka.po_id.get(hipoteza.klasa_id)
+        gotowy = z_szablonu(hipoteza, klasa) if klasa is not None else None
+        if gotowy is None:
+            do_modelu.append(hipoteza)
+            continue
+        uwaga = {pole: gotowy[pole] for pole in POLA_UWAGI if pole in gotowy}
+        uwaga["zrodlo"] = "szablon"
+        z_szablonow.append(uwaga)
+    return do_modelu, z_szablonow
+
+
+def zbuduj_zadanie(
+    hipotezy: list[Hipoteza],
+    wejscie: dict[str, Any],
+    rubryka: Rubryka | None = None,
+) -> str:
     """Treść zadania: obraz konta plus wszystkie hipotezy naraz.
 
     Zastrzeżenia idą NA POCZĄTKU, nie w przypisie. Model czytający liczby bez
     ich ograniczeń napisze uwagę opartą na liczbie, o której nie wie, że jest
     niepełna — a to jest dokładnie ten rodzaj błędu, którego nie widać
     w wyniku, dopóki nie zobaczy go klient.
+
+    ## `dowod_wymagany` przy każdej hipotezie
+
+    ZMIERZONE na pierwszym runie: `PLAN_MISMATCH` miał w faktach WSZYSTKIE pięć
+    pól wymaganych przez klasę, a model wpisał do dowodu trzy — bo nikt mu nie
+    powiedział, które są obowiązkowe. Stara ścieżka podaje je w zadaniu od
+    zawsze (`dowod=", ".join(klasa.dowod)`); pierwsza wersja nowej zgubiła to
+    przy przenoszeniu. Walidacja sprawdza pola z rubryki, więc model musi je
+    znać — inaczej walidacja karze go za brak informacji, której mu nie daliśmy.
     """
+    rubryka = rubryka or wczytaj_rubryke()
     zastrzezenia = wejscie.get("zastrzezenia") or []
     obraz = {k: v for k, v in wejscie.items() if k != "zastrzezenia"}
+
+    opisane = []
+    for hipoteza in hipotezy:
+        zapis = hipoteza.do_zapisu()
+        klasa = rubryka.po_id.get(hipoteza.klasa_id)
+        zapis["dowod_wymagany"] = [p.rstrip("[]") for p in klasa.dowod] if klasa else []
+        opisane.append(zapis)
 
     czesci = [
         "## CZEGO TE LICZBY NIE OBEJMUJĄ",
@@ -83,7 +145,7 @@ def zbuduj_zadanie(hipotezy: list[Hipoteza], wejscie: dict[str, Any]) -> str:
         "",
         f"## HIPOTEZY DO ROZSTRZYGNIĘCIA ({len(hipotezy)})",
         "",
-        json.dumps([h.do_zapisu() for h in hipotezy], ensure_ascii=False, indent=1),
+        json.dumps(opisane, ensure_ascii=False, indent=1),
         "",
         f"Rozstrzygnij wszystkie {len(hipotezy)}. Suma `uwagi` i `pominiete` "
         f"musi wynosić {len(hipotezy)}.",
@@ -101,6 +163,7 @@ async def zbadaj_konto(
     effort: str | None = None,
     sciezka_promptu: Path = SCIEZKA_PROMPTU_ANALIZY,
     budzet_narzedzi: int = BUDZET_NARZEDZI,
+    rubryka: Rubryka | None = None,
 ) -> dict[str, Any]:
     """Jedna sesja, wszystkie hipotezy. Zwraca surową odpowiedź modelu.
 
@@ -154,7 +217,7 @@ async def zbadaj_konto(
     if not opcje.hooks:
         raise AgentError("opcje sesji bez bramki narzędzi — nie uruchamiam")
 
-    zadanie = zbuduj_zadanie(hipotezy, wejscie)
+    zadanie = zbuduj_zadanie(hipotezy, wejscie, rubryka)
     bloki: list[str] = []
     zuzycie: dict[str, float] = {}
     blad: str | None = None

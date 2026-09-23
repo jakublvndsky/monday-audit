@@ -39,14 +39,20 @@ import time
 from pathlib import Path
 from typing import Any
 
-from monday_audit.agent import AgentError, _tekst_promptu
-from monday_audit.analiza import SCIEZKA_PROMPTU_ANALIZY, zbadaj_konto, zbuduj_zadanie
+from monday_audit.agent import MODEL, AgentError, _tekst_promptu, hash_promptu
+from monday_audit.analiza import (
+    SCIEZKA_PROMPTU_ANALIZY,
+    rozdziel_hipotezy,
+    zbadaj_konto,
+    zbuduj_zadanie,
+)
 from monday_audit.baza import polacz
 from monday_audit.detektory import uruchom_detektory
 from monday_audit.konfiguracja import KonfiguracjaError, klucz_anthropic, sol_z_ustawien, wczytaj
 from monday_audit.kontrakt import KontraktError
 from monday_audit.koszt import oszacuj, porownaj, stawka_z_historii, zapisz_zuzycie_analizy
 from monday_audit.narzedzia import Narzedzia
+from monday_audit.przebieg import zapisz_zuzycie
 from monday_audit.rubryka import wczytaj_rubryke
 from monday_audit.uwagi import waliduj_uwagi
 
@@ -104,8 +110,27 @@ def _wypisz(wynik: Any, uwagi: list[dict[str, Any]]) -> None:
         print(f"  ODRZUCONA [{odrzucona.klasa_id}]: {odrzucona.powod}")
 
 
+KATALOG_WYNIKOW = Path("raporty")
+
+
+def zapisz_surowa_odpowiedz(run_id: str, odpowiedz: dict[str, Any], katalog: Path) -> Path:
+    """Surowa odpowiedź modelu na dysk — PIERWSZA rzecz po sesji.
+
+    ZMIERZONE na pierwszym runie 5b-2: model odpowiedział, walidacja zadziałała,
+    a potem zapis zużycia padł na kluczu obcym i proces zakończył się PRZED
+    wypisaniem uwag. Zapłaciliśmy za run i straciliśmy i treść, i faktyczny
+    koszt. Od teraz nic, co może paść, nie stoi między sesją a tym zapisem.
+
+    `raporty/` jest w `.gitignore` — plik niesie treść o koncie klienta.
+    """
+    katalog.mkdir(parents=True, exist_ok=True)
+    sciezka = katalog / f"analiza_{run_id}.json"
+    sciezka.write_text(json.dumps(odpowiedz, ensure_ascii=False, indent=1), encoding="utf-8")
+    return sciezka
+
+
 async def uruchom(argumenty: argparse.Namespace) -> int:
-    ustawienia = wczytaj(argumenty.baza and None)
+    ustawienia = wczytaj()
     baza = argumenty.baza or ustawienia.monday_audit_db
     con = polacz(baza)
     try:
@@ -114,6 +139,10 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
         if not hipotezy:
             print("Detektory nie wzbudziły ani jednej hipotezy — nie ma czego analizować.")
             return 0
+
+        # Szablony PRZED modelem — to jest wiedza starej ścieżki, którą pierwsza
+        # wersja nowej zgubiła (patrz `analiza.rozdziel_hipotezy`).
+        do_modelu, z_szablonow = rozdziel_hipotezy(hipotezy, rubryka)
 
         wejscie = _wczytaj_wejscie(argumenty.wejscie)
         if not wejscie:
@@ -124,14 +153,19 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
                 "Obraz konta robi `cli_inwentarz --wejscie-modelu`."
             )
 
-        zadanie = zbuduj_zadanie(hipotezy, wejscie)
+        prompt = _tekst_promptu(SCIEZKA_PROMPTU_ANALIZY)
+        # Szacunek liczymy WYŁĄCZNIE dla tego, co pójdzie do modelu. Szablon
+        # kosztuje zero, więc liczenie go zawyżałoby kwotę bez powodu.
         szacunek = oszacuj(
-            zadanie,
-            ile_hipotez=len(hipotezy),
-            prompt=_tekst_promptu(SCIEZKA_PROMPTU_ANALIZY),
+            zbuduj_zadanie(do_modelu, wejscie, rubryka) if do_modelu else "",
+            ile_hipotez=len(do_modelu),
+            prompt=prompt if do_modelu else "",
             stawka=stawka_z_historii(con),
         )
-        print(f"\n  hipotez do rozstrzygnięcia: {len(hipotezy)}")
+        print(
+            f"\n  hipotez: {len(hipotezy)} — do modelu {len(do_modelu)}, "
+            f"z szablonu {len(z_szablonow)} (bez kosztu)"
+        )
         print(f"  klasy bez detektora: {raport.get('bez_detektora') or []}")
         print(f"  {szacunek.opis()}")
 
@@ -139,33 +173,77 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
             return 0
 
         run_id = argumenty.run_id or f"analiza-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}"
-        zestaw = Narzedzia(
-            con=con,
-            snapshot_id=argumenty.snapshot,
-            client_id=argumenty.klient,
-            sol=sol_z_ustawien(ustawienia),
-            klient=None,
+        # Wiersz w `runy` PRZED sesją, jak w `cli_agent`. `zuzycie_hipotez.run_id`
+        # ma klucz obcy do `runy` — pierwsza wersja tego nie robiła i padła na
+        # zapisie zużycia po opłaconym runie. Test tego nie złapał, bo stawiał
+        # schemat w pamięci BEZ klucza obcego.
+        con.execute(
+            "INSERT INTO runy (run_id, client_id, snapshot_id, status, started_at, model, "
+            "rubric_ver, prompt_hash) VALUES (?, ?, ?, 'w_toku', ?, ?, ?, ?)",
+            (
+                run_id,
+                argumenty.klient,
+                argumenty.snapshot,
+                time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                MODEL,
+                rubryka.wersja,
+                hash_promptu(SCIEZKA_PROMPTU_ANALIZY),
+            ),
         )
+        con.commit()
 
-        zaczeto = time.monotonic()
-        odpowiedz = await zbadaj_konto(
-            hipotezy,
-            zestaw=zestaw,
-            wejscie=wejscie,
-            klucz_api=klucz_anthropic(ustawienia),
-        )
-        sekund = round(time.monotonic() - zaczeto, 3)
+        try:
+            zaczeto = time.monotonic()
+            if do_modelu:
+                zestaw = Narzedzia(
+                    con=con,
+                    snapshot_id=argumenty.snapshot,
+                    client_id=argumenty.klient,
+                    sol=sol_z_ustawien(ustawienia),
+                    klient=None,
+                )
+                odpowiedz = await zbadaj_konto(
+                    do_modelu,
+                    zestaw=zestaw,
+                    wejscie=wejscie,
+                    klucz_api=klucz_anthropic(ustawienia),
+                    rubryka=rubryka,
+                )
+            else:
+                odpowiedz = {"uwagi": [], "pominiete": [], "zuzycie": {}}
+            sekund = round(time.monotonic() - zaczeto, 3)
 
-        wynik = waliduj_uwagi(odpowiedz, rubryka)
-        zuzycie = odpowiedz.get("zuzycie") or {}
-        zapisz_zuzycie_analizy(
-            con,
-            run_id,
-            zuzycie,
-            ile_uwag=len(wynik.przyjete),
-            wywolan_narzedzi=len(odpowiedz.get("wywolania_narzedzi") or []),
-            sekund=sekund,
-        )
+            # PIERWSZY zapis po sesji. Nic, co może paść, nie stoi przed nim.
+            plik = zapisz_surowa_odpowiedz(run_id, odpowiedz, KATALOG_WYNIKOW)
+
+            odpowiedz["uwagi"] = z_szablonow + list(odpowiedz.get("uwagi") or [])
+            wynik = waliduj_uwagi(odpowiedz, rubryka)
+            zuzycie = odpowiedz.get("zuzycie") or {}
+
+            zapisz_zuzycie(con, run_id, zuzycie)
+            zapisz_zuzycie_analizy(
+                con,
+                run_id,
+                zuzycie,
+                ile_uwag=len(wynik.przyjete),
+                wywolan_narzedzi=len(odpowiedz.get("wywolania_narzedzi") or []),
+                sekund=sekund,
+            )
+            con.execute(
+                "UPDATE runy SET status = 'zakonczony', finished_at = ?, findingow = ? "
+                "WHERE run_id = ?",
+                (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), len(wynik.przyjete), run_id),
+            )
+            con.commit()
+        except BaseException:
+            # `przerwany`, nie zostawiony w `w_toku`. Wiersz, który wisi w toku
+            # na zawsze, wygląda jak run, który wciąż trwa.
+            con.execute(
+                "UPDATE runy SET status = 'przerwany', finished_at = ? WHERE run_id = ?",
+                (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), run_id),
+            )
+            con.commit()
+            raise
 
         if argumenty.json:
             print(json.dumps({"uwagi": wynik.przyjete, "zuzycie": zuzycie}, ensure_ascii=False))
@@ -175,7 +253,7 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
         # Szacunek OBOK rachunku. Szacunek, którego nikt nie konfrontuje
         # z rachunkiem, po kilku runach staje się ozdobą.
         print(f"\n  {porownaj(szacunek, zuzycie)}")
-        print(f"  run: {run_id}, {sekund:.1f} s")
+        print(f"  run: {run_id}, {sekund:.1f} s, surowa odpowiedź: {plik}")
         return 0
     finally:
         con.close()

@@ -9,10 +9,13 @@ szacunek się pomylił. Szacunek bez tej informacji wygląda tak samo jak pomiar
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
 
+from monday_audit.baza import polacz, zastosuj_migracje
 from monday_audit.koszt import (
     STAWKA_AWARYJNA_USD_ZA_TOKEN,
     ZNAKOW_NA_TOKEN,
@@ -24,35 +27,35 @@ from monday_audit.koszt import (
     zapisz_zuzycie_analizy,
 )
 
-SCHEMAT = """
-CREATE TABLE zuzycie_hipotez (
-    id INTEGER PRIMARY KEY,
-    run_id TEXT NOT NULL,
-    klasa_id TEXT NOT NULL,
-    obiekt_id TEXT,
-    tokens_in INTEGER NOT NULL DEFAULT 0,
-    tokens_out INTEGER NOT NULL DEFAULT 0,
-    tokens_cache_read INTEGER NOT NULL DEFAULT 0,
-    tokens_cache_write INTEGER NOT NULL DEFAULT 0,
-    koszt_usd REAL,
-    sekund REAL,
-    wywolan_narzedzi INTEGER NOT NULL DEFAULT 0,
-    byl_finding INTEGER NOT NULL DEFAULT 0,
-    zapisano TEXT NOT NULL
-);
-"""
-
 
 @pytest.fixture
-def con() -> Any:
-    polaczenie = sqlite3.connect(":memory:")
-    polaczenie.row_factory = sqlite3.Row
-    polaczenie.executescript(SCHEMAT)
+def con(tmp_path: Path) -> Iterator[sqlite3.Connection]:
+    """PRAWDZIWA baza z migracjami i włączonymi kluczami obcymi.
+
+    Pierwsza wersja tego pliku stawiała schemat `zuzycie_hipotez` w pamięci,
+    przepisany ręcznie — BEZ `REFERENCES runy (run_id)`. Testy były zielone,
+    a pierwszy prawdziwy run padł na `FOREIGN KEY constraint failed` po
+    opłaconej sesji modelu. Schemat przepisany do testu to drugie źródło prawdy,
+    które rozjechało się z pierwszym przy pierwszej okazji.
+    """
+    polaczenie = polacz(tmp_path / "test.db")
+    zastosuj_migracje(polaczenie)
     yield polaczenie
     polaczenie.close()
 
 
+def _run(con: sqlite3.Connection, run_id: str = "r") -> None:
+    """Wiersz w `runy` — bez niego klucz obcy odrzuci zapis zużycia."""
+    con.execute(
+        "INSERT OR IGNORE INTO runy (run_id, client_id, status, started_at) "
+        "VALUES (?, 'test', 'w_toku', '2026-09-23T00:00:00Z')",
+        (run_id,),
+    )
+    con.commit()
+
+
 def _wiersz(con: Any, *, koszt: float | None, tokenow: int) -> None:
+    _run(con)
     con.execute(
         "INSERT INTO zuzycie_hipotez (run_id, klasa_id, tokens_in, koszt_usd, zapisano) "
         "VALUES ('r', 'X', ?, ?, 'teraz')",
@@ -168,9 +171,18 @@ def test_brak_kosztu_nie_udaje_zera() -> None:
 # ── zapis zużycia sesji ──────────────────────────────────────────────────
 
 
+def test_zapis_bez_wiersza_w_runy_pada_na_kluczu_obcym(con: Any) -> None:
+    """Dokładnie ta awaria zabrała wynik pierwszego prawdziwego runu. Test
+    istnieje po to, żeby ograniczenie było ZNANE, a nie odkrywane na płatnym
+    przebiegu — `cli_analiza` musi założyć wiersz w `runy` przed sesją."""
+    with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
+        zapisz_zuzycie_analizy(con, "bez-runu", {"tokens_in": 1, "koszt_usd": 0.1})
+
+
 def test_sesja_zapisuje_sie_jako_jeden_wiersz(con: Any) -> None:
     """Bez migracji: tabela przyjmuje `klasa_id` jako tekst, więc sesja
     zbiorcza siada pod ANALIZA_KONTA i zasila następny szacunek."""
+    _run(con, "analiza-1")
     zapisz_zuzycie_analizy(
         con,
         "analiza-1",
@@ -190,6 +202,7 @@ def test_sesja_zapisuje_sie_jako_jeden_wiersz(con: Any) -> None:
 def test_zapisana_sesja_zasila_nastepny_szacunek(con: Any) -> None:
     """Sedno projektu: estymator uczy się z własnej historii. Pierwszy szacunek
     dla nowej architektury będzie zły, drugi policzy się z pierwszego."""
+    _run(con, "a")
     zapisz_zuzycie_analizy(con, "a", {"tokens_in": 1000, "tokens_out": 1000, "koszt_usd": 2.0})
 
     stawka = stawka_z_historii(con)
