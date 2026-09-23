@@ -161,6 +161,48 @@ na nich napisał.
     twardym, nie elementem rubryki. Cokolwiek zastąpi `kontrakt.py`, musi to
     egzekwować.
 
+- [ ] **5c. Minimalne przechowywanie** — po runie na dysku nie zostaje nic, co
+  dotyczy konkretnej osoby. Decyzja Kuby z 2026-09-23: ograniczyć przechowywanie
+  do minimum, żeby nie trzymać niczyich danych i nie musieć ich prawnie
+  zabezpieczać. „5c", a nie nowa szóstka, żeby nie przenumerowywać faz, do
+  których odwołuje się kod.
+
+  **Mechanizm:** cały run nowej ścieżki idzie na bazie SQLite W PAMIĘCI
+  (`:memory:`). Snapshot i tabela `osoby_mapowanie` (prawdziwe imiona, nazwiska
+  i maile) istnieją tylko przez czas procesu. Detektory zostają bez zmian, bo
+  dalej robią SQL — tylko po bazie w RAM-ie. Sprawdzone: collector
+  (`wykonaj_run`), detektory i narzędzia agenta biorą połączenie parametrem.
+
+  **Co zostaje na dysku — i nic poza tym:**
+  - metadane runu: data, `client_id`, model, hasze promptu i obrazu konta,
+  - koszt, tokeny, czas (zasilają estymator),
+  - liczby: uwag w każdej klasie, pominiętych, odrzuconych na walidacji,
+  - **uwagi krytyczne PO MASKOWANIU** (prośba Kuby z 2026-09-23): opis,
+    rekomendacja i dowód z liczbami, ale identyfikator osoby zastąpiony
+    znacznikiem, lista identyfikatorów — liczbą, a dane kontaktowe tak jak
+    w trace'ach.
+
+  **Co NIE zostaje:** snapshot, tabela mapowania, surowa odpowiedź modelu,
+  dowody z pseudonimami, raport w plikach. Raport generujemy i oddajemy.
+
+  - Ryzyko: **pseudonim to nadal dana osobowa.** Hasz liczony stałą solą da się
+    odwrócić, mając dostęp do konta. Dlatego maskowanie przed zapisem musi
+    usuwać pseudonimy, a nie tylko maile i telefony — i test po pełnym runie
+    ma sprawdzać, że w trwałej bazie nie ma ani jednego.
+  - Ryzyko drugie: **daty aktywności konkretnego konta** („ostatnio aktywny
+    2026-06-09") są quasi-identyfikatorem na koncie z kilkunastoma
+    użytkownikami. Na start zostają jako liczby dni; do potwierdzenia.
+  - Ryzyko trzecie: **nazwiska w nazwach tablic** (O50) — maskowanie wzorcem
+    ich nie złapie, a uwaga może wymienić tablicę z nazwy.
+  - Otwarte: **obraz konta z pliku** (`--wejscie`) to plik z nazwami tablic,
+    który operator trzyma na dysku. Minimum znaczy liczyć go w tym samym
+    procesie — za cenę ~1100 wywołań monday przy każdej analizie.
+  - Otwarte: **stara ścieżka na serwerze** dalej zapisuje snapshoty i tabele
+    mapowania, a kopie w `/var/backups` trzymają wszystko, co już zebrano.
+    Sprzątanie jest nieodwracalne — tylko na wyraźną decyzję Kuby.
+  - Przy zamykaniu: D7 w `docs/ARCHITEKTURA.md` (snapshot trwały
+    i niemutowalny) wymaga zapisu, co z niej cofamy i dlaczego.
+
 - [ ] **6. Przepływ: dwa kroki, jedno kliknięcie między nimi** — user story
   z 2026-09-21. Użytkownik jest już zalogowany w portalu, a klucz monday leży
   w tamtej bazie, więc nigdzie go nie wpisuje.
