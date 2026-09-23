@@ -165,6 +165,38 @@ def test_szacunek_jest_gornym_ograniczeniem_przy_koszcie_stalym() -> None:
         assert oszacuj(n, historia).koszt_usd >= prawdziwy - 1e-9, n
 
 
+def test_tani_run_w_bazie_nie_obniza_szacunku_ponizej_pomiaru(con: Any) -> None:
+    """ZMIERZONE 2026-09-23: te same 16 hipotez kosztowały 0,63 USD z obrazem
+    konta i narzędziami, a 0,30 bez nich. Po tańszym runie sama historia dałaby
+    ~0,30 — i run z `--wejscie` przekroczyłby szacunek dwukrotnie."""
+    _analiza(con, "analiza-20260923T103802Z", koszt=0.3035235, hipotez=16)
+
+    szacunek = oszacuj(16, historia_analiz(con))
+
+    assert szacunek.koszt_usd == pytest.approx(KOSZT_POMIARU_USD, abs=0.001)
+    assert szacunek.z_pomiaru_w_bazie
+    # Szacunek wyższy od tego, co mówi baza, MÓWI dlaczego.
+    assert "nie schodzi poniżej pomiaru startowego" in szacunek.opis()
+
+
+def test_podloga_dziala_tez_dla_malego_runu() -> None:
+    """Historia z runów na 3 hipotezy dawałaby odniesienie 3 — a koszt stały
+    sesji nie maleje z liczbą hipotez."""
+    historia = HistoriaAnaliz(usd_na_hipoteze=0.05, hipotez_odniesienia=3, runow=4)
+
+    assert oszacuj(3, historia).koszt_usd == pytest.approx(KOSZT_POMIARU_USD, abs=0.001)
+
+
+def test_drozsza_historia_wygrywa_z_podloga(con: Any) -> None:
+    """Podłoga działa tylko w dół. Run droższy od pomiaru podnosi szacunek."""
+    _analiza(con, "drogi", koszt=3.20, hipotez=16)
+
+    szacunek = oszacuj(16, historia_analiz(con))
+
+    assert szacunek.koszt_usd == pytest.approx(3.20)
+    assert "nie schodzi" not in szacunek.opis()
+
+
 def test_zero_hipotez_to_zero_kosztu() -> None:
     """Wszystko poszło szablonami — model nie jest wołany. Przy koncie, na
     którym wychodzą wyłącznie martwe konta, tak właśnie będzie."""
@@ -184,7 +216,25 @@ def test_porownanie_nazywa_kierunek_i_skale_bledu() -> None:
 
     assert "drożej" in opis
     assert "0.25" in opis
-    assert "33%" in opis
+    # Względem SZACUNKU: 0,25 z 0,50. Pierwsza wersja dzieliła przez rachunek
+    # i dawała tu 33%.
+    assert "50% względem szacunku" in opis
+
+
+def test_procent_bledu_nie_przekracza_stu_przy_przeszacowaniu() -> None:
+    """ZMIERZONE na `analiza-20260923T103802Z`: szacunek 0,63, rachunek 0,30,
+    a opis mówił „taniej o 108%" — czegoś, co nie może się zdarzyć."""
+    opis = porownaj(Szacunek(16, 0.63, "pomiar", False), {"koszt_usd": 0.30})
+
+    assert "taniej" in opis
+    assert "52% względem szacunku" in opis
+
+
+def test_zerowy_szacunek_nie_dzieli_przez_zero() -> None:
+    opis = porownaj(Szacunek(0, 0.0, "szablony", True), {"koszt_usd": 0.05})
+
+    assert "szacowano 0 USD" in opis
+    assert "%" not in opis
 
 
 def test_brak_kosztu_nie_udaje_zera() -> None:

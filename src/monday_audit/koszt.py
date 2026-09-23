@@ -49,6 +49,11 @@ mniejszy run nie jest proporcjonalnie tańszy. Powyżej skalujemy liniowo, co
 przy dodatnim koszcie stałym daje górne oszacowanie. Błąd w stronę wyższej
 kwoty jest bezpieczny: klient, który zapłacił mniej niż usłyszał, nie ma
 pretensji. Klient, który zapłacił dziesięć razy więcej — ma.
+
+Drugi bezpiecznik: **szacunek nie schodzi poniżej pomiaru startowego.** Ten sam
+zestaw hipotez kosztował 0,63 i 0,30 USD zależnie od obrazu konta i użycia
+narzędzi, więc historia z samych tanich runów zaniżałaby droższe. Szczegóły
+przy `oszacuj`.
 """
 
 from __future__ import annotations
@@ -153,7 +158,24 @@ def oszacuj(ile_hipotez: int, historia: HistoriaAnaliz | None = None) -> Szacune
         return Szacunek(0, 0.0, "wszystko z szablonów, model nie jest wołany", True)
 
     rozliczane = max(ile_hipotez, historia.hipotez_odniesienia)
-    koszt = historia.usd_na_hipoteze * rozliczane
+    z_historii = historia.usd_na_hipoteze * rozliczane
+
+    # ── PODŁOGA: pomiar startowy ──────────────────────────────────────────
+    #
+    # ZMIERZONE 2026-09-23: te same 16 hipotez CXLABS kosztowały raz 0,63 USD
+    # (z obrazem konta, z narzędziami, 173 tys. tokenów wejścia), a raz 0,30 USD
+    # (bez obrazu, zero wywołań narzędzi). Koszt sesji waha się dwukrotnie od
+    # rzeczy, których liczba hipotez nie widzi. Po tańszym runie sama historia
+    # dałaby 0,30 — i następny run z `--wejscie` przekroczyłby szacunek
+    # dwukrotnie, czyli błąd poszedłby w stronę, w którą ten moduł ma się NIE
+    # mylić (docstring, „w którą stronę się myli").
+    #
+    # Dlatego szacunek to WIĘKSZY z dwóch: z historii i z pomiaru startowego.
+    # Estymator uczy się więc tylko w górę — to świadoma cena. Klient, który
+    # zapłacił połowę tego, co usłyszał, nie ma pretensji.
+    rozliczane_startowo = max(ile_hipotez, POMIAR_STARTOWY.hipotez_odniesienia)
+    z_pomiaru = POMIAR_STARTOWY.usd_na_hipoteze * rozliczane_startowo
+    koszt = max(z_historii, z_pomiaru)
 
     if historia.z_pomiaru_w_bazie:
         podstawa = (
@@ -168,6 +190,13 @@ def oszacuj(ile_hipotez: int, historia: HistoriaAnaliz | None = None) -> Szacune
         # Mówimy wprost, że liczba jest zawyżona i dlaczego. Bez tego ktoś
         # zobaczy „5 hipotez, 0,63 USD" i uzna estymator za zepsuty.
         podstawa += f"; liczone jak dla {rozliczane}, bo poniżej dominuje koszt stały sesji"
+    if z_pomiaru > z_historii:
+        # Ten sam powód: szacunek wyższy od tego, co mówi baza, ma to POWIEDZIEĆ.
+        podstawa += (
+            f"; historia daje mniej (~{z_historii:.2f} USD), ale szacunek nie schodzi "
+            "poniżej pomiaru startowego — koszt sesji waha się dwukrotnie od obrazu "
+            "konta i narzędzi"
+        )
 
     return Szacunek(
         ile_hipotez=ile_hipotez,
@@ -193,10 +222,18 @@ def porownaj(szacunek: Szacunek, zuzycie: dict[str, Any]) -> str:
 
     roznica = faktyczny - szacunek.koszt_usd
     kierunek = "drożej" if roznica > 0 else "taniej"
-    udzial = abs(roznica) / faktyczny
+    if not szacunek.koszt_usd:
+        # Szacunek zerowy (wszystko z szablonów), a rachunek jest — procent od
+        # zera nie istnieje, więc go nie udajemy.
+        return f"szacowano 0 USD, wyszło {faktyczny:.2f} USD ({kierunek} o {abs(roznica):.2f})"
+    # Procent WZGLĘDEM SZACUNKU, nie względem rachunku. Pierwsza wersja dzieliła
+    # przez koszt faktyczny i przy szacunku 0,63 wobec rachunku 0,30 pisała
+    # „taniej o 108%" — czyli coś, co nie może się zdarzyć. „Taniej o 52%"
+    # odpowiada na pytanie, które zadaje czytający: o ile pomylił się szacunek.
+    udzial = abs(roznica) / szacunek.koszt_usd
     return (
         f"szacowano ~{szacunek.koszt_usd:.2f} USD, wyszło {faktyczny:.2f} USD "
-        f"({kierunek} o {abs(roznica):.2f}, czyli {udzial:.0%})"
+        f"({kierunek} o {abs(roznica):.2f}, czyli {udzial:.0%} względem szacunku)"
     )
 
 
