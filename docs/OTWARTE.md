@@ -2264,6 +2264,30 @@ przypadek jednego klienta. Dopisane do `KOLUMNY_LEJKA`.
 ROZRÓŻNIA:** nie ma go wśród ośmiu najczęstszych id kolumn statusu na koncie
 (`status` 135, `portfolio_project_*` po 19, `color_*` po 13).
 
+### ZMIERZONE po wdrożeniu (przebieg 2026-09-23)
+
+```
+SERVICE            przed  →  po
+tablic z lejkiem       0  →  14   (z 64)
+itemów w rozkładach    0  →  391
+  w toku               0  →  224
+  zamknięte            0  →  160
+  odpadło              0  →    7
+itemów bez lejka     768  →  377
+```
+
+**Kontrola jakości reguły: wszystkie dziesięć etykiet uznanych za otwarte to
+faktycznie otwarte stany zgłoszenia** — `New`, `New reply`, `New task`,
+`Awaiting customer`, `Working on it`, `Nowe`, `Nowa odpowiedź`,
+`Oczekiwanie na klienta`, `Oczekiwanie na odpowiedź`, `Oczekuje na klienta`.
+Ani jednej nazwy grupy, w dwóch językach. To jest różnica wobec stanu sprzed
+odcięcia stopnia 2, gdzie wśród „otwartych" siedziały `Available Assets`
+i `Admin overview & account setup`.
+
+CRM bez zmian, zgodnie z oczekiwaniem — `status95` nie występuje na tablicach
+CRM. Różnica 25 159 → 25 162 itemów to ruch na koncie między przebiegami,
+nie efekt zmiany.
+
 **Co ZOSTAJE nierozwiązane:** tablice serwisowe, na których klient zbudował
 własną kolumnę stanu (`color_mm405wkg` na `🖥️ Backlog - Wsparcie`,
 `color_mm6ce53e` na `Zlecenia serwisowe`). Tam nie da się wskazać cyklu życia
