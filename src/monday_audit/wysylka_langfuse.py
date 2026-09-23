@@ -61,12 +61,15 @@ class WysylkaLangfuse:
 
         klucz_publiczny = ustawienia.langfuse_public_key
         klucz_tajny = ustawienia.langfuse_secret_key
-        assert klucz_publiczny is not None and klucz_tajny is not None  # noqa: S101
+        adres = ustawienia.langfuse_base_url
+        # `None` albo pusty adres oddałby wybór regionu bibliotece — patrz
+        # `Ustawienia._puste_to_brak`. `langfuse_wlaczony` to już wyklucza.
+        assert klucz_publiczny is not None and klucz_tajny is not None and adres  # noqa: S101
 
         self._klient = Langfuse(
             public_key=klucz_publiczny.get_secret_value(),
             secret_key=klucz_tajny.get_secret_value(),
-            base_url=ustawienia.langfuse_base_url,
+            base_url=adres,
             mask=_hak_maskujacy,
             # SDK potrafi doczepiać się do bibliotek trzecich przez OTel
             # i wysyłać to, czego mu nie daliśmy. W tej fazie wychodzi

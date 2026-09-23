@@ -539,3 +539,23 @@ def test_redakcja_dziala_gdy_imie_konczy_slowo() -> None:
     wynik, _ = zredaguj_pii(dane, [WpisPII("h", "Bonifacy Krzeptowski", None)])
 
     assert wynik["nazwa"] == "tablica: [OSOBA:h]"
+
+
+def test_redakcja_obejmuje_klucze_slownika() -> None:
+    """Review 2026-09-23: rozkład po grupach to `{"Anna Nowak": 20}` — nazwisko
+    w KLUCZU. Pierwsza wersja przechodziła tylko po wartościach."""
+    dane = {"rozklad": {"Grupa Bonifacy Krzeptowski": 20, "Nowe": 3}}
+
+    wynik, sciezki = zredaguj_pii(dane, [WpisPII("h", "Bonifacy Krzeptowski", None)])
+
+    assert wynik == {"rozklad": {"Grupa [OSOBA:h]": 20, "Nowe": 3}}
+    # Ścieżka z klucza JUŻ zredagowanego — inaczej sama byłaby wyciekiem.
+    assert sciezki == ["rozklad.Grupa [OSOBA:h] (klucz)"]
+
+
+def test_redakcja_klucza_nie_nadpisuje_sasiada() -> None:
+    dane = {"Bonifacy Krzeptowski": 1, "BONIFACY KRZEPTOWSKI": 2}
+
+    wynik, _ = zredaguj_pii(dane, [WpisPII("h", "Bonifacy Krzeptowski", None)])
+
+    assert wynik == {"[OSOBA:h]": 1, "[OSOBA:h] (2)": 2}

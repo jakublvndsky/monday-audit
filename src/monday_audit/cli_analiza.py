@@ -54,7 +54,7 @@ from monday_audit.analiza import (
     rozdziel_hipotezy,
     zbadaj_konto,
 )
-from monday_audit.baza import polacz, zastosuj_migracje
+from monday_audit.baza import MapowanieOsob, polacz, zastosuj_migracje
 from monday_audit.cli import zbuduj_zakres
 from monday_audit.detektory import uruchom_detektory
 from monday_audit.konfiguracja import KonfiguracjaError, klucz_anthropic, sol_z_ustawien, wczytaj
@@ -258,7 +258,12 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
 
         # Ślad do Langfuse — `None`, gdy nie jest skonfigurowany.
         slad = wysylka_z_ustawien(ustawienia)
-        wspolne = {
+        wspolne: dict[str, Any] = {
+            # Znane osoby dla drugiej siatki maskowania. Z `zrodlo`, bo tam jest
+            # tabela mapowania — w trybie pamięci znika razem z procesem.
+            "wpisy": (
+                tuple(MapowanieOsob(zrodlo, argumenty.klient).wczytaj()) if slad is not None else ()
+            ),
             "run_id": run_id,
             "snapshot_id": snapshot_id,
             "model": MODEL,
@@ -324,15 +329,23 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
                 wywolan_narzedzi=len(odpowiedz.get("wywolania_narzedzi") or []),
                 sekund=sekund,
             )
+            # Dwa osobne `try`, bo to dwa osobne zapisy. W jednym bloku padnięte
+            # statystyki zgłaszały „uwagi NIE zapisane" i zerowały `findingow`,
+            # choć uwagi były już zatwierdzone w bazie (review 2026-09-23).
             try:
                 zapisanych = zapisz_uwagi(trwala, run_id, wynik.przyjete)
-                if wejscie:
-                    zapisz_statystyki(trwala, run_id, wejscie)
             except PrzechowanieError:
                 # Bramka zadziałała: w zapisie został identyfikator osoby. Raport
                 # już wyszedł, więc tracimy wiersz w bazie, a nie wynik audytu.
                 logger.exception("uwagi NIE zapisane — bramka przechowania zadziałała")
                 zapisanych = 0
+            if wejscie:
+                try:
+                    zapisz_statystyki(trwala, run_id, wejscie)
+                except PrzechowanieError:
+                    logger.exception(
+                        "statystyki NIE zapisane — bramka przechowania zadziałała (uwagi bez zmian)"
+                    )
 
             trwala.execute(
                 "UPDATE runy SET status = 'zakonczony', finished_at = ?, findingow = ?, "

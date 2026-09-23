@@ -2199,6 +2199,21 @@ istnieje. `wejscie_analizy` wypisuje licznik trafień maskowania do dokumentu,
 więc widać, ile złapał — ale ta liczba nic nie mówi o nazwiskach, bo tych nie
 liczy. Zero trafień nie znaczy „czysto".
 
+**Uzupełnienie 2026-09-23 (code review).** Ta sama dziura obejmuje **nazwy
+grup**, i tam jest bardziej prawdopodobna niż w nazwach tablic: tablica CRM
+z grupą na handlowca („Anna Nowak") to częsty układ, a na tablicach
+rozpoznanych stopniem 2 rozkład jest właśnie po grupach. Nazwy grup i etykiety
+etapów siedzą w `rozklad` jako **klucze** słownika. Do review klucze omijały
+maskowanie w ogóle — także maile i telefony — a na dysk szły do
+`statystyki_runow` wprost. Stan po poprawce:
+
+| Dokąd | Mail, telefon w kluczu | Nazwisko w kluczu |
+|---|---|---|
+| do modelu (`wejscie_analizy`) | maskowane i liczone | **przechodzi** — ta pozycja |
+| do Langfuse (trace) | maskowane i liczone | pseudonim, jeśli osoba ma konto w monday; inaczej przechodzi |
+| na dysk, `statystyki_runow` | odpada | odpada — klucz spoza kształtu schematu (`KSZTALT_KLUCZA`) |
+| na dysk, `dowod` uwagi | maskowane | **przechodzi**, jeśli model przepisze je do dowodu |
+
 ---
 
 ## O51. Dla monday Service nie rozpoznajemy lejka W OGÓLE

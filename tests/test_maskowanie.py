@@ -207,3 +207,66 @@ def test_komunikat_bledu_nie_wypisuje_wartosci() -> None:
         zamaskuj({"pole": Tajne()})
 
     assert "zdzislawa" not in str(blad.value)
+
+
+# ── klucze słowników są treścią (review 2026-09-23) ──────────────────────
+#
+# Pierwsza wersja maskowała wyłącznie wartości. Nazwa grupy i etykieta etapu
+# siedzą w `rozklad` jako KLUCZE, komunikat monday w `powody_bledow` też —
+# i wychodziły bez zmian, a licznik mówił „czysto".
+
+
+def test_mail_i_telefon_w_kluczu_sa_maskowane_i_liczone() -> None:
+    dane = {
+        "dowod": {
+            "powody_bledow": {
+                "Nie można przypisać jan.kowalski@firma.test do kolumny Osoba": 1,
+                "tel +48 501 234 567 odrzucony": 2,
+            }
+        }
+    }
+
+    wynik = zamaskuj(dane)
+
+    powody = wynik.dane["dowod"]["powody_bledow"]
+    assert powody == {
+        "Nie można przypisać [E-MAIL] do kolumny Osoba": 1,
+        "tel [TELEFON] odrzucony": 2,
+    }
+    assert wynik.trafienia == {"email": 1, "telefon": 1}
+    assert not wynik.czyste
+
+
+def test_sciezka_trafienia_w_kluczu_nie_niesie_wartosci() -> None:
+    """Ścieżka składana z SUROWEGO klucza byłaby wyciekiem w raporcie o wycieku."""
+    wynik = zamaskuj({"rozklad": {"Leady od tajny@klient.test": 12}})
+
+    assert wynik.sciezki == ("rozklad.Leady od [E-MAIL] (klucz)",)
+    assert not any("tajny" in s for s in wynik.sciezki)
+
+
+def test_znana_osoba_w_kluczu_dostaje_pseudonim() -> None:
+    dane = {"rozklad": {"Zdzisława Wąchockańska": 20, "Nowe": 3}}
+
+    wynik = zamaskuj(dane, [WpisPII("abc", "Zdzisława Wąchockańska", None)])
+
+    assert wynik.dane == {"rozklad": {"[OSOBA:abc]": 20, "Nowe": 3}}
+
+
+def test_sklejone_klucze_nie_gubia_wartosci() -> None:
+    """Dwa maile dają dwa razy `[E-MAIL]`. Nadpisanie zgubiłoby liczbę z
+    rozkładu, na którą model potem wskaże."""
+    wynik = zamaskuj({"rozklad": {"a@x.test": 12, "b@y.test": 8, "[E-MAIL]": 1}})
+
+    rozklad = wynik.dane["rozklad"]
+    assert sorted(rozklad.values()) == [1, 8, 12]
+    assert set(rozklad) == {"[E-MAIL]", "[E-MAIL] (2)", "[E-MAIL] (3)"}
+
+
+def test_klucze_liczbowe_przechodza() -> None:
+    assert zamaskuj({1: "a", 2.5: "b", None: "c"}).dane == {1: "a", 2.5: "b", None: "c"}
+
+
+def test_nieznany_typ_klucza_przerywa() -> None:
+    with pytest.raises(MaskowanieError, match="klucza typu tuple"):
+        zamaskuj({"pole": {("a", "b"): 1}})

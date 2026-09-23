@@ -51,8 +51,8 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from monday_audit.maskowanie import zamaskuj
-from monday_audit.osoby import DLUGOSC_HASHA, WZORZEC_EMAILA
+from monday_audit.maskowanie import WZORZEC_TELEFONU, zamaskuj
+from monday_audit.osoby import DLUGOSC_HASHA, WZORZEC_EMAILA, unikalny_klucz
 
 # Pseudonim z `policz_hash`: dokładnie 16 znaków szesnastkowych. Identyfikatory
 # monday to 9-10 cyfr, więc granice słów wystarczą, żeby ich nie pomylić.
@@ -69,6 +69,18 @@ ZNACZNIK_OSOBY = "[OSOBA]"
 # Klucze tekstowe, które statystyki MOGĄ zachować. Bez `produkt` lista rollupów
 # byłaby listą liczb bez podpisu. Nic tu nie identyfikuje osoby ani tablicy.
 DOZWOLONE_TEKSTY = frozenset({"produkt", "tier", "period"})
+
+# Kształt klucza, który statystyki zachowują: identyfikator w stylu naszego
+# schematu (`itemow_razem`, `po_rodzaju`, `30d`, `crm`). Klucz pisany przez
+# klienta — nazwa grupy, etykieta etapu, komunikat błędu — ma wielką literę,
+# spację, nawias, polski znak albo emoji i odpada razem z wartością.
+#
+# To jest lista DOZWOLONEGO kształtu, nie lista zakazanych treści, z tego samego
+# powodu co reguła „tylko liczby": nowy rodzaj klucza od klienta odpada sam.
+# Czego ten kształt NIE odróżni: jednowyrazowej nazwy małymi literami
+# (`kowalski` jako tytuł grupy). Rzadkie, ale możliwe — i dlatego to jest
+# nazwane tutaj, a nie przemilczane.
+KSZTALT_KLUCZA = re.compile(r"[a-z0-9][a-z0-9_]*")
 
 
 class PrzechowanieError(RuntimeError):
@@ -101,7 +113,14 @@ def _wartosc_do_zapisu(wartosc: Any, teraz: datetime) -> Any:
             return f"[OSOBY: {len(wartosc)}]"
         return [_wartosc_do_zapisu(w, teraz) for w in wartosc]
     if isinstance(wartosc, dict):
-        return {k: _wartosc_do_zapisu(v, teraz) for k, v in wartosc.items()}
+        # Klucze przez TE SAME reguły co wartości. Pierwsza wersja ich nie
+        # ruszała i data aktywności w roli klucza (`{"2026-06-09": 1}`)
+        # lądowała na dysku, choć ta sama data w wartości znikała.
+        nowy: dict[Any, Any] = {}
+        for klucz, pod in wartosc.items():
+            czysty = _tekst_do_zapisu(klucz, teraz) if isinstance(klucz, str) else klucz
+            nowy[unikalny_klucz(czysty, nowy)] = _wartosc_do_zapisu(pod, teraz)
+        return nowy
     return wartosc
 
 
@@ -124,8 +143,24 @@ def uwaga_do_zapisu(uwaga: dict[str, Any], *, teraz: datetime | None = None) -> 
     return zapis
 
 
+def _klucz_statystyki(klucz: Any) -> bool:
+    """Czy klucz ma kształt naszego schematu — i nie jest pseudonimem.
+
+    Pseudonim (16 znaków szesnastkowych) pasuje do `KSZTALT_KLUCZA`, więc jest
+    wykluczony osobno. Słownik po pseudonimach to słownik po osobach.
+    """
+    if not isinstance(klucz, str):
+        return isinstance(klucz, int) and not isinstance(klucz, bool)
+    return bool(KSZTALT_KLUCZA.fullmatch(klucz)) and not WZORZEC_PSEUDONIMU.fullmatch(klucz)
+
+
 def statystyki_do_zapisu(obraz: Any) -> Any:
     """Obraz konta → same liczby. Nazwy tablic, workspace'ów i etykiet odpadają.
+
+    Etykiety odpadają także wtedy, gdy są KLUCZAMI, a nie wartościami — rozkład
+    `{"Anna Nowak": 20}` to nazwa grupy z liczbą, a nie liczba. Pierwsza wersja
+    sprawdzała tylko wartości i zapisywała takie klucze wprost (review
+    2026-09-23). Reguła kształtu jest w `KSZTALT_KLUCZA`.
 
     Pusta lista i pusty słownik po odsianiu też odpadają, żeby zapis nie był
     szkieletem pustych kluczy, który udaje, że coś zawiera.
@@ -135,6 +170,8 @@ def statystyki_do_zapisu(obraz: Any) -> Any:
     if isinstance(obraz, dict):
         wynik = {}
         for klucz, wartosc in obraz.items():
+            if not _klucz_statystyki(klucz):
+                continue
             if isinstance(wartosc, str):
                 if klucz in DOZWOLONE_TEKSTY:
                     wynik[klucz] = wartosc
@@ -150,7 +187,10 @@ def statystyki_do_zapisu(obraz: Any) -> Any:
 
 
 def sprawdz_zapis(dane: Any) -> None:
-    """Twarda bramka przed dyskiem: pseudonim albo adres w zapisie przerywa zapis.
+    """Twarda bramka przed dyskiem: pseudonim, adres albo telefon przerywa zapis.
+
+    Sprawdza tekst całego zapisu, więc klucze słowników tak samo jak wartości —
+    `json.dumps` nie odróżnia jednych od drugich i tu to jest zaleta.
 
     Komunikat NIE zawiera znalezionej wartości — błąd o przecieku, który sam
     wypisuje to, co przeciekło, nie jest zabezpieczeniem.
@@ -160,6 +200,8 @@ def sprawdz_zapis(dane: Any) -> None:
         raise PrzechowanieError("w zapisie został pseudonim osoby — zapis przerwany")
     if WZORZEC_EMAILA.search(tekst):
         raise PrzechowanieError("w zapisie został adres e-mail — zapis przerwany")
+    if WZORZEC_TELEFONU.search(tekst):
+        raise PrzechowanieError("w zapisie został numer telefonu — zapis przerwany")
 
 
 def zapisz_uwagi(

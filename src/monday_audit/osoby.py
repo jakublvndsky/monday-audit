@@ -289,6 +289,21 @@ def _pary_do_redakcji(wpisy: Sequence[MaPII]) -> tuple[tuple[str, str], ...]:
     return tuple(sorted(pary, key=lambda para: -len(para[0])))
 
 
+def unikalny_klucz(klucz: Any, zajete: dict[Any, Any]) -> Any:
+    """Klucz po redakcji, który nie nadpisze sąsiada w tym samym słowniku.
+
+    Redakcja kluczy potrafi skleić dwa różne w jeden: dwa maile dają dwa razy
+    `[E-MAIL]`. Zwykłe przypisanie po cichu zgubiłoby jedną z wartości — a to
+    jest liczba z rozkładu, na którą model potem wskaże. Stąd dopisek `(2)`.
+    """
+    if klucz not in zajete or not isinstance(klucz, str):
+        return klucz
+    numer = 2
+    while f"{klucz} ({numer})" in zajete:
+        numer += 1
+    return f"{klucz} ({numer})"
+
+
 def zredaguj_pii(dane: Any, wpisy: Sequence[MaPII], *, sciezka: str = "") -> tuple[Any, list[str]]:
     """Podmienia znane imiona i adresy w treści klienta na pseudonimy.
 
@@ -298,26 +313,40 @@ def zredaguj_pii(dane: Any, wpisy: Sequence[MaPII], *, sciezka: str = "") -> tup
     jest nazwana po kimś, jest informacją audytową), więc **podmieniamy ją na
     pseudonim tej samej osoby**. Renderer w 3.12 umie to rozwinąć z powrotem.
 
+    **Klucze słowników też.** Treść klienta bywa kluczem, nie wartością: rozkład
+    po grupach to `{"Anna Nowak": 20}`, a `powody_bledow` to komunikat monday
+    w roli klucza. Pierwsza wersja przechodziła tylko po wartościach i takie
+    nazwisko przepuszczała bez śladu (review 2026-09-23).
+
     Zwraca strukturę po redakcji i listę ŚCIEŻEK, w których coś podmieniono —
-    ścieżki, nie wartości, bo raport z runu nie może być wyciekiem.
+    ścieżki, nie wartości, bo raport z runu nie może być wyciekiem. Dlatego
+    ścieżka składa się z klucza JUŻ zredagowanego.
     """
     pary = _pary_do_redakcji(wpisy)
 
+    def redaguj_tekst(tekst: str) -> str:
+        for szukane, pseudonim in pary:
+            # GRANICE SŁÓW są tu kluczowe. Bez nich konto serwisowe
+            # „AI Agent" wpasowuje się w nazwę workspace „monday AI Agents"
+            # i redakcja psuje 105 rekordów, zamieniając je na
+            # „monday [OSOBA:...]s" (zmierzone na CXLABS przy 3.8).
+            tekst = re.sub(rf"\b{re.escape(szukane)}\b", pseudonim, tekst, flags=re.IGNORECASE)
+        return tekst
+
     def redaguj(wartosc: Any, gdzie: str) -> tuple[Any, list[str]]:
         if isinstance(wartosc, str):
-            wynik = wartosc
-            for szukane, pseudonim in pary:
-                # GRANICE SŁÓW są tu kluczowe. Bez nich konto serwisowe
-                # „AI Agent" wpasowuje się w nazwę workspace „monday AI Agents"
-                # i redakcja psuje 105 rekordów, zamieniając je na
-                # „monday [OSOBA:...]s" (zmierzone na CXLABS przy 3.8).
-                wynik = re.sub(rf"\b{re.escape(szukane)}\b", pseudonim, wynik, flags=re.IGNORECASE)
+            wynik = redaguj_tekst(wartosc)
             return wynik, ([gdzie] if wynik != wartosc else [])
         if isinstance(wartosc, dict):
-            nowy: dict[str, Any] = {}
+            nowy: dict[Any, Any] = {}
             trafienia: list[str] = []
             for klucz, pod in wartosc.items():
-                nowy[klucz], znalezione = redaguj(pod, f"{gdzie}.{klucz}" if gdzie else str(klucz))
+                czysty = redaguj_tekst(klucz) if isinstance(klucz, str) else klucz
+                czysty = unikalny_klucz(czysty, nowy)
+                tutaj = f"{gdzie}.{czysty}" if gdzie else str(czysty)
+                if czysty != klucz:
+                    trafienia.append(f"{tutaj} (klucz)")
+                nowy[czysty], znalezione = redaguj(pod, tutaj)
                 trafienia += znalezione
             return nowy, trafienia
         if isinstance(wartosc, list):

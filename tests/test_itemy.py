@@ -228,3 +228,46 @@ def test_przyrost_dzienny_to_iloraz_nie_pomiar() -> None:
     )
 
     assert agregat.przyrost_dzienny == 2.0
+
+
+# ── podział na produkty (review 2026-09-23) ──────────────────────────────
+
+
+class _Rejestr:
+    wywolan = 0
+
+
+class _KlientBezItemow:
+    async def query(self, *_: Any, **__: Any) -> dict[str, Any]:
+        return {"boards": [{"items_page": {"cursor": None, "items": []}}]}
+
+
+async def test_podzial_na_produkty_obejmuje_tablice_pominiete() -> None:
+    """Pierwsza wersja liczyła `itemow_per_produkt` w pętli po POBRANYCH
+    tablicach. Model dostawał `razem: 7350` obok `crm: 50` bez wyjaśnienia —
+    bo największą tablicę odciął budżet, a tablicę bez lejka pominięto.
+    `items_count` jest za darmo, więc podział ma sumować się jak całość."""
+    from monday_audit.itemy import zbuduj_itemy
+
+    tablice = [
+        {"id": "1", "items_count": 50, "workspace": {"id": "w"}, "groups": [{}, {}]},
+        # Za duża na budżet pięciu wywołań.
+        {"id": "2", "items_count": 7000, "workspace": {"id": "w"}, "groups": [{}, {}]},
+        # Bez lejka i bez grup — rozkładu nie pobieramy wcale.
+        {"id": "3", "items_count": 300, "workspace": {"id": "w"}, "groups": [{}]},
+        # Workspace spoza mapy produktów — nie ma do czego go przypisać.
+        {"id": "4", "items_count": 9, "workspace": {"id": "x"}, "groups": [{}]},
+    ]
+
+    wynik = await zbuduj_itemy(
+        _KlientBezItemow(),  # type: ignore[arg-type]
+        _Rejestr(),
+        tablice,
+        produkty={"w": "crm"},
+        budzet=5,
+    )
+
+    assert wynik.itemow_razem == 7359
+    assert wynik.itemow_per_produkt == {"crm": 7350}
+    # Rozkład nadal tylko dla tego, co zmieściło się w budżecie.
+    assert [t.board_id for t in wynik.tablice] == ["1"]

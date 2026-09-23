@@ -190,9 +190,40 @@ class Ustawienia(UstawieniaPoczty):
 
     @property
     def langfuse_wlaczony(self) -> bool:
-        """Wysyłamy tylko przy komplecie. Konfiguracja połowiczna nie przechodzi
-        przez walidator, więc tutaj wystarczy sprawdzić jedno pole."""
-        return self.langfuse_public_key is not None
+        """Wysyłamy tylko przy komplecie.
+
+        Sprawdzamy WSZYSTKIE trzy, choć walidator już pilnuje „trzy albo zero".
+        Pierwsza wersja sprawdzała jedno pole przez `is not None` — i puste
+        `LANGFUSE_PUBLIC_KEY=` z `.env.example` dawało `SecretStr('')`, czyli
+        „włączone". Ta właściwość jest bramką wysyłki, więc nie opiera się na
+        tym, że walidator zawsze zadziała tak, jak dziś.
+        """
+        return bool(
+            self.langfuse_public_key and self.langfuse_secret_key and self.langfuse_base_url
+        )
+
+    @field_validator(
+        "langfuse_public_key", "langfuse_secret_key", "langfuse_base_url", mode="before"
+    )
+    @classmethod
+    def _puste_to_brak(cls, wartosc: object) -> object:
+        """Puste albo same spacje = zmiennej nie ma.
+
+        ZMIERZONE przy review 2026-09-23: wdrożenie robi `cp .env.example
+        /etc/monday-audit.env`, a usługa wczytuje go przez `EnvironmentFile`.
+        Puste linie `LANGFUSE_*=` trafiały wtedy do środowiska jako `""`, pydantic
+        robił z nich `SecretStr('')`, a SDK — dostając pusty napis zamiast
+        `None` — włączało się i spadało na domyślny `cloud.langfuse.com`.
+        Dokładnie ta awaria, która wygląda jak sukces.
+
+        Tryb `before` i żadnego wyjątku, więc wartość nie ma jak trafić do
+        komunikatu `ValidationError` — to samo zastrzeżenie co przy
+        `_bez_bialych_znakow`.
+        """
+        surowa = wartosc.get_secret_value() if isinstance(wartosc, SecretStr) else wartosc
+        if surowa is None or (isinstance(surowa, str) and not surowa.strip()):
+            return None
+        return wartosc
 
     @field_validator(
         "monday_token",

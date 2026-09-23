@@ -369,6 +369,18 @@ async def zbuduj_itemy(
         itemow_razem += ile
         po_id[board_id] = tablica
 
+        # Per produkt liczymy TUTAJ, ze wszystkich tablic — tak jak sumę. Pierwsza
+        # wersja liczyła to w pętli po pobranych i gubiła tablice odcięte
+        # budżetem oraz te bez lejka: model dostawał `razem: 7350` obok
+        # `crm: 50` bez słowa wyjaśnienia (review 2026-09-23). `items_count`
+        # jest za darmo, więc nie ma powodu, żeby podział był uboższy od sumy.
+        #
+        # Produkt bierzemy z mapy workspace'ów, którą inwentarz już ma — zamiast
+        # dokładać `account_product` do zapytania o tablice.
+        workspace_id = str((tablica.get("workspace") or {}).get("id") or "")
+        if produkt_tablicy := (produkty or {}).get(workspace_id):
+            per_produkt[produkt_tablicy] += ile
+
         lejek = rozpoznaj_lejek(tablica.get("columns") or [], len(tablica.get("groups") or []))
         # Rozkład pobieramy TYLKO tam, gdzie jest co rozkładać. Tablica bez
         # rozpoznanego lejka i bez grup nie powie nic, czego nie mówi `items_count`.
@@ -385,8 +397,6 @@ async def zbuduj_itemy(
         itemy, urwane = await pobierz_itemy(klient, board_id, kolumny=kolumny)
         rozklad, w_oknie = policz_rozklad(itemy, lejek, teraz=teraz, okno_dni=okno_dni)
 
-        # Produkt bierzemy z mapy workspace'ów, którą inwentarz już ma — zamiast
-        # dokładać `account_product` do zapytania o tablice.
         workspace_id = str((tablica.get("workspace") or {}).get("id") or "")
         produkt = (produkty or {}).get(workspace_id)
         agregaty.append(
@@ -403,8 +413,6 @@ async def zbuduj_itemy(
                 urwane=urwane,
             )
         )
-        if produkt:
-            per_produkt[produkt] += ile
 
     agregaty.sort(key=lambda a: a.itemow, reverse=True)
 

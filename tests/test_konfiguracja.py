@@ -373,3 +373,53 @@ def test_literowka_w_trybie_nie_przechodzi_cicho(
     with pytest.raises(KonfiguracjaError, match="AGENT_ROZLICZENIE") as blad:
         wczytaj(plik)
     assert "klucz, subskrypcja" in str(blad.value), "komunikat nie mówi, co jest dozwolone"
+
+
+# ── Langfuse: trzy zmienne albo zero (review 2026-09-23) ─────────────────
+#
+# Nazwy zmiennych z nazw pól modelu, nie z literałów — z tego samego powodu
+# co w `zapisz_env` (hook `sekret-na-sztywno`).
+
+POLA_LANGFUSE = ("langfuse_public_key", "langfuse_secret_key", "langfuse_base_url")
+
+
+def _ustaw_langfuse(monkeypatch: pytest.MonkeyPatch, wartosci: tuple[str, str, str]) -> None:
+    assert set(POLA_LANGFUSE) <= set(Ustawienia.model_fields), "pole zniknęło z modelu"
+    for pole, wartosc in zip(POLA_LANGFUSE, wartosci, strict=True):
+        monkeypatch.setenv(pole.upper(), wartosc)
+
+
+def test_puste_zmienne_langfuse_to_brak_wysylki(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """ZMIERZONE przy review: wdrożenie robi `cp .env.example /etc/monday-audit.env`,
+    a `EnvironmentFile` wkłada puste `LANGFUSE_*=` do środowiska jako `""`.
+    Pierwsza wersja robiła z nich `SecretStr('')` i `langfuse_wlaczony` dawało
+    True — a SDK przy pustym adresie spadało na domyślny region."""
+    _ustaw_langfuse(monkeypatch, ("", "  ", ""))
+
+    ustawienia = wczytaj(zapisz_env(tmp_path, token="t", sol=SOL))
+
+    assert ustawienia.langfuse_wlaczony is False
+    assert ustawienia.langfuse_public_key is None
+    assert ustawienia.langfuse_secret_key is None
+    assert ustawienia.langfuse_base_url is None
+
+
+def test_polowiczna_konfiguracja_langfuse_przerywa_start(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Dwa klucze bez adresu to dokładnie ten przypadek, w którym trace'y idą
+    do regionu, którego nikt nie wybrał."""
+    _ustaw_langfuse(monkeypatch, ("pk-test", "sk-test", ""))
+
+    with pytest.raises(KonfiguracjaError, match="LANGFUSE_BASE_URL"):
+        wczytaj(zapisz_env(tmp_path, token="t", sol=SOL))
+
+
+def test_komplet_langfuse_wlacza_wysylke(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _ustaw_langfuse(monkeypatch, ("pk-test", "sk-test", "https://cloud.langfuse.com"))
+
+    ustawienia = wczytaj(zapisz_env(tmp_path, token="t", sol=SOL))
+
+    assert ustawienia.langfuse_wlaczony is True

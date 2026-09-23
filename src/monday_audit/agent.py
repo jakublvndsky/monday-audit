@@ -69,10 +69,12 @@ from claude_agent_sdk import (
 )
 from claude_agent_sdk.types import SyncHookJSONOutput
 
+from monday_audit.baza import MapowanieOsob
 from monday_audit.cennik import Stawka
 from monday_audit.detektory import Hipoteza
 from monday_audit.narzedzia import Narzedzia, NarzedziaHipotezy, NarzedzieError
 from monday_audit.obserwowalnosc import Wysylka, wyslij_bezpiecznie, zbuduj_trace
+from monday_audit.osoby import MaPII
 from monday_audit.rubryka import Klasa, Rubryka
 from monday_audit.szablony_findingow import z_szablonu
 
@@ -695,6 +697,21 @@ def _zuzycie(wiadomosc: ResultMessage) -> dict[str, float]:
     return zuzycie
 
 
+def wpisy_do_maskowania(zestaw: Narzedzia) -> tuple[MaPII, ...]:
+    """Znane osoby konta — dla DRUGIEJ siatki w trace'ach, nie dla modelu.
+
+    `maskowanie.zamaskuj` od fazy 4 przyjmuje tę listę i podmienia znane
+    imiona na pseudonimy tej samej osoby. Do review 2026-09-23 nikt jej nie
+    podawał, więc obietnica z docstringu `maskowanie.py` była martwa w obu
+    ścieżkach.
+
+    Lista żyje w procesie i idzie wyłącznie do maskowania. Do modelu, do jego
+    narzędzi ani do trace'u nie trafia — zakaz „tabela mapowania bez narzędzia
+    dostępowego" dotyczy agenta, a to jest nasz kod.
+    """
+    return tuple(MapowanieOsob(zestaw.con, zestaw.client_id).wczytaj())
+
+
 def _wyslij_slad(
     slad: Wysylka | None,
     wynik: WynikHipotezy,
@@ -703,6 +720,7 @@ def _wyslij_slad(
     snapshot_id: int,
     model: str,
     prompt_hash: str,
+    wpisy: tuple[MaPII, ...] = (),
 ) -> None:
     """Trace jednej hipotezy. NIGDY nie wywraca runu — ale nie milczy.
 
@@ -720,6 +738,7 @@ def _wyslij_slad(
             snapshot_id=snapshot_id,
             model=model,
             prompt_hash=prompt_hash,
+            wpisy=wpisy,
         ),
         opis=f"hipoteza {wynik.hipoteza.klasa_id}/{wynik.hipoteza.obiekt_id}",
     )
@@ -765,6 +784,7 @@ async def zbadaj_hipotezy(
     # Liczony RAZ, poza pętlą: ten sam prompt dla wszystkich hipotez runu,
     # a do trace'u idzie hasz zamiast treści (powód w `obserwowalnosc`).
     hasz_promptu = hash_promptu(sciezka_promptu)
+    wpisy_sladu = wpisy_do_maskowania(zestaw) if slad is not None else ()
     biezace: dict[str, NarzedziaHipotezy] = {}
     serwer = _zbuduj_narzedzia(biezace)
 
@@ -831,6 +851,7 @@ async def zbadaj_hipotezy(
             snapshot_id=zestaw.snapshot_id,
             model=model,
             prompt_hash=hasz_promptu,
+            wpisy=wpisy_sladu,
         )
         for klucz in ("tokens_in", "tokens_out", "tokens_cache_read", "tokens_cache_write"):
             zuzycie[klucz] += wynik.zuzycie.get(klucz, 0)

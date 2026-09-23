@@ -12,6 +12,7 @@ rzeczy, których brak byłby cichy:
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -108,6 +109,31 @@ def test_adres_w_nazwie_tablicy_nie_dociera_do_modelu() -> None:
     assert nazwa == "Kontakt [E-MAIL]"
     assert not wynik.czyste
     assert wynik.trafienia_maskowania["email"] == 1
+
+
+def test_adres_w_nazwie_grupy_nie_dociera_do_modelu() -> None:
+    """Nazwa grupy i etykieta etapu siedzą w `rozklad` jako KLUCZE. Do review
+    2026-09-23 bramka ich nie widziała: mail w nazwie grupy szedł do modelu
+    wprost, a licznik trafień pokazywał zero — czyli łamał zakaz twardy
+    i jeszcze meldował, że wszystko czyste."""
+    itemy = {
+        "itemow_razem": 20,
+        "tablice": [
+            {
+                "board_id": "1",
+                "nazwa": "Leady",
+                "itemow": 20,
+                "rozklad": {"Leady od jan.kowalski@firma.test": 12, "tel +48 501 234 567": 8},
+            }
+        ],
+    }
+
+    wynik = _wejscie(itemy=itemy)
+
+    rozklad = wynik.dokument["itemy"]["najwieksze_tablice"][0]["rozklad"]
+    assert rozklad == {"Leady od [E-MAIL]": 12, "tel [TELEFON]": 8}
+    assert wynik.trafienia_maskowania == {"email": 1, "telefon": 1}
+    assert "jan.kowalski" not in json.dumps(wynik.dokument, ensure_ascii=False)
 
 
 def test_maskowanie_jest_widoczne_w_dokumencie_a_nie_tylko_w_logu() -> None:

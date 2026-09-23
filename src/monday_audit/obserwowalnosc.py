@@ -241,8 +241,12 @@ def zbuduj_trace_analizy(
     odrzucone_reguly: Sequence[str] = (),
     szacunek_usd: float | None = None,
     blad: str | None = None,
+    wpisy: Sequence[MaPII] = (),
 ) -> Trace:
     """Sesja analizy → zamaskowany trace. Druga droga na zewnątrz, tą samą bramką.
+
+    `wpisy` to znane osoby konta, jak w `zbuduj_trace` — druga siatka na imię
+    i nazwisko, które przeciekło do kontekstu mimo pseudonimizacji.
 
     Przyjmuje gotowe słowniki, a nie obiekty z `analiza` i `uwagi`, z tego
     samego powodu co `zbuduj_trace`: ten moduł ma się dać zbudować
@@ -294,7 +298,7 @@ def zbuduj_trace_analizy(
         "narzedzia": list(odpowiedz.get("wywolania_narzedzi") or []),
     }
 
-    zamaskowane = zamaskuj(surowe)
+    zamaskowane = zamaskuj(surowe, wpisy)
     if not zamaskowane.czyste:
         logger.warning(
             "trace analizy %s: %s — PIERWSZA linia (brak PII w kontekście modelu) "
@@ -358,7 +362,8 @@ def wyslij_bezpiecznie(slad: Wysylka | None, budowa: Callable[[], Trace], *, opi
     except MaskowanieError:
         # `exception`, nie `error`: ślad stosu pokazuje, KTÓRE pole wywróciło
         # maskowanie. Nie niesie wartości — Python nie wypisuje w nim zmiennych
-        # lokalnych, a komunikat `MaskowanieError` jest budowany bez danych.
+        # lokalnych, a komunikat `MaskowanieError` jest budowany bez danych:
+        # ścieżka w nim składa się z kluczy JUŻ zamaskowanych (`zamaskuj`).
         logger.exception(
             "%s: trace NIE wyszedł — maskowanie nie poradziło sobie z payloadem. "
             "Audyt leci dalej, ale to jest do obejrzenia",

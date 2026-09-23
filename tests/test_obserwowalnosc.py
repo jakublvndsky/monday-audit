@@ -14,12 +14,31 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 
+from monday_audit.baza import polacz, zastosuj_migracje
 from monday_audit.obserwowalnosc import RODZAJ_GENERACJA, zbuduj_trace
 from monday_audit.osoby import WpisPII
 
 INWENTARZ = "tablica Zdzisławy, workspace Sprzedaż, kolumna lead_status"
+ZNANA_OSOBA = "Zdzisława Wąchockańska"
+
+
+def _zestaw_z_mapowaniem() -> Any:
+    """Atrapa `Narzedzia` z PRAWDZIWĄ tabelą mapowania w bazie w pamięci.
+
+    Pętla czyta z niej znane osoby dla drugiej siatki maskowania — więc atrapa
+    bez `con` nie sprawdziłaby, że lista w ogóle dochodzi do trace'u.
+    """
+    con = polacz(":memory:")
+    zastosuj_migracje(con)
+    con.execute(
+        "INSERT INTO osoby_mapowanie (client_id, user_hash, imie_nazwisko, email) "
+        "VALUES ('cxlabs', 'abc', ?, 'zdzislawa@klient.test')",
+        (ZNANA_OSOBA,),
+    )
+    return SimpleNamespace(snapshot_id=7, con=con, client_id="cxlabs")
 
 
 @dataclass
@@ -225,20 +244,19 @@ async def test_petla_faktycznie_wysyla_trace(monkeypatch: Any) -> None:
 
     monkeypatch.setattr(modul_agenta, "_inwentarz", lambda _: "{}")
 
-    class AtrapaZestawu:
-        snapshot_id = 7
-
     slad = AtrapaSladu()
     hipoteza = Hipoteza(
         klasa_id="ZOMBIE_ACCOUNT",
         obiekt_id="u1",
-        fakty={"user_hash": "abc", "dni_nieaktywnosci": 200},
+        # Nazwisko w KLUCZU, bo tam wpadało bez śladu do review 2026-09-23 —
+        # i tylko lista znanych osób z bazy ma jak je rozpoznać.
+        fakty={"user_hash": "abc", "dni_nieaktywnosci": 200, "grupy": {ZNANA_OSOBA: 3}},
         budzet_wywolan=0,
     )
 
     await modul_agenta.zbadaj_hipotezy(
         [hipoteza],
-        zestaw=AtrapaZestawu(),  # type: ignore[arg-type]
+        zestaw=_zestaw_z_mapowaniem(),
         rubryka=wczytaj_rubryke(),
         run_id="run-7",
         klucz_api="",
@@ -252,6 +270,10 @@ async def test_petla_faktycznie_wysyla_trace(monkeypatch: Any) -> None:
     assert trace.metadane["snapshot_id"] == 7
     # Hasz promptu liczony RAZ, poza pętlą, i faktycznie dochodzi.
     assert trace.metadane["prompt_hash"]
+    # Lista znanych osób DOCHODZI do maskowania. Do review 2026-09-23 parametr
+    # `wpisy` istniał, ale nikt go nie podawał — druga siatka była martwa.
+    assert ZNANA_OSOBA not in repr(trace)
+    assert "[OSOBA:abc]" in repr(trace.obserwacje[0].wejscie)
 
 
 async def test_padniety_slad_nie_przerywa_audytu(monkeypatch: Any, caplog: Any) -> None:
@@ -263,9 +285,6 @@ async def test_padniety_slad_nie_przerywa_audytu(monkeypatch: Any, caplog: Any) 
 
     monkeypatch.setattr(modul_agenta, "_inwentarz", lambda _: "{}")
 
-    class AtrapaZestawu:
-        snapshot_id = 7
-
     hipoteza = Hipoteza(
         klasa_id="ZOMBIE_ACCOUNT",
         obiekt_id="u1",
@@ -276,7 +295,7 @@ async def test_padniety_slad_nie_przerywa_audytu(monkeypatch: Any, caplog: Any) 
     with caplog.at_level(logging.WARNING):
         odpowiedz = await modul_agenta.zbadaj_hipotezy(
             [hipoteza],
-            zestaw=AtrapaZestawu(),  # type: ignore[arg-type]
+            zestaw=_zestaw_z_mapowaniem(),
             rubryka=wczytaj_rubryke(),
             run_id="run-7",
             klucz_api="",
@@ -298,9 +317,6 @@ async def test_bezpiecznik_maskowania_krzyczy_ale_run_konczy(monkeypatch: Any, c
 
     monkeypatch.setattr(modul_agenta, "_inwentarz", lambda _: "{}")
 
-    class AtrapaZestawu:
-        snapshot_id = 7
-
     hipoteza = Hipoteza(
         klasa_id="ZOMBIE_ACCOUNT",
         obiekt_id="u1",
@@ -311,7 +327,7 @@ async def test_bezpiecznik_maskowania_krzyczy_ale_run_konczy(monkeypatch: Any, c
     with caplog.at_level(logging.ERROR):
         odpowiedz = await modul_agenta.zbadaj_hipotezy(
             [hipoteza],
-            zestaw=AtrapaZestawu(),  # type: ignore[arg-type]
+            zestaw=_zestaw_z_mapowaniem(),
             rubryka=wczytaj_rubryke(),
             run_id="run-7",
             klucz_api="",

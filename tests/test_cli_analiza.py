@@ -11,6 +11,8 @@ plik przejeżdża `uruchom` w całości, z atrapą tylko tam, gdzie zaczyna się
 from __future__ import annotations
 
 import argparse
+import json
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -253,6 +255,156 @@ async def test_run_w_pamieci_nie_zostawia_na_dysku_nic_o_osobie(
         assert run["hipotez_zbadanych"] == 2
         assert run["hipotez_odrzuconych"] == 1
         assert run["wywolania_monday"] == 42
+    finally:
+        con.close()
+
+
+def _zapisz_obraz(katalog: Path) -> Path:
+    """Obraz konta z treścią klienta w KLUCZACH — nazwa grupy per handlowiec,
+    telefon, data, mail. Synchronicznie, bo w `async` pathlib blokuje pętlę."""
+    obraz = {
+        "konto": {"nazwa": "Konto testowe", "uzytkownikow": 19},
+        "itemy": {
+            "razem": 40,
+            "per_produkt": {"crm": 40},
+            "najwieksze_tablice": [
+                {
+                    "itemow": 40,
+                    "rozklad": {
+                        NAZWISKO: 20,
+                        "tel +48 501 234 567": 8,
+                        DATA_AKTYWNOSCI: 1,
+                        f"Leady od {MAIL}": 11,
+                    },
+                }
+            ],
+        },
+    }
+    sciezka = katalog / "obraz.json"
+    sciezka.write_text(json.dumps(obraz, ensure_ascii=False), encoding="utf-8")
+    return sciezka
+
+
+ZOMBIE_FAKTY = {
+    "user_hash": PSEUDONIM,
+    "kind": "member",
+    "status": "ACTIVE",
+    "last_activity": f"{DATA_AKTYWNOSCI}T13:01:12Z",
+    "obecnosc_w_logach": False,
+    "plan_tier": "enterprise",
+}
+
+
+async def test_tresc_klienta_w_kluczach_nie_zostaje_na_dysku(
+    srodowisko: dict[str, Any], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Review 2026-09-23: nazwy grup i etykiety siedzą w `rozklad` jako KLUCZE
+    i do tej poprawki trafiały do `statystyki_runow` wprost. Test poprzedni
+    tego nie łapał, bo w jego danych nie było ani jednego słownika po treści.
+
+    Przy okazji: druga siatka w trace'ach dostaje listę znanych osób z bazy
+    W PAMIĘCI — nazwisko przemycone w faktach hipotezy nie wychodzi."""
+
+    async def collector_w_pamieci(*, con: Any, client_id: str, **_: Any) -> Any:
+        con.execute(
+            "INSERT INTO osoby_mapowanie (client_id, user_hash, imie_nazwisko, email) "
+            "VALUES (?, ?, ?, ?)",
+            (client_id, PSEUDONIM, NAZWISKO, MAIL),
+        )
+        snapshot_id = zapisz_snapshot(
+            con, client_id=client_id, payload={"meta": {}}, run_at="2026-09-23T00:00:00Z"
+        )
+        con.commit()
+        return SimpleNamespace(snapshot_id=snapshot_id, wywolan=7)
+
+    zombie = Hipoteza(
+        klasa_id="ZOMBIE_ACCOUNT", obiekt_id=PSEUDONIM, fakty=ZOMBIE_FAKTY, budzet_wywolan=0
+    )
+    ghost = Hipoteza(
+        klasa_id="BOARD_GHOST",
+        obiekt_id="b1",
+        fakty={"wpisow": 0, "grupy": {NAZWISKO: 3}},
+        budzet_wywolan=2,
+    )
+
+    async def atrapa_sesji(*_: Any, **__: Any) -> dict[str, Any]:
+        return {
+            "uwagi": [],
+            "pominiete": [{"klasa_id": "BOARD_GHOST", "obiekt_id": "b1", "powod": "świeża"}],
+            "zuzycie": {"tokens_out": 100, "koszt_usd": 0.12},
+            "wywolania_narzedzi": [],
+        }
+
+    monkeypatch.setattr(cli_analiza, "wykonaj_run", collector_w_pamieci)
+    monkeypatch.setattr(cli_analiza, "uruchom_detektory", lambda *_: ([zombie, ghost], {}))
+    monkeypatch.setattr(cli_analiza, "zbadaj_konto", atrapa_sesji)
+    monkeypatch.setattr(
+        cli_analiza,
+        "wczytaj",
+        lambda: SimpleNamespace(
+            monday_audit_db=srodowisko["baza"],
+            monday_token=SimpleNamespace(get_secret_value=lambda: "token-testowy"),
+        ),
+    )
+    argumenty = _argumenty(srodowisko, "t-klucze", w_pamieci=True)
+    argumenty.wejscie = _zapisz_obraz(tmp_path)
+
+    assert await cli_analiza.uruchom(argumenty) == 0
+
+    zrzut = _cala_baza(srodowisko["baza"])
+    for slad_osoby in (NAZWISKO, MAIL, PSEUDONIM, DATA_AKTYWNOSCI, "501 234 567"):
+        assert slad_osoby not in zrzut, f"na dysku został ślad osoby: {slad_osoby[:4]}…"
+
+    con = polacz(srodowisko["baza"])
+    try:
+        # Statystyki JEST — z liczbami i kluczami naszego schematu.
+        wiersz = con.execute(
+            "SELECT dane FROM statystyki_runow WHERE run_id = 't-klucze'"
+        ).fetchone()
+        dane = json.loads(wiersz["dane"])
+        assert dane["itemy"]["per_produkt"] == {"crm": 40}
+        assert dane["konto"] == {"uzytkownikow": 19}
+    finally:
+        con.close()
+
+    trace = srodowisko["slad"].wyslane[0]
+    assert NAZWISKO not in repr(trace)
+    assert f"[OSOBA:{PSEUDONIM}]" in repr(trace.obserwacje[0].wejscie)
+
+
+async def test_padniete_statystyki_nie_kasuja_zapisanych_uwag(
+    srodowisko: dict[str, Any], monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: Any
+) -> None:
+    """Uwagi i statystyki szły w jednym `try`. Gdy padały statystyki, log
+    mówił „uwagi NIE zapisane", a `findingow` dostawało 0 — choć uwagi były
+    już zatwierdzone w bazie (review 2026-09-23)."""
+    from monday_audit.przechowanie import PrzechowanieError
+
+    zombie = Hipoteza(
+        klasa_id="ZOMBIE_ACCOUNT", obiekt_id=PSEUDONIM, fakty=ZOMBIE_FAKTY, budzet_wywolan=0
+    )
+
+    def statystyki_padaja(*_: Any, **__: Any) -> None:
+        raise PrzechowanieError("w zapisie został adres e-mail — zapis przerwany")
+
+    monkeypatch.setattr(cli_analiza, "uruchom_detektory", lambda *_: ([zombie], {}))
+    monkeypatch.setattr(cli_analiza, "zapisz_statystyki", statystyki_padaja)
+    argumenty = _argumenty(srodowisko, "t-statystyki")
+    argumenty.wejscie = _zapisz_obraz(tmp_path)
+
+    with caplog.at_level(logging.ERROR):
+        assert await cli_analiza.uruchom(argumenty) == 0
+
+    assert "statystyki NIE zapisane" in caplog.text
+    assert "uwagi NIE zapisane" not in caplog.text
+    con = polacz(srodowisko["baza"])
+    try:
+        run = con.execute("SELECT * FROM runy WHERE run_id = 't-statystyki'").fetchone()
+        assert run["findingow"] == 1
+        zapisanych = con.execute(
+            "SELECT COUNT(*) FROM uwagi_zapisane WHERE run_id = 't-statystyki'"
+        ).fetchone()[0]
+        assert zapisanych == 1
     finally:
         con.close()
 

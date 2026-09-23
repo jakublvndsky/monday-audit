@@ -41,7 +41,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from monday_audit.osoby import WZORZEC_EMAILA, MaPII, zredaguj_pii
+from monday_audit.osoby import WZORZEC_EMAILA, MaPII, unikalny_klucz, zredaguj_pii
 
 # Zamienniki BEZ tożsamości. Kuba poprosił wprost o taki kształt: „zamiast
 # maila widzimy [E-MAIL]". Świadomie nie doklejamy tu hasza — osoba spoza konta
@@ -176,11 +176,35 @@ def zamaskuj(dane: Any, wpisy: Sequence[MaPII] = (), *, sciezka: str = "") -> Za
     Podnosi `MaskowanieError` na typie, którego nie umie przejść. To nie jest
     nadgorliwość: obiekt, którego nie rozumiemy, mógłby mieć `__str__`
     wypisujący cokolwiek, a maskowanie po `str()` na oślep jest zgadywaniem.
+
+    ## Klucze słowników są treścią tak samo jak wartości
+
+    Pierwsza wersja maskowała tylko wartości — i przepuszczała dokładnie to, po
+    co bramka do modelu powstała. Nazwa grupy i etykieta etapu siedzą w
+    `rozklad` jako KLUCZE (`{"Leady od jan@firma.pl": 12}`), komunikat monday
+    w `powody_bledow` też. Wychodziły bez zmian, a licznik mówił „czysto"
+    (review 2026-09-23). Teraz klucz przechodzi przez te same wzorce, a ścieżka
+    w `sciezki` jest składana z klucza JUŻ zamaskowanego — inaczej raport
+    o wycieku sam by go wypisywał.
     """
     zredagowane, _ = zredaguj_pii(dane, wpisy, sciezka=sciezka)
 
     trafienia: Counter[str] = Counter()
     sciezki: list[str] = []
+
+    def klucz_maskowany(klucz: Any, gdzie: str) -> Any:
+        if isinstance(klucz, str):
+            nowy, znalezione = zamaskuj_tekst(klucz)
+            if znalezione:
+                trafienia.update(znalezione)
+                sciezki.append(f"{gdzie}.{nowy} (klucz)" if gdzie else f"{nowy} (klucz)")
+            return nowy
+        if isinstance(klucz, PROSTE_TYPY):
+            return klucz
+        raise MaskowanieError(
+            f"nie umiem zamaskować klucza typu {type(klucz).__name__} "
+            f"w polu {gdzie or '(korzeń)'} — trace nie wychodzi (wartości nie loguję)"
+        )
 
     def przejdz(wartosc: Any, gdzie: str) -> Any:
         if isinstance(wartosc, str):
@@ -194,10 +218,11 @@ def zamaskuj(dane: Any, wpisy: Sequence[MaPII] = (), *, sciezka: str = "") -> Za
         if isinstance(wartosc, PROSTE_TYPY):
             return wartosc
         if isinstance(wartosc, dict):
-            return {
-                klucz: przejdz(pod, f"{gdzie}.{klucz}" if gdzie else str(klucz))
-                for klucz, pod in wartosc.items()
-            }
+            slownik: dict[Any, Any] = {}
+            for klucz, pod in wartosc.items():
+                czysty = unikalny_klucz(klucz_maskowany(klucz, gdzie), slownik)
+                slownik[czysty] = przejdz(pod, f"{gdzie}.{czysty}" if gdzie else str(czysty))
+            return slownik
         if isinstance(wartosc, (list, tuple)):
             return [przejdz(pod, f"{gdzie}[{numer}]") for numer, pod in enumerate(wartosc)]
         raise MaskowanieError(

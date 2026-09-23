@@ -180,6 +180,69 @@ def test_statystyki_zachowuja_liczby_i_gubia_nazwy() -> None:
     assert "CXLABS" not in json.dumps(dane)
 
 
+def test_statystyki_gubia_etykiety_takze_w_kluczach() -> None:
+    """Review 2026-09-23: rozkład po grupach to `{"Anna Nowak": 20}` — nazwa
+    grupy w KLUCZU, liczba w wartości. Pierwsza wersja sprawdzała tylko wartości
+    i zapisywała takie klucze wprost; nazwisko i telefon lądowały na dysku."""
+    obraz = {
+        "itemy": {
+            "razem": 40,
+            "per_produkt": {"crm": 40},
+            "najwieksze_tablice": [
+                {
+                    "itemow": 40,
+                    "lejek_stopien": 2,
+                    "rozklad": {
+                        "Anna Nowak": 20,
+                        "tel +48 501 234 567": 8,
+                        "2026-06-09": 1,
+                        "Qualified": 11,
+                    },
+                }
+            ],
+        },
+        "tablice": {"aktywnosc": {"30d": 5, "365d": 2}, "po_rodzaju": {"public": 3}},
+        "po_osobach": {"1dcfeabe7fa5d9a7": 4},
+    }
+
+    dane = statystyki_do_zapisu(obraz)
+
+    tekst = json.dumps(dane, ensure_ascii=False)
+    for slad_osoby in ("Anna Nowak", "501 234 567", "2026-06-09", "Qualified", "1dcfeabe7fa5d9a7"):
+        assert slad_osoby not in tekst
+    # Klucze NASZEGO schematu zostają — bez nich liczby nie mają podpisu.
+    assert dane["itemy"]["per_produkt"] == {"crm": 40}
+    assert dane["itemy"]["najwieksze_tablice"] == [{"itemow": 40, "lejek_stopien": 2}]
+    assert dane["tablice"] == {"aktywnosc": {"30d": 5, "365d": 2}, "po_rodzaju": {"public": 3}}
+    assert "po_osobach" not in dane
+
+
+def test_klucze_dowodu_przechodza_przez_te_same_reguly() -> None:
+    """Data aktywności i telefon w roli KLUCZA znikały z wartości, ale nie
+    z kluczy — ta sama osoba wskazana innym wejściem."""
+    uwaga = {
+        "klasa_id": "BOARD_GHOST",
+        "opis": "o",
+        "rekomendacja": "r",
+        "dowod": {"rozklad": {"2026-06-09": 1, "tel +48 501 234 567": 2, "1dcfeabe7fa5d9a7": 3}},
+    }
+
+    zapis = uwaga_do_zapisu(uwaga, teraz=TERAZ)
+
+    assert zapis["dowod"]["rozklad"] == {
+        "[106 dni przed runem]": 1,
+        "tel [TELEFON]": 2,
+        "[OSOBA]": 3,
+    }
+
+
+def test_bramka_przerywa_gdy_telefon_przetrwal() -> None:
+    with pytest.raises(PrzechowanieError, match="numer telefonu") as blad:
+        sprawdz_zapis({"rozklad": {"+48 501 234 567": 1}})
+
+    assert "501" not in str(blad.value)
+
+
 # ── zawodzi zamknięte ────────────────────────────────────────────────────
 
 
@@ -192,12 +255,31 @@ def test_bramka_przerywa_gdy_pseudonim_przetrwal() -> None:
     assert "1dcfeabe7fa5d9a7" not in str(blad.value)
 
 
-def test_zapis_uwag_jest_wszystko_albo_nic(con: sqlite3.Connection) -> None:
-    """Zapis połowy wyglądałby na komplet — gorsze od jawnego braku."""
-    zla = {**ZOMBIE, "dowod": {"1dcfeabe7fa5d9a7": "klucz jest pseudonimem"}}
+def test_zapis_uwag_jest_wszystko_albo_nic(
+    con: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Zapis połowy wyglądałby na komplet — gorsze od jawnego braku.
+
+    Bramka jest tu wywracana atrapą, a nie spreparowaną uwagą. Pierwsza wersja
+    testu przemycała pseudonim w KLUCZU dowodu — i działała tylko dlatego, że
+    klucze omijały maskowanie. Po poprawce z review 2026-09-23 nic nie ma jak
+    przetrwać reguł, więc awarię trzeba wywołać wprost.
+    """
+    from monday_audit import przechowanie
+
+    wywolan = {"ile": 0}
+    prawdziwa = przechowanie.sprawdz_zapis
+
+    def druga_pada(dane: object) -> None:
+        wywolan["ile"] += 1
+        if wywolan["ile"] == 2:
+            raise PrzechowanieError("w zapisie został pseudonim osoby — zapis przerwany")
+        prawdziwa(dane)
+
+    monkeypatch.setattr(przechowanie, "sprawdz_zapis", druga_pada)
 
     with pytest.raises(PrzechowanieError):
-        zapisz_uwagi(con, "r1", [ZOMBIE, zla], teraz=TERAZ)
+        zapisz_uwagi(con, "r1", [ZOMBIE, GOSCIE], teraz=TERAZ)
 
     assert con.execute("SELECT COUNT(*) FROM uwagi_zapisane").fetchone()[0] == 0
 
