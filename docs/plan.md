@@ -343,8 +343,17 @@ na nich napisał.
     `cli_inwentarz` NIE przepięty — to narzędzie rozszerzone (tablice, itemy,
     obraz dla modelu), a nie same kafelki. Nazwy workspace'ów świadomie poza
     kontraktem (O50); pogłębienie to faza 7.
-  - [ ] **6-2** — `analiza_konta`: wydzielenie z `cli_analiza.uruchom`;
-    CLI staje się cienką nakładką na funkcję pakietu.
+  - [x] **6-2** — `usluga.analiza_konta` (i `analizuj_snapshot` dla snapshotów
+    sprzed 5c): całe sedno przeniesione z `cli_analiza.uruchom`, CLI jest
+    cienką nakładką. Kontrakt `WynikAnalizy`: `uwagi` zamaskowane (wolno
+    pokazać i przechować), `raport_html` z nazwiskami poza `do_json`,
+    `blad_zapisu` zamiast wyjątku (zapis, który padł, nie zabiera wyniku),
+    `AnalizaError` z surową odpowiedzią w pamięci, `przed_sesja` — szacunek
+    przed modelem. Sól, `client_id`, klucze i baza parametrami. **Przy okazji
+    naprawiona usterka sprzed 6-2:** szablony doklejane do `uwagi` przed
+    walidacją maskowały odpowiedź modelu bez struktury jako „zero uwag".
+    Na żywo `--tylko-szacunek` przez pakiet: 24 hipotezy, 0 runów, 0 snapshotów,
+    0 mapowań w bazie.
   - [ ] **6-3** — szacunek przed krokiem 2 (wywołania monday i USD) liczony
     z danych kroku 1 — zamiast progu „pięciu workspace'ów".
   - [ ] **6-4** — typy dla portalu generowane z kontraktu i dokument

@@ -157,10 +157,15 @@ def wyrenderuj_uwagi(raport: RaportUwag, *, katalog: Path = KATALOG_SZABLONOW) -
 
 
 def oddaj_raport(raport: RaportUwag, sciezka: Path) -> Path:
-    """Raport do pliku wskazanego przez operatora — TYLKO na wyraźne żądanie.
+    """Raport do pliku wskazanego przez operatora — TYLKO na wyraźne żądanie."""
+    return zapisz_html(wyrenderuj_uwagi(raport), sciezka)
 
-    Prawa `600` od chwili utworzenia, nie po zapisie: plik niesie nazwiska
-    pracowników klienta, więc nie może istnieć ani chwili z prawami domyślnymi.
+
+def zapisz_html(html: str, sciezka: Path) -> Path:
+    """Gotowy HTML raportu do pliku, z prawami `600` od chwili utworzenia.
+
+    Plik niesie nazwiska pracowników klienta, więc nie może istnieć ani chwili
+    z prawami domyślnymi.
     """
     sciezka.parent.mkdir(parents=True, exist_ok=True)
     deskryptor = os.open(sciezka, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
@@ -169,5 +174,5 @@ def oddaj_raport(raport: RaportUwag, sciezka: Path) -> Path:
     # deskryptorze PRZED zapisem (review 2026-09-23).
     os.fchmod(deskryptor, 0o600)
     with os.fdopen(deskryptor, "w", encoding="utf-8") as plik:
-        plik.write(wyrenderuj_uwagi(raport))
+        plik.write(html)
     return sciezka

@@ -19,7 +19,7 @@ from typing import Any
 
 import pytest
 
-from monday_audit import cli_analiza
+from monday_audit import cli_analiza, usluga
 from monday_audit.agent import AgentError
 from monday_audit.baza import polacz, zastosuj_migracje
 from monday_audit.detektory import Hipoteza
@@ -58,7 +58,7 @@ def srodowisko(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any
     monkeypatch.setattr(cli_analiza, "wczytaj", lambda: SimpleNamespace(monday_audit_db=baza))
     monkeypatch.setattr(cli_analiza, "sol_z_ustawien", lambda _: b"s" * 16)
     monkeypatch.setattr(cli_analiza, "klucz_anthropic", lambda _: "klucz-testowy")
-    monkeypatch.setattr(cli_analiza, "uruchom_detektory", lambda *_: ([hipoteza], {}))
+    monkeypatch.setattr(usluga, "uruchom_detektory", lambda *_: ([hipoteza], {}))
     monkeypatch.setattr(cli_analiza, "wysylka_z_ustawien", lambda _: slad)
     return {"baza": baza, "snapshot_id": snapshot_id, "slad": slad}
 
@@ -100,7 +100,7 @@ async def test_udana_analiza_wysyla_trace(
             "wywolania_narzedzi": ["pobierz_inwentarz:konto"],
         }
 
-    monkeypatch.setattr(cli_analiza, "zbadaj_konto", atrapa_sesji)
+    monkeypatch.setattr(usluga, "zbadaj_konto", atrapa_sesji)
 
     assert await cli_analiza.uruchom(_argumenty(srodowisko, "t-ok")) == 0
 
@@ -125,7 +125,7 @@ async def test_padnieta_analiza_tez_wysyla_trace(
     async def sesja_padajaca(*_: Any, **__: Any) -> dict[str, Any]:
         raise AgentError("sesja analizy padła: błąd API")
 
-    monkeypatch.setattr(cli_analiza, "zbadaj_konto", sesja_padajaca)
+    monkeypatch.setattr(usluga, "zbadaj_konto", sesja_padajaca)
 
     with pytest.raises(AgentError):
         await cli_analiza.uruchom(_argumenty(srodowisko, "t-awaria"))
@@ -211,9 +211,9 @@ async def test_run_w_pamieci_nie_zostawia_na_dysku_nic_o_osobie(
             "wywolania_narzedzi": [],
         }
 
-    monkeypatch.setattr(cli_analiza, "wykonaj_run", collector_w_pamieci)
-    monkeypatch.setattr(cli_analiza, "uruchom_detektory", lambda *_: ([zombie, ghost], {}))
-    monkeypatch.setattr(cli_analiza, "zbadaj_konto", atrapa_sesji)
+    monkeypatch.setattr(usluga, "wykonaj_run", collector_w_pamieci)
+    monkeypatch.setattr(usluga, "uruchom_detektory", lambda *_: ([zombie, ghost], {}))
+    monkeypatch.setattr(usluga, "zbadaj_konto", atrapa_sesji)
     monkeypatch.setattr(
         cli_analiza,
         "wczytaj",
@@ -345,9 +345,9 @@ async def test_tresc_klienta_w_kluczach_nie_zostaje_na_dysku(
             "wywolania_narzedzi": [],
         }
 
-    monkeypatch.setattr(cli_analiza, "wykonaj_run", collector_w_pamieci)
-    monkeypatch.setattr(cli_analiza, "uruchom_detektory", lambda *_: ([zombie, ghost], {}))
-    monkeypatch.setattr(cli_analiza, "zbadaj_konto", atrapa_sesji)
+    monkeypatch.setattr(usluga, "wykonaj_run", collector_w_pamieci)
+    monkeypatch.setattr(usluga, "uruchom_detektory", lambda *_: ([zombie, ghost], {}))
+    monkeypatch.setattr(usluga, "zbadaj_konto", atrapa_sesji)
     monkeypatch.setattr(
         cli_analiza,
         "wczytaj",
@@ -399,8 +399,8 @@ async def test_padniete_statystyki_nie_kasuja_zapisanych_uwag(
     def statystyki_padaja(*_: Any, **__: Any) -> None:
         raise PrzechowanieError("w zapisie został adres e-mail — zapis przerwany")
 
-    monkeypatch.setattr(cli_analiza, "uruchom_detektory", lambda *_: ([zombie], {}))
-    monkeypatch.setattr(cli_analiza, "zapisz_statystyki", statystyki_padaja)
+    monkeypatch.setattr(usluga, "uruchom_detektory", lambda *_: ([zombie], {}))
+    monkeypatch.setattr(usluga, "zapisz_statystyki", statystyki_padaja)
     argumenty = _argumenty(srodowisko, "t-statystyki")
     argumenty.wejscie = _zapisz_obraz(tmp_path)
 
@@ -443,7 +443,7 @@ async def test_pelna_odpowiedz_na_dysk_tylko_na_zadanie(
     async def atrapa_sesji(*_: Any, **__: Any) -> dict[str, Any]:
         return {"uwagi": [], "pominiete": [], "zuzycie": {}, "wywolania_narzedzi": []}
 
-    monkeypatch.setattr(cli_analiza, "zbadaj_konto", atrapa_sesji)
+    monkeypatch.setattr(usluga, "zbadaj_konto", atrapa_sesji)
 
     await cli_analiza.uruchom(_argumenty(srodowisko, "t-bez-pliku"))
     assert not _pliki(tmp_path, "analiza_t-bez-pliku.json")

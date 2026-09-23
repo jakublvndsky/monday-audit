@@ -166,3 +166,178 @@ def test_workspace_y_z_nazwami_nie_wchodza_do_kontraktu() -> None:
     )
 
     assert "Kowalski" not in dokument
+
+
+# ── krok 2: analiza_konta (6-2) ──────────────────────────────────────────
+
+import sqlite3  # noqa: E402
+from collections.abc import Iterator  # noqa: E402
+from pathlib import Path  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+
+from monday_audit.baza import polacz, zastosuj_migracje  # noqa: E402
+from monday_audit.detektory import Hipoteza  # noqa: E402
+from monday_audit.przebieg import zapisz_snapshot  # noqa: E402
+from monday_audit.usluga import AnalizaError, analiza_konta  # noqa: E402
+
+NAZWISKO = "Zdzisława Wąchockańska"
+PSEUDONIM = "1dcfeabe7fa5d9a7"
+
+ZOMBIE = Hipoteza(
+    klasa_id="ZOMBIE_ACCOUNT",
+    obiekt_id=PSEUDONIM,
+    fakty={
+        "user_hash": PSEUDONIM,
+        "kind": "member",
+        "status": "ACTIVE",
+        "last_activity": "2026-06-09T13:01:12Z",
+        "obecnosc_w_logach": False,
+        "plan_tier": "enterprise",
+    },
+    budzet_wywolan=0,
+)
+GHOST = Hipoteza(klasa_id="BOARD_GHOST", obiekt_id="b1", fakty={"wpisow": 0}, budzet_wywolan=2)
+
+
+@pytest.fixture
+def trwala(tmp_path: Path) -> Iterator[sqlite3.Connection]:
+    con = polacz(tmp_path / "portal.db")
+    zastosuj_migracje(con)
+    yield con
+    con.close()
+
+
+@pytest.fixture
+def swiat(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """Atrapy tam, gdzie zaczyna się świat zewnętrzny: monday i model."""
+    wywolania: dict[str, Any] = {"model": 0, "kolejnosc": []}
+
+    async def collector(*, con: Any, client_id: str, **_: Any) -> Any:
+        con.execute(
+            "INSERT INTO osoby_mapowanie (client_id, user_hash, imie_nazwisko, email) "
+            "VALUES (?, ?, ?, 'zdzislawa@klient.test')",
+            (client_id, PSEUDONIM, NAZWISKO),
+        )
+        sid = zapisz_snapshot(
+            con, client_id=client_id, payload={"meta": {}}, run_at="2026-09-23T00:00:00Z"
+        )
+        con.commit()
+        return SimpleNamespace(snapshot_id=sid, wywolan=40)
+
+    async def model(*_: Any, **__: Any) -> dict[str, Any]:
+        wywolania["model"] += 1
+        wywolania["kolejnosc"].append("model")
+        return wywolania.get(
+            "odpowiedz",
+            {
+                "uwagi": [],
+                "pominiete": [{"klasa_id": "BOARD_GHOST", "obiekt_id": "b1", "powod": "świeża"}],
+                "zuzycie": {"koszt_usd": 0.4},
+                "wywolania_narzedzi": [],
+            },
+        )
+
+    monkeypatch.setattr(usluga, "wykonaj_run", collector)
+    monkeypatch.setattr(usluga, "uruchom_detektory", lambda *_: ([ZOMBIE, GHOST], {}))
+    monkeypatch.setattr(usluga, "zbadaj_konto", model)
+    return wywolania
+
+
+def _analiza(trwala: sqlite3.Connection, **zmiany: Any) -> Any:
+    parametry: dict[str, Any] = {
+        "klucz_anthropic": "",
+        "client_id": "cxlabs",
+        "sol": b"s" * 32,
+        "trwala": trwala,
+        **zmiany,
+    }
+    return analiza_konta("klucz-monday", **parametry)
+
+
+async def test_kontrakt_rozdziela_zamaskowane_od_raportu_z_nazwiskami(
+    trwala: sqlite3.Connection, swiat: dict[str, Any]
+) -> None:
+    """Sedno 5c w kontrakcie: `uwagi` wolno pokazać i przechować, `raport_html`
+    niesie nazwiska i NIE wchodzi do `do_json` — portal ma go oddać człowiekowi,
+    a nie przepuścić przez swoje API i logi."""
+    wynik = await _analiza(trwala)
+
+    assert NAZWISKO in (wynik.raport_html or "")
+    dokument = json.dumps(wynik.do_json(), ensure_ascii=False)
+    for slad_osoby in (NAZWISKO, PSEUDONIM, "2026-06-09", "zdzislawa@"):
+        assert slad_osoby not in dokument
+    assert wynik.do_json()["ma_raport"] is True
+    assert wynik.uwagi[0]["dowod"]["user_hash"] == "[OSOBA]"
+    assert wynik.wywolan_monday == 40
+
+
+async def test_nic_o_osobie_w_bazie_portalu(
+    trwala: sqlite3.Connection, swiat: dict[str, Any]
+) -> None:
+    await _analiza(trwala)
+
+    zrzut = "\n".join(
+        str(dict(w))
+        for t in [
+            r["name"] for r in trwala.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        ]
+        for w in trwala.execute(f'SELECT * FROM "{t}"')  # noqa: S608
+    )
+    for slad_osoby in (NAZWISKO, PSEUDONIM, "zdzislawa@"):
+        assert slad_osoby not in zrzut
+    assert trwala.execute("SELECT COUNT(*) FROM osoby_mapowanie").fetchone()[0] == 0
+
+
+async def test_szacunek_idzie_do_wolajacego_przed_modelem(
+    trwala: sqlite3.Connection, swiat: dict[str, Any]
+) -> None:
+    """Ekran portalu ma móc pokazać koszt, ZANIM ruszy model."""
+    await _analiza(
+        trwala, przed_sesja=lambda p: swiat["kolejnosc"].append(("szacunek", p.do_modelu))
+    )
+
+    assert swiat["kolejnosc"] == [("szacunek", 1), "model"]
+
+
+async def test_tylko_szacunek_nie_woła_modelu_i_nie_zaklada_runu(
+    trwala: sqlite3.Connection, swiat: dict[str, Any]
+) -> None:
+    wynik = await _analiza(trwala, tylko_szacunek=True)
+
+    assert swiat["model"] == 0
+    assert wynik.run_id is None
+    assert wynik.szacunek.koszt_usd > 0
+    assert trwala.execute("SELECT COUNT(*) FROM runy").fetchone()[0] == 0
+
+
+async def test_odpowiedz_bez_struktury_wraca_w_bledzie_a_run_jest_przerwany(
+    trwala: sqlite3.Connection, swiat: dict[str, Any]
+) -> None:
+    """Za sesję już zapłacono — surowa odpowiedź nie może zniknąć, ale też nie
+    trafia na dysk. Wraca w wyjątku, w pamięci."""
+    swiat["odpowiedz"] = {"cos_innego": 1, "zuzycie": {}}
+
+    with pytest.raises(AnalizaError) as blad:
+        await _analiza(trwala, run_id="r-zly")
+
+    assert blad.value.odpowiedz_modelu["cos_innego"] == 1
+    status = trwala.execute("SELECT status FROM runy WHERE run_id = 'r-zly'").fetchone()[0]
+    assert status == "przerwany"
+
+
+async def test_padniety_zapis_nie_zabiera_wyniku(
+    trwala: sqlite3.Connection, swiat: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Biblioteczna wersja zasady „najpierw wynik, potem zapis": zapis, który
+    padł, wraca jako `blad_zapisu`, a nie wyjątek zabierający opłacony wynik."""
+
+    def zepsuty(*_: Any, **__: Any) -> int:
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(usluga, "zapisz_uwagi", zepsuty)
+
+    wynik = await _analiza(trwala)
+
+    assert wynik.blad_zapisu == "zapis minimalny padł: OperationalError"
+    assert len(wynik.uwagi) == 1
+    assert wynik.raport_html is not None
