@@ -220,7 +220,43 @@ def sprawdz_dowod(dowod: Any, klasa: Klasa) -> tuple[str, str] | None:
     )
     if puste:
         return REGULA_DOWOD_NIEPELNY, f"pola dowodu są puste: {', '.join(puste)}"
+
+    # Pole oznaczone w rubryce `[]` jest KOLEKCJĄ. ZMIERZONE na runie
+    # `analiza-20260923T122843Z`: model wpisał do `tablice_dostepne[]` zdanie
+    # „dla wszystkich 11 nieaktywnych gości lista pusta w danych" — napis jest
+    # niepusty, więc przeszedł, i obszedł decyzję Kuby z O31 (bez wiedzy
+    # o dostępie gości ta uwaga ma być odrzucana). Opis braku danych nie jest
+    # daną. Mapa jest dopuszczalna (`tablice_dostepne` bywa mapą gość → lista
+    # tablic), ale mapa samych pustych list to ta sama pustka w innym kształcie.
+    zle_ksztalty = sorted(
+        pole.rstrip("[]")
+        for pole in klasa.dowod
+        if pole.endswith("[]")
+        and not _cisza_jest_dowodem(pole.rstrip("[]"), dowod)
+        and not _niepusta_kolekcja(_pole_dowodu(dowod, pole.rstrip("[]")))
+    )
+    if zle_ksztalty:
+        return (
+            REGULA_DOWOD_NIEPELNY,
+            f"pola listowe dowodu nie są niepustą listą: {', '.join(zle_ksztalty)}",
+        )
     return None
+
+
+def _pole_dowodu(dowod: dict[str, Any], nazwa: str) -> Any:
+    """Wartość pola niezależnie od tego, czy model zapisał klucz z `[]`, czy bez."""
+    return dowod[nazwa] if nazwa in dowod else dowod.get(f"{nazwa}[]")
+
+
+def _niepusta_kolekcja(wartosc: Any) -> bool:
+    if isinstance(wartosc, list):
+        return bool(wartosc)
+    if isinstance(wartosc, dict):
+        return any(
+            _niepusta_kolekcja(v) if isinstance(v, list | dict) else v not in (None, "")
+            for v in wartosc.values()
+        )
+    return False
 
 
 def _sprawdz_finding(

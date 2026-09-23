@@ -168,3 +168,52 @@ def test_opis_wyniku_liczy_wszystkie_trzy_kubelki() -> None:
     assert "1 przyjęte" in opis
     assert "1 odrzucone" in opis
     assert "pominiętych przez model: 1" in opis
+
+
+# ── pola listowe dowodu (zmierzone 2026-09-23) ───────────────────────────
+
+
+def _gosc(tablice: object) -> dict[str, object]:
+    return {
+        "klasa_id": "GUEST_SPRAWL",
+        "opis": "13 gości wobec 8 członków.",
+        "rekomendacja": "Przejrzeć gości.",
+        "dowod": {
+            "liczba_guest": 13,
+            "liczba_members": 8,
+            "guest_hash": ["0240dd46f87f3dd2"],
+            "tablice_dostepne": tablice,
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    "tablice",
+    [
+        # Dosłownie to, co model wpisał na runie `analiza-20260923T122843Z`.
+        "dla wszystkich 11 nieaktywnych gości lista pusta w danych; zweryfikować",
+        {"0240dd46f87f3dd2": [], "0242d176469cbe1d": []},
+        42,
+    ],
+)
+def test_opis_braku_danych_w_polu_listowym_nie_przechodzi(tablice: object) -> None:
+    """Obejście O31: napis niepusty przechodził jako „wypełnione pole". Opis
+    braku danych nie jest daną, a mapa samych pustych list to ta sama pustka."""
+    from monday_audit.rubryka import wczytaj_rubryke
+
+    wynik = waliduj_uwagi({"uwagi": [_gosc(tablice)]}, wczytaj_rubryke())
+
+    assert not wynik.przyjete
+    assert "nie są niepustą listą: tablice_dostepne" in wynik.odrzucone[0].powod
+
+
+@pytest.mark.parametrize(
+    "tablice",
+    [["Onboarding klienta"], {"0240dd46f87f3dd2": ["Onboarding klienta"], "0242d176469cbe1d": []}],
+)
+def test_prawdziwa_lista_albo_mapa_przechodzi(tablice: object) -> None:
+    from monday_audit.rubryka import wczytaj_rubryke
+
+    wynik = waliduj_uwagi({"uwagi": [_gosc(tablice)]}, wczytaj_rubryke())
+
+    assert len(wynik.przyjete) == 1
