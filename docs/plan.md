@@ -297,7 +297,11 @@ na nich napisał.
     CXLABS, w tym 13 gości — mogą być spoza firmy), 6 runów, 47 findingów;
     osobno dane logowania do panelu (5 kont). Raportów w plikach brak.
     Serwer stoi na 12 migracjach — kod sprzed faz 4–5c.
-  - [ ] dane na serwerze i w `/var/backups` — tylko na wyraźną decyzję,
+  - [ ] dane na serwerze i w `/var/backups` — **zostają na razie, „w razie w"**
+    (decyzja Kuby 2026-09-23). Nowe nie dochodzą, bo audyty z panelu są
+    wstrzymane i wdrożone (`decb5ea`); kopie dzienne dalej rotują co 14 dni,
+    ale kopiują tę samą, już niezmienianą zawartość. Sprzątanie tylko na
+    wyraźną decyzję — do rozstrzygnięcia: metadane runów zostają czy nie,
   - [ ] stara ścieżka na serwerze dalej zapisuje snapshoty,
   - [x] D7 w `docs/ARCHITEKTURA.md` — sekcja „Faza 5c: snapshot przestaje być
     trwały w nowej ścieżce".
