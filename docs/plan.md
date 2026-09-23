@@ -322,6 +322,28 @@ na nich napisał.
   2. **„Chcę wykonać analizę"** → pełny skan całego konta plus model, na końcu
      raport.
 
+  **Wariant A — pakiet dla portalu** (decyzja Kuby 2026-09-23). Zgodnie
+  z notatką z 2026-09-17 kod audytu idzie do repo portalu jako importowany
+  pakiet, a ekrany, sesje i magazyn klucza pisze portal. W tym repo powstają
+  więc DWIE FUNKCJE WEJŚCIOWE o jasnym kontrakcie, obie w trybie pamięci
+  (5c), bez ekranów:
+
+  - `przeglad_konta(klucz)` → sześć kafelków (krok 1),
+  - `analiza_konta(klucz, …)` → uwagi krytyczne, zapis minimalny
+    i raport z nazwiskami zwrócony w pamięci, nie zapisany (krok 2).
+
+  Panel na Mikrusie zostaje z wstrzymanymi audytami — portal go zastąpi.
+
+  **Kroki:**
+  - [ ] **6-1** — `przeglad_konta`: kafelki z `inwentarz` pod publicznym
+    kontraktem (dataclassa + `do_json`), bez bazy i bez modelu. Na żywo CXLABS.
+  - [ ] **6-2** — `analiza_konta`: wydzielenie z `cli_analiza.uruchom`;
+    CLI staje się cienką nakładką na funkcję pakietu.
+  - [ ] **6-3** — szacunek przed krokiem 2 (wywołania monday i USD) liczony
+    z danych kroku 1 — zamiast progu „pięciu workspace'ów".
+  - [ ] **6-4** — typy dla portalu generowane z kontraktu i dokument
+    wejścia dla zespołu portalu (co funkcje przyjmują, co oddają, czego nie).
+
   Rozdzielenie jest tu mechanizmem, nie ozdobą: pierwszy krok kosztuje
   sekundy i nic nie zużywa, drugi kosztuje minuty i budżet wywołań klienta.
   - Ryzyko: **co się dzieje powyżej pięciu workspace'ów** — historyjka opisuje
