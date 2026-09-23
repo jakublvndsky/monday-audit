@@ -50,6 +50,29 @@ class UwagaWRaporcie:
 
 
 @dataclass(frozen=True, slots=True)
+class GrupaUwag:
+    """Uwagi jednej klasy — sekcja raportu zamiast N osobnych kart.
+
+    Prośba Kuby z 2026-09-23 po pierwszym raporcie: „wszystko rozbite na
+    osobne itemy". Osiem martwych kont to JEDEN problem z ośmioma wierszami,
+    a nie osiem problemów. Grupowanie jest deterministyczne (po klasie);
+    opis grupy pisany przez agenta to faza 7.
+    """
+
+    klasa_id: str
+    nazwa_klasy: str
+    uwagi: tuple[UwagaWRaporcie, ...]
+    # Pola dowodu w kolejności pierwszego wystąpienia — kolumny tabeli.
+    kolumny: tuple[str, ...]
+    # Rekomendacje bez powtórzeń. Jedna → pokazana raz nad tabelą.
+    rekomendacje: tuple[str, ...]
+
+    @property
+    def wspolna_rekomendacja(self) -> str | None:
+        return self.rekomendacje[0] if len(self.rekomendacje) == 1 else None
+
+
+@dataclass(frozen=True, slots=True)
 class RaportUwag:
     client_id: str
     run_id: str
@@ -58,6 +81,27 @@ class RaportUwag:
     pominietych: int
     zastrzezenia: tuple[str, ...]
     nieznane_hashe: int = 0
+
+    @property
+    def grupy(self) -> tuple[GrupaUwag, ...]:
+        """Najliczniejsze grupy najpierw — tam jest najwięcej do zrobienia."""
+        po_klasie: dict[str, list[UwagaWRaporcie]] = {}
+        for uwaga in self.uwagi:
+            po_klasie.setdefault(uwaga.klasa_id, []).append(uwaga)
+        grupy = []
+        for klasa_id, uwagi in po_klasie.items():
+            kolumny = tuple(dict.fromkeys(k for u in uwagi for k in u.dowod))
+            rekomendacje = tuple(dict.fromkeys(u.rekomendacja for u in uwagi))
+            grupy.append(
+                GrupaUwag(
+                    klasa_id=klasa_id,
+                    nazwa_klasy=uwagi[0].nazwa_klasy,
+                    uwagi=tuple(uwagi),
+                    kolumny=kolumny,
+                    rekomendacje=rekomendacje,
+                )
+            )
+        return tuple(sorted(grupy, key=lambda g: -len(g.uwagi)))
 
 
 def zbuduj_raport_uwag(

@@ -319,11 +319,25 @@ na nich napisał.
   do szczegółów, a sam raport jest **pogrupowany i opisany przez agenta**, nie
   wyliczany zdarzenie po zdarzeniu. Bez kwot przy znaleziskach (2026-09-23).
 
-  **Kształt grupowania jest do dopracowania** (decyzja 2026-09-21: „to będzie
-  do dopracowania"). Wiadomo tylko, czego ma nie być: listy pojedynczych
-  zdarzeń. Tej fazy nie da się domknąć, dopóki nie wiadomo, w co grupujemy —
-  i to jest w porządku, bo materiału do grupowania dostarczają dopiero fazy 3
-  i 5.
+  **Kształt grupowania — ustalony z Kubą 2026-09-23**, po obejrzeniu
+  pierwszego raportu uwag („strasznie nieprzejrzyste"):
+
+  1. **Raport główny = cztery kategorie z wytycznych jako kafelki:**
+     Workspace, Tablice, Użytkownicy, Agenci. Na kafelku liczba uwag
+     krytycznych w tej kategorii i jedno zdanie agenta o największym problemie.
+  2. **Kliknięcie PRZENOSI do osobnego, pogłębionego raportu tej kategorii**
+     — osobny widok, nie rozwinięcie treści na tej samej stronie. Tam tabele,
+     dowody, nazwiska, rekomendacje.
+  3. **Przypisanie klas do kategorii** (propozycja, do potwierdzenia przy
+     fazie): Tablice ← `AUTOMATION_*`, `BOARD_*`, `DUPLICATE_STRUCTURE`,
+     `PROCESS_BYPASS`; Użytkownicy ← `ZOMBIE_ACCOUNT`, `GUEST_SPRAWL`,
+     `PLAN_MISMATCH`, `UZYTKOWNIK_WYGASZONY`, `ENGAGEMENT_DROP`; Agenci ←
+     `AI_UNUSED` (dziś zablokowana, O20); Workspace ← rollupy CRM/Service
+     z 5a, na razie bez klasy uwag.
+
+  Stan przejściowy do tej fazy: `raport_uwag.html.j2` grupuje po klasie
+  (sekcja na klasę, tabela wierszy) — lepsze niż karta na uwagę, ale to nie
+  jest docelowy kształt.
   - Ryzyko: **PDF to nowa zależność.** Headless Chrome oznacza powrót Node'a na
     produkcję, czego świadomie unikaliśmy; WeasyPrint to czysty Python za cenę
     bibliotek systemowych (pango, cairo). Decyzja przed fazą, nie w trakcie.

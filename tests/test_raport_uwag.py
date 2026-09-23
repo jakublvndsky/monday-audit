@@ -93,3 +93,35 @@ def test_plik_od_razu_z_prawami_600(con: sqlite3.Connection, tmp_path: Path) -> 
 
     assert sciezka.stat().st_mode & 0o777 == 0o600
     assert NAZWISKO in sciezka.read_text(encoding="utf-8")
+
+
+def test_uwagi_sa_grupowane_po_klasie_a_nie_wyliczane(con: sqlite3.Connection) -> None:
+    """Prośba Kuby po pierwszym raporcie: „wszystko rozbite na osobne itemy".
+    Trzy martwe konta to jedna sekcja z trzema wierszami, a nie trzy karty."""
+    auto = {
+        "klasa_id": "AUTOMATION_DEAD",
+        "opis": "Automatyzacja pada.",
+        "rekomendacja": "Naprawić trigger.",
+        "dowod": {"automation_id": "1", "failure": 3},
+    }
+    raport = zbuduj_raport_uwag(
+        [_uwaga(), _uwaga(), _uwaga(), auto],
+        con=con,
+        client_id="cxlabs",
+        run_id="r1",
+        run_at="2026-09-23T12:00:00Z",
+        rubryka=wczytaj_rubryke(),
+    )
+
+    grupy = raport.grupy
+    assert [(g.klasa_id, len(g.uwagi)) for g in grupy] == [
+        ("ZOMBIE_ACCOUNT", 3),
+        ("AUTOMATION_DEAD", 1),
+    ]
+    assert grupy[0].kolumny == ("user_hash", "kind", "last_activity")
+    # Ta sama rekomendacja trzy razy to jedna rekomendacja.
+    assert grupy[0].wspolna_rekomendacja == "Potwierdzić u właściciela konta."
+
+    html = wyrenderuj_uwagi(raport)
+    assert html.count('class="grupa"') == 2
+    assert html.count("Potwierdzić u właściciela konta.") == 1

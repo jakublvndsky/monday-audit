@@ -13,9 +13,16 @@
   body { max-width: 900px; margin: 0 auto; padding: var(--space-7) var(--space-6); }
   .znak { height: 32px; width: auto; margin-bottom: var(--space-4); display: block; }
   .meta { color: var(--fg-muted); font-size: var(--fs-small); }
-  .uwaga { border: 1px solid var(--border-subtle); border-radius: var(--radius-xl);
-           padding: var(--space-5) var(--space-6); margin: var(--space-5) 0; }
-  .uwaga h3 { margin: 0 0 var(--space-2); }
+  .spis { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4);
+          font-size: var(--fs-small); margin: var(--space-4) 0 var(--space-6); }
+  .grupa { border: 1px solid var(--border-subtle); border-radius: var(--radius-xl);
+           padding: var(--space-5) var(--space-6); margin: var(--space-6) 0; }
+  .grupa h2 { margin: 0 0 var(--space-3); }
+  .liczba { color: var(--fg-muted); font-weight: 400; }
+  table.dowod th { text-align: left; font-size: var(--fs-xs); color: var(--fg-muted);
+                   padding: var(--space-1) var(--space-2); }
+  tr.opis td { border-top: none; padding-bottom: var(--space-3); }
+  summary { cursor: pointer; color: var(--fg-muted); }
   .zrodlo { color: var(--fg-muted); font-size: var(--fs-xs); text-transform: uppercase; }
   .rekomendacja { font-weight: 600; }
   table.dowod { font-size: var(--fs-small); border-collapse: collapse; width: 100%; }
@@ -34,14 +41,25 @@
 <ul>{% for z in r.zastrzezenia %}<li>{{ z }}</li>{% endfor %}</ul>
 {% endif %}
 
-{% for u in r.uwagi %}
-<section class="uwaga">
-  <div class="zrodlo">{{ u.nazwa_klasy }}{% if u.zrodlo == "szablon" %} · reguła{% endif %}</div>
-  <h3>{{ u.opis }}</h3>
-  <p class="rekomendacja">→ {{ u.rekomendacja }}</p>
+<nav class="spis">
+{% for g in r.grupy %}<a href="#{{ g.klasa_id }}">{{ g.nazwa_klasy }} ({{ g.uwagi | length }})</a>{% endfor %}
+</nav>
+
+{% for g in r.grupy %}
+<section class="grupa" id="{{ g.klasa_id }}">
+  <h2>{{ g.nazwa_klasy }} <span class="liczba">{{ g.uwagi | length }}</span></h2>
+  {% if g.wspolna_rekomendacja %}<p class="rekomendacja">→ {{ g.wspolna_rekomendacja }}</p>{% endif %}
   <table class="dowod">
-    {% for k, v in u.dowod | dictsort %}
-    <tr><td>{{ k | etykieta }}</td><td>{{ wartosc_dowodu(v) }}</td></tr>
+    <tr>{% for k in g.kolumny %}<th>{{ k | etykieta }}</th>{% endfor %}</tr>
+    {% for u in g.uwagi %}
+    <tr>{% for k in g.kolumny %}<td>{{ wartosc_dowodu(u.dowod.get(k)) }}</td>{% endfor %}</tr>
+    <tr class="opis"><td colspan="{{ g.kolumny | length }}">
+      <details><summary>{{ u.opis | truncate(140) }}</summary>
+        <p>{{ u.opis }}</p>
+        {% if not g.wspolna_rekomendacja %}<p class="rekomendacja">→ {{ u.rekomendacja }}</p>{% endif %}
+        {% if u.zrodlo == "szablon" %}<p class="zrodlo">reguła, nie model</p>{% endif %}
+      </details>
+    </td></tr>
     {% endfor %}
   </table>
 </section>
