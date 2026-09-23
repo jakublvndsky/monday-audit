@@ -39,18 +39,17 @@ import time
 from pathlib import Path
 from typing import Any
 
-from monday_audit.agent import MODEL, AgentError, _tekst_promptu, hash_promptu
+from monday_audit.agent import MODEL, AgentError, hash_promptu
 from monday_audit.analiza import (
     SCIEZKA_PROMPTU_ANALIZY,
     rozdziel_hipotezy,
     zbadaj_konto,
-    zbuduj_zadanie,
 )
-from monday_audit.baza import polacz
+from monday_audit.baza import polacz, zastosuj_migracje
 from monday_audit.detektory import uruchom_detektory
 from monday_audit.konfiguracja import KonfiguracjaError, klucz_anthropic, sol_z_ustawien, wczytaj
 from monday_audit.kontrakt import KontraktError
-from monday_audit.koszt import oszacuj, porownaj, stawka_z_historii, zapisz_zuzycie_analizy
+from monday_audit.koszt import historia_analiz, oszacuj, porownaj, zapisz_zuzycie_analizy
 from monday_audit.narzedzia import Narzedzia
 from monday_audit.przebieg import zapisz_zuzycie
 from monday_audit.rubryka import wczytaj_rubryke
@@ -134,6 +133,10 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
     baza = argumenty.baza or ustawienia.monday_audit_db
     con = polacz(baza)
     try:
+        # Jak w każdym innym CLI tego repo. Pierwsza wersja to pominęła,
+        # a bez tego kolumna `zuzycie_hipotez.hipotez` (migracja 013) nie
+        # powstałaby w istniejącej bazie i zapis zużycia padłby po opłaconym runie.
+        zastosuj_migracje(con)
         rubryka = wczytaj_rubryke()
         hipotezy, raport = uruchom_detektory(con, argumenty.snapshot, rubryka)
         if not hipotezy:
@@ -153,15 +156,9 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
                 "Obraz konta robi `cli_inwentarz --wejscie-modelu`."
             )
 
-        prompt = _tekst_promptu(SCIEZKA_PROMPTU_ANALIZY)
         # Szacunek liczymy WYŁĄCZNIE dla tego, co pójdzie do modelu. Szablon
         # kosztuje zero, więc liczenie go zawyżałoby kwotę bez powodu.
-        szacunek = oszacuj(
-            zbuduj_zadanie(do_modelu, wejscie, rubryka) if do_modelu else "",
-            ile_hipotez=len(do_modelu),
-            prompt=prompt if do_modelu else "",
-            stawka=stawka_z_historii(con),
-        )
+        szacunek = oszacuj(len(do_modelu), historia_analiz(con))
         print(
             f"\n  hipotez: {len(hipotezy)} — do modelu {len(do_modelu)}, "
             f"z szablonu {len(z_szablonow)} (bez kosztu)"
@@ -225,6 +222,7 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
                 con,
                 run_id,
                 zuzycie,
+                ile_hipotez=len(do_modelu),
                 ile_uwag=len(wynik.przyjete),
                 wywolan_narzedzi=len(odpowiedz.get("wywolania_narzedzi") or []),
                 sekund=sekund,

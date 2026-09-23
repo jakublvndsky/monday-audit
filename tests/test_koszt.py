@@ -1,9 +1,14 @@
-"""Szacowany koszt runu, liczony z pomiaru a nie z cennika (faza 5b-3).
+"""Szacowany koszt runu z historii analiz, nie z długości tekstu (faza 5b-3).
 
-Najważniejsze w tym pliku nie jest to, czy szacunek trafia — bo nie trafi,
-dopóki historia pochodzi z innej architektury. Najważniejsze jest, żeby
-**każda liczba mówiła, na czym stoi**: czy to pomiar, ile go było, i o ile
-szacunek się pomylił. Szacunek bez tej informacji wygląda tak samo jak pomiar.
+Pierwsza wersja estymatora liczyła tokeny z długości zadania i zaniżyła koszt
+dwunastokrotnie (0,05 USD wobec 0,63). Po tamtym runie jej szacunek wyszedł
+0,06 USD — czyli się nie nauczyła, choć miała. Ten plik pilnuje dwóch rzeczy,
+których tamtej wersji zabrakło:
+
+- **że run faktycznie zasila następny szacunek** — to jest test na samo sedno,
+- **że szacunek myli się w górę, a nie w dół** — bo klient, który zapłacił
+  dziesięć razy więcej, niż usłyszał, ma pretensje, a ten, który zapłacił
+  mniej, nie ma.
 """
 
 from __future__ import annotations
@@ -17,13 +22,14 @@ import pytest
 
 from monday_audit.baza import polacz, zastosuj_migracje
 from monday_audit.koszt import (
-    STAWKA_AWARYJNA_USD_ZA_TOKEN,
-    ZNAKOW_NA_TOKEN,
-    StawkaTokenow,
+    HIPOTEZ_W_POMIARZE,
+    KOSZT_POMIARU_USD,
+    POMIAR_STARTOWY,
+    HistoriaAnaliz,
     Szacunek,
+    historia_analiz,
     oszacuj,
     porownaj,
-    stawka_z_historii,
     zapisz_zuzycie_analizy,
 )
 
@@ -44,7 +50,7 @@ def con(tmp_path: Path) -> Iterator[sqlite3.Connection]:
     polaczenie.close()
 
 
-def _run(con: sqlite3.Connection, run_id: str = "r") -> None:
+def _run(con: sqlite3.Connection, run_id: str) -> None:
     """Wiersz w `runy` — bez niego klucz obcy odrzuci zapis zużycia."""
     con.execute(
         "INSERT OR IGNORE INTO runy (run_id, client_id, status, started_at) "
@@ -54,93 +60,118 @@ def _run(con: sqlite3.Connection, run_id: str = "r") -> None:
     con.commit()
 
 
-def _wiersz(con: Any, *, koszt: float | None, tokenow: int) -> None:
-    _run(con)
+def _analiza(con: sqlite3.Connection, run_id: str, *, koszt: float | None, hipotez: int) -> None:
+    _run(con, run_id)
+    zapisz_zuzycie_analizy(con, run_id, {"koszt_usd": koszt}, ile_hipotez=hipotez)
+
+
+# ── sedno: run zasila następny szacunek ──────────────────────────────────
+
+
+def test_run_analizy_zmienia_nastepny_szacunek(con: Any) -> None:
+    """DOKŁADNIE to, czego pierwsza wersja nie robiła. Po runie za 0,63 USD
+    jej szacunek przesunął się z 0,05 na 0,06 — czyli prawie wcale."""
+    przed = oszacuj(16, historia_analiz(con))
+
+    _analiza(con, "a1", koszt=3.20, hipotez=16)
+    po = oszacuj(16, historia_analiz(con))
+
+    assert po.koszt_usd == pytest.approx(3.20)
+    assert po.koszt_usd != przed.koszt_usd
+
+
+def test_pomiar_startowy_to_ta_architektura_a_nie_stara(con: Any) -> None:
+    """Pusta baza (np. serwer przed pierwszą analizą) dostaje pomiar Z TEJ
+    architektury. Poprzednia stawka awaryjna pochodziła z sesji per hipoteza
+    i zaniżała dziesięciokrotnie."""
+    szacunek = oszacuj(HIPOTEZ_W_POMIARZE, historia_analiz(con))
+
+    assert szacunek.koszt_usd == pytest.approx(KOSZT_POMIARU_USD, abs=0.001)
+    assert not szacunek.z_pomiaru_w_bazie
+    assert "BRAK ANALIZ W BAZIE" in szacunek.opis()
+
+
+def test_wiersze_starej_sciezki_nie_psuja_stawki(con: Any) -> None:
+    """Sesja per hipoteza ma inną strukturę kosztu — każda płaci za własny
+    prompt i kontekst. Wliczenie jej zepsułoby szacunek tak samo, jak zepsuła
+    go stawka mieszana w pierwszej wersji."""
+    _run(con, "stary")
     con.execute(
         "INSERT INTO zuzycie_hipotez (run_id, klasa_id, tokens_in, koszt_usd, zapisano) "
-        "VALUES ('r', 'X', ?, ?, 'teraz')",
-        (tokenow, koszt),
+        "VALUES ('stary', 'BOARD_GHOST', 1000, 50.0, 'teraz')"
     )
     con.commit()
 
-
-# ── stawka z historii ────────────────────────────────────────────────────
-
-
-def test_pusta_historia_daje_stawke_awaryjna(con: Any) -> None:
-    """Pierwszy run w świeżej bazie ma dostać JAKĄŚ liczbę, ale oznaczoną."""
-    stawka = stawka_z_historii(con)
-
-    assert not stawka.z_pomiaru
-    assert stawka.usd_za_token == STAWKA_AWARYJNA_USD_ZA_TOKEN
+    assert historia_analiz(con) == POMIAR_STARTOWY
 
 
-def test_stawka_liczy_sie_z_sumy_a_nie_ze_sredniej_wierszy(con: Any) -> None:
-    """Średnia po wierszach ważyłaby tak samo run za 0,01 USD i za 1 USD."""
-    _wiersz(con, koszt=1.0, tokenow=1000)
-    _wiersz(con, koszt=9.0, tokenow=9000)
+def test_stawka_liczy_sie_z_sumy_a_nie_ze_sredniej_runow(con: Any) -> None:
+    """Średnia po runach ważyłaby tak samo run na 3 hipotezy i na 60."""
+    _analiza(con, "maly", koszt=0.30, hipotez=3)
+    _analiza(con, "duzy", koszt=6.00, hipotez=60)
 
-    stawka = stawka_z_historii(con)
+    historia = historia_analiz(con)
 
-    assert stawka.z_pomiaru
-    assert stawka.usd_za_token == pytest.approx(10.0 / 10_000)
+    assert historia.usd_na_hipoteze == pytest.approx(6.30 / 63)
+    assert historia.runow == 2
 
 
 def test_runy_z_subskrypcji_nie_zanizaja_stawki(con: Any) -> None:
-    """`koszt_usd` zerowy albo pusty znaczy „run poszedł z subskrypcji" (D17),
-    czyli kwota jest teoretyczna, nie fakturą. Wliczenie go zaniżyłoby stawkę,
-    a szacunek optymistyczny jest gorszy od żadnego."""
-    _wiersz(con, koszt=1.0, tokenow=1000)
-    _wiersz(con, koszt=0.0, tokenow=50_000)
-    _wiersz(con, koszt=None, tokenow=50_000)
+    """`koszt_usd` zerowy albo pusty to run z subskrypcji (D17) — wycena
+    teoretyczna, nie faktura. Szacunek zaniżony jest gorszy od żadnego."""
+    _analiza(con, "platny", koszt=1.60, hipotez=16)
+    _analiza(con, "subskrypcja", koszt=0.0, hipotez=16)
+    _analiza(con, "bez_kwoty", koszt=None, hipotez=16)
 
-    stawka = stawka_z_historii(con)
+    historia = historia_analiz(con)
 
-    assert stawka.usd_za_token == pytest.approx(1.0 / 1000)
-    assert stawka.wierszy == 1
-
-
-# ── szacunek ─────────────────────────────────────────────────────────────
+    assert historia.runow == 1
+    assert historia.usd_na_hipoteze == pytest.approx(0.10)
 
 
-def test_szacunek_rosnie_z_dlugoscia_zadania() -> None:
-    stawka = StawkaTokenow(usd_za_token=0.001, tokenow=1000, wierszy=1)
-
-    maly = oszacuj("x" * 100, ile_hipotez=1, stawka=stawka)
-    duzy = oszacuj("x" * 10_000, ile_hipotez=1, stawka=stawka)
-
-    assert duzy.koszt_usd > maly.koszt_usd
-    assert maly.tokenow_wejscia == int(100 / ZNAKOW_NA_TOKEN)
+# ── szacunek myli się w górę ─────────────────────────────────────────────
 
 
-def test_prompt_liczy_sie_pelna_stawka_czyli_przeszacowujemy() -> None:
-    """Prompt jest prefiksem cache'u, więc przy drugim runie kosztuje ułamek.
-    NIE modelujemy tego rabatu — błąd w stronę wyższej kwoty jest bezpieczny,
-    bo klient, który zapłacił mniej niż usłyszał, nie ma pretensji."""
-    stawka = StawkaTokenow(usd_za_token=0.001, tokenow=1000, wierszy=1)
+def test_mniejszy_run_nie_jest_szacowany_proporcjonalnie_taniej() -> None:
+    """Sesja ma koszt stały (prompt, obraz konta, narzut SDK). Run na 4 hipotezy
+    nie kosztuje ćwierci runu na 16 — dlatego poniżej liczby odniesienia nie
+    skalujemy w dół. Szacunek wychodzi zawyżony i MÓWI, że jest zawyżony."""
+    historia = HistoriaAnaliz(usd_na_hipoteze=0.04, hipotez_odniesienia=16, runow=1)
 
-    bez = oszacuj("zadanie", ile_hipotez=1, stawka=stawka)
-    z_promptem = oszacuj("zadanie", ile_hipotez=1, prompt="p" * 3300, stawka=stawka)
+    szacunek = oszacuj(4, historia)
 
-    assert z_promptem.tokenow_wejscia - bez.tokenow_wejscia == pytest.approx(1000, abs=2)
-
-
-def test_wyjscie_skaluje_sie_liczba_hipotez() -> None:
-    stawka = StawkaTokenow(usd_za_token=0.001, tokenow=1000, wierszy=1)
-
-    jedna = oszacuj("z", ile_hipotez=1, stawka=stawka)
-    dziesiec = oszacuj("z", ile_hipotez=10, stawka=stawka)
-
-    assert dziesiec.tokenow_wyjscia == 10 * jedna.tokenow_wyjscia
+    assert szacunek.koszt_usd == pytest.approx(0.04 * 16)
+    assert "liczone jak dla 16" in szacunek.opis()
 
 
-def test_opis_mowi_czy_stawka_jest_z_pomiaru() -> None:
-    """Szacunek bez tej informacji wygląda dokładnie tak samo jak pomiar."""
-    bez_pomiaru = oszacuj("z", ile_hipotez=1, stawka=StawkaTokenow(0.001, 0, 0))
-    z_pomiarem = oszacuj("z", ile_hipotez=1, stawka=StawkaTokenow(0.001, 5000, 12))
+def test_wiekszy_run_skaluje_sie_liniowo() -> None:
+    """Powyżej odniesienia liniowo — przy dodatnim koszcie stałym to górne
+    oszacowanie, czyli błąd w bezpieczną stronę."""
+    historia = HistoriaAnaliz(usd_na_hipoteze=0.04, hipotez_odniesienia=16, runow=1)
 
-    assert "BEZ POMIARU" in bez_pomiaru.opis()
-    assert "12 wierszy historii" in z_pomiarem.opis()
+    assert oszacuj(40, historia).koszt_usd == pytest.approx(1.60)
+
+
+def test_szacunek_jest_gornym_ograniczeniem_przy_koszcie_stalym() -> None:
+    """Własność, dla której wzór jest taki, a nie inny. Jeżeli prawdziwy koszt
+    to `stały + zmienny × n`, szacunek z jednego runu nie zaniży ŻADNEGO
+    innego runu — ani mniejszego, ani większego."""
+    staly, zmienny, n_pomiaru = 0.30, 0.02, 16
+    koszt_pomiaru = staly + zmienny * n_pomiaru
+    historia = HistoriaAnaliz(koszt_pomiaru / n_pomiaru, n_pomiaru, 1)
+
+    for n in (1, 4, 16, 17, 50, 200):
+        prawdziwy = staly + zmienny * n
+        assert oszacuj(n, historia).koszt_usd >= prawdziwy - 1e-9, n
+
+
+def test_zero_hipotez_to_zero_kosztu() -> None:
+    """Wszystko poszło szablonami — model nie jest wołany. Przy koncie, na
+    którym wychodzą wyłącznie martwe konta, tak właśnie będzie."""
+    szacunek = oszacuj(0)
+
+    assert szacunek.koszt_usd == 0.0
+    assert "szablon" in szacunek.opis()
 
 
 # ── konfrontacja z rachunkiem ────────────────────────────────────────────
@@ -148,10 +179,8 @@ def test_opis_mowi_czy_stawka_jest_z_pomiaru() -> None:
 
 def test_porownanie_nazywa_kierunek_i_skale_bledu() -> None:
     """Szacunek, którego nikt nie konfrontuje z rachunkiem, po kilku runach
-    staje się ozdobą — a wtedy lepiej go nie pokazywać wcale."""
-    szacunek = Szacunek(1000, 500, 0.50, "historia", True)
-
-    opis = porownaj(szacunek, {"koszt_usd": 0.75})
+    staje się ozdobą."""
+    opis = porownaj(Szacunek(16, 0.50, "historia", True), {"koszt_usd": 0.75})
 
     assert "drożej" in opis
     assert "0.25" in opis
@@ -159,16 +188,13 @@ def test_porownanie_nazywa_kierunek_i_skale_bledu() -> None:
 
 
 def test_brak_kosztu_nie_udaje_zera() -> None:
-    """Run z subskrypcji nie ma faktury. „0 USD" byłoby kłamstwem, a nie
-    dobrą wiadomością."""
-    szacunek = Szacunek(1000, 500, 0.50, "historia", True)
-
-    opis = porownaj(szacunek, {"koszt_usd": 0.0})
+    """Run z subskrypcji nie ma faktury. „0 USD" byłoby kłamstwem."""
+    opis = porownaj(Szacunek(16, 0.50, "historia", True), {"koszt_usd": 0.0})
 
     assert "NIEZNANY" in opis
 
 
-# ── zapis zużycia sesji ──────────────────────────────────────────────────
+# ── zapis ────────────────────────────────────────────────────────────────
 
 
 def test_zapis_bez_wiersza_w_runy_pada_na_kluczu_obcym(con: Any) -> None:
@@ -176,36 +202,15 @@ def test_zapis_bez_wiersza_w_runy_pada_na_kluczu_obcym(con: Any) -> None:
     istnieje po to, żeby ograniczenie było ZNANE, a nie odkrywane na płatnym
     przebiegu — `cli_analiza` musi założyć wiersz w `runy` przed sesją."""
     with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
-        zapisz_zuzycie_analizy(con, "bez-runu", {"tokens_in": 1, "koszt_usd": 0.1})
+        zapisz_zuzycie_analizy(con, "bez-runu", {"koszt_usd": 0.1}, ile_hipotez=1)
 
 
-def test_sesja_zapisuje_sie_jako_jeden_wiersz(con: Any) -> None:
-    """Bez migracji: tabela przyjmuje `klasa_id` jako tekst, więc sesja
-    zbiorcza siada pod ANALIZA_KONTA i zasila następny szacunek."""
-    _run(con, "analiza-1")
-    zapisz_zuzycie_analizy(
-        con,
-        "analiza-1",
-        {"tokens_in": 100, "tokens_out": 200, "koszt_usd": 0.4},
-        ile_uwag=3,
-        wywolan_narzedzi=2,
-        sekund=12.5,
-    )
+def test_liczba_hipotez_jest_obowiazkowa() -> None:
+    """Bez niej wiersz nie zasila historii i estymator nie uczy się z runu —
+    czyli usterka, którą ta wersja naprawia. Wartość domyślna pozwoliłaby
+    o tym zapomnieć bez żadnego sygnału."""
+    import inspect
 
-    wiersz = con.execute("SELECT * FROM zuzycie_hipotez").fetchone()
+    parametr = inspect.signature(zapisz_zuzycie_analizy).parameters["ile_hipotez"]
 
-    assert wiersz["klasa_id"] == "ANALIZA_KONTA"
-    assert wiersz["koszt_usd"] == 0.4
-    assert wiersz["byl_finding"] == 1
-
-
-def test_zapisana_sesja_zasila_nastepny_szacunek(con: Any) -> None:
-    """Sedno projektu: estymator uczy się z własnej historii. Pierwszy szacunek
-    dla nowej architektury będzie zły, drugi policzy się z pierwszego."""
-    _run(con, "a")
-    zapisz_zuzycie_analizy(con, "a", {"tokens_in": 1000, "tokens_out": 1000, "koszt_usd": 2.0})
-
-    stawka = stawka_z_historii(con)
-
-    assert stawka.z_pomiaru
-    assert stawka.usd_za_token == pytest.approx(2.0 / 2000)
+    assert parametr.default is inspect.Parameter.empty

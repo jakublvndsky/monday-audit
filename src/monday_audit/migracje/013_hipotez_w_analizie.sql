@@ -1,0 +1,32 @@
+-- Liczba hipotez, które poszły do modelu w sesji analizy (plan, faza 5b-3).
+--
+-- ## Po co
+--
+-- Pierwsza wersja estymatora kosztu liczyła tokeny z DŁUGOŚCI TEKSTU zadania
+-- i mnożyła przez stawkę mieszaną. ZMIERZONE na runie
+-- `analiza-20260923T085706Z`: szacunek 0,05 USD, rachunek 0,63 USD. Po tym runie
+-- nowy szacunek wyszedł 0,06 USD — czyli estymator się NIE nauczył, choć miał.
+--
+-- Przyczyna nie leżała w stawce, tylko w modelu tokenów:
+--
+--     szacowane wejście:  10 955 tokenów
+--     faktyczne wejście: 173 319   (cache_read 105 934 + cache_write 67 379)
+--
+-- Sesja z narzędziami czyta cały kontekst NA NOWO przy każdym obrocie, a SDK
+-- dokłada własny prompt i definicje narzędzi. Liczenie z długości tekstu tego
+-- nie widzi i zawsze zaniży, tym bardziej, im więcej model sięga po narzędzia.
+--
+-- Estymator liczy więc teraz z FAKTYCZNEGO KOSZTU wcześniejszych analiz
+-- w przeliczeniu na hipotezę — a do tego potrzebuje wiedzieć, ile hipotez
+-- dany koszt obejmował.
+--
+-- ## Dlaczego NULLABLE
+--
+-- Wiersze starej ścieżki (sesja na hipotezę) nie mają tej liczby i NIE WOLNO
+-- jej uzupełniać. Tam jeden wiersz to z definicji jedna hipoteza, ale to inna
+-- architektura o innej strukturze kosztu — wliczenie jej do stawki analizy
+-- zepsułoby szacunek dokładnie tak, jak zepsuła go stawka mieszana. Ta sama
+-- zasada co w migracjach 010 i 011: brak danych mówi się wprost, nie podstawia
+-- się liczby, która wygląda na pomiar.
+
+ALTER TABLE zuzycie_hipotez ADD COLUMN hipotez INTEGER;

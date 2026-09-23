@@ -91,9 +91,12 @@ def test_migracje_aplikuja_sie_od_zera(tmp_path: Path) -> None:
     012 PRZEBUDOWAŁA `zadania`, bo `CHECK (stan IN (...))` nie da się zmienić
     w miejscu, a doszedł stan `czeka_na_zgode` — pauza między zebraniem danych
     a odpaleniem agenta, w której klient wybiera zakres i zgadza się na koszt.
+    013 dodała `zuzycie_hipotez.hipotez` — liczbę hipotez w sesji analizy.
+    Estymator kosztu liczony z długości tekstu zaniżał dwunastokrotnie i nie
+    uczył się z runów; liczony z kosztu na hipotezę potrzebuje tej liczby.
     """
     con = polacz(tmp_path / "nowa.db")
-    assert zastosuj_migracje(con) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    assert zastosuj_migracje(con) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
     con.close()
 
 
