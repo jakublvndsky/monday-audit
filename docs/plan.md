@@ -143,15 +143,36 @@ na nich napisał.
   jednego ze 136. Budowanie jej teraz byłoby pisaniem na wyobrażonym kliencie.
   Wraca, gdy trafi się konto, które jej potrzebuje.
 
-  **DO USZCZEGÓŁOWIENIA — rozmowa z 2026-09-23, jeszcze nie rozstrzygnięta.**
-  Cztery pytania decydują o kształcie i żadnego nie wolno przemilczeć:
-  1. czy detektory zostają (deterministyczne wykrywanie, model tylko orzeka),
-     czy model sam szuka problemów w dokumencie,
-  2. jedna sesja na całe konto czy sesja na znalezisko — dziś jest to drugie,
-     z budżetami z rubryki,
-  3. skąd biorą się kwoty w dolarach i które uwagi w ogóle mają kwotę,
-  4. co się dzieje ze starą ścieżką w międzyczasie — kasujemy od razu czy
-     zostawiamy równolegle, aż nowa się obroni.
+  **ROZSTRZYGNIĘTE z Kubą 2026-09-23:**
+  1. **detektory zostają** — deterministycznie wykrywają, model tylko orzeka.
+     Z rubryki umiera metadana OCENIAJĄCA (waga, wysiłek, pewność, wycena),
+     a katalog wykrywania (progi, budżety, `rola_agenta`) zostaje,
+  2. **jedna sesja na całe konto** zamiast sesji na hipotezę,
+  3. **nie wyceniamy znalezisk** — tylko szacowany koszt runu agenta,
+  4. **stara ścieżka zostaje na razie** równolegle, nietknięta.
+
+  Dwa potoki współistnieją celowo: nowy (inwentarz → itemy → zestawienia)
+  to tani pierwszy ekran, stary (snapshot → detektory → model) — głęboka
+  analiza, bo detektory potrzebują zamrożonego snapshotu.
+
+  **Stan kroków:**
+  - [x] **5b-1** — kształt uwagi krytycznej (`uwagi.py`): cztery pola zamiast
+    dziewięciu, `klasa_id` jako POCHODZENIE, reguła dowodu współdzielona
+    z `kontrakt.sprawdz_dowod`, nie skopiowana.
+  - [x] **5b-2** — jedna sesja (`analiza.py`, `PROMPT_ANALIZY.md`). Pierwszy
+    prawdziwy run miał 41% odrzuceń, bo przeniosłem hydraulikę starej ścieżki
+    bez jej wiedzy: szablony i `dowod_wymagany`. Po poprawce: 24/24
+    rozstrzygnięte, 0% odrzuceń, 0,63 USD (`analiza-20260923T085706Z`).
+  - [x] **5b-3** — szacowany koszt runu (`koszt.py`) i spięcie w `cli_analiza`.
+    Pierwsza wersja liczyła tokeny z długości tekstu i zaniżała 12× (0,05 wobec
+    0,63), bo sesja z narzędziami czyta kontekst na nowo przy każdym obrocie.
+    Teraz: koszt na hipotezę z historii analiz, celowo zawyżany w małych runach.
+  - [x] Langfuse dla nowej ścieżki — trace sesji, także z runu, który padł;
+    obraz konta idzie jako hasz, nie treść.
+  - [ ] **Zostaje w 5b:** przypadki użycia agentów (materiał za cienki, O20),
+    próg detektora `AUTOMATION_DEAD` 0,05 łapie automatyzacje, które w większości
+    działają (model odrzucił taki przypadek sam), jednorazowe „priorytetowo"
+    w uwadze mimo zakazu stopniowania.
   - Ryzyko: **przypadki użycia agentów stoją na cienkim materiale.**
     `agent_runs` nie istnieje w żadnej wersji API (O20), `agents` działa
     dopiero w nieprzypiętej `2027-01`, więc zostaje liczba kont agentowych
@@ -202,6 +223,24 @@ na nich napisał.
     Sprzątanie jest nieodwracalne — tylko na wyraźną decyzję Kuby.
   - Przy zamykaniu: D7 w `docs/ARCHITEKTURA.md` (snapshot trwały
     i niemutowalny) wymaga zapisu, co z niej cofamy i dlaczego.
+
+  **Stan kroków (2026-09-23):**
+  - [x] krok 1 — `przechowanie.py` i migracja 014 (`uwagi_zapisane`,
+    `statystyki_runow`): pseudonim → `[OSOBA]`, lista → `[OSOBY: n]`, data →
+    liczba dni przed runem, statystyki = same liczby. Bramka przerywa zapis,
+    gdy po maskowaniu został pseudonim albo adres.
+  - [x] krok 2 — `cli_analiza --zakres …` zbiera do SQLite w pamięci; na dysk
+    idzie tylko to, co przeszło przez `przechowanie.py`. Test przegląda CAŁĄ
+    trwałą bazę po runie. Na żywo (collector, bez modelu): snapshotów 1 → 1,
+    mapowania 100 → 100.
+  - [x] lokalne dane z sesji 2026-09-22/23 (snapshot CXLABS, 100 wierszy
+    mapowania, odpowiedzi modelu, pliki robocze) przeniesione do Kosza —
+    nie usunięte trwale; opróżnienie Kosza po stronie Kuby.
+  - [ ] pełna analiza z modelem w trybie pamięci — zamaskowane uwagi z
+    prawdziwego runu jeszcze niewidziane poza testami,
+  - [ ] dane na serwerze i w `/var/backups` — tylko na wyraźną decyzję,
+  - [ ] stara ścieżka na serwerze dalej zapisuje snapshoty,
+  - [ ] D7 w `docs/ARCHITEKTURA.md` przy zamknięciu fazy.
 
 - [ ] **6. Przepływ: dwa kroki, jedno kliknięcie między nimi** — user story
   z 2026-09-21. Użytkownik jest już zalogowany w portalu, a klucz monday leży
