@@ -274,6 +274,16 @@ na nich napisał.
     maskowania, obraz konta jako hasz. `statystyki_runow` na żywo NIESPRAWDZONE
     — run szedł bez `--wejscie`, a obraz konta to ~1100 wywołań; pokrywa to
     test `test_tresc_klienta_w_kluczach_nie_zostaje_na_dysku`,
+  - [x] **raport z nazwiskami — wariant A z D** (decyzja Kuby 2026-09-23).
+    A: `cli_analiza --raport PLIK` składa raport Z NAZWISKAMI w trakcie runu,
+    póki mapowanie żyje w bazie w pamięci; plik od razu z prawami 600, kopii
+    na serwerze nie ma, bez flagi raport nie powstaje wcale. D: zapis
+    w `uwagi_zapisane` zostaje zamaskowany, ale z atrybutami, po których
+    klient odnajdzie konto (rodzaj, dni bez aktywności, plan). Wygląd
+    tymczasowy — grupowanie i PDF to faza 7. Na żywo jeszcze NIE uruchomione.
+  - [x] Langfuse bez pseudonimów: `[OSOBA]` / `[IMIĘ] [NAZWISKO]` (`b57da37`).
+  - [ ] panel na serwerze przełączony na ten sam układ (punkt 1) — raport
+    oddawany do pobrania zamiast budowania z bazy przy każdym otwarciu,
   - [ ] dane na serwerze i w `/var/backups` — tylko na wyraźną decyzję,
   - [ ] stara ścieżka na serwerze dalej zapisuje snapshoty,
   - [x] D7 w `docs/ARCHITEKTURA.md` — sekcja „Faza 5c: snapshot przestaje być

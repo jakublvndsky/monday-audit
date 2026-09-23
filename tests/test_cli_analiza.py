@@ -74,6 +74,7 @@ def _argumenty(
         baza=None,
         wejscie=None,
         wyjscie=None,
+        raport=None,
         tylko_szacunek=False,
         run_id=run_id,
         json=False,
@@ -167,7 +168,7 @@ def _cala_baza(sciezka: Path) -> str:
 
 
 async def test_run_w_pamieci_nie_zostawia_na_dysku_nic_o_osobie(
-    srodowisko: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    srodowisko: dict[str, Any], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     async def collector_w_pamieci(*, con: Any, client_id: str, **_: Any) -> Any:
         # Dokładnie to, co robi prawdziwy collector: snapshot z pseudonimem
@@ -222,7 +223,16 @@ async def test_run_w_pamieci_nie_zostawia_na_dysku_nic_o_osobie(
         ),
     )
 
-    assert await cli_analiza.uruchom(_argumenty(srodowisko, "t-pamiec", w_pamieci=True)) == 0
+    argumenty = _argumenty(srodowisko, "t-pamiec", w_pamieci=True)
+    # Wariant A (decyzja Kuby 2026-09-23): raport Z NAZWISKAMI powstaje w trakcie
+    # runu, póki mapowanie żyje w bazie w pamięci — i tylko na żądanie.
+    argumenty.raport = tmp_path / "oddane" / "raport.html"
+    assert await cli_analiza.uruchom(argumenty) == 0
+
+    raport = _odczytaj(argumenty.raport)
+    assert NAZWISKO in raport, "raport ma nieść nazwisko — inaczej klient nie wie, kogo zwolnić"
+    assert PSEUDONIM not in raport
+    assert _prawa(argumenty.raport) == 0o600
 
     zrzut = _cala_baza(srodowisko["baza"])
 
@@ -411,6 +421,14 @@ async def test_padniete_statystyki_nie_kasuja_zapisanych_uwag(
         con.close()
 
 
+def _odczytaj(sciezka: Path) -> str:
+    return sciezka.read_text(encoding="utf-8")
+
+
+def _prawa(sciezka: Path) -> int:
+    return sciezka.stat().st_mode & 0o777
+
+
 def _pliki(katalog: Path, wzorzec: str) -> list[Path]:
     """Synchronicznie, bo w funkcji `async` metody `pathlib` blokują pętlę."""
     return list(katalog.rglob(wzorzec))
@@ -429,6 +447,8 @@ async def test_pelna_odpowiedz_na_dysk_tylko_na_zadanie(
 
     await cli_analiza.uruchom(_argumenty(srodowisko, "t-bez-pliku"))
     assert not _pliki(tmp_path, "analiza_t-bez-pliku.json")
+    # Bez `--raport` raport z nazwiskami też nie powstaje — nigdzie.
+    assert not _pliki(tmp_path, "*.html")
 
     argumenty = _argumenty(srodowisko, "t-z-plikiem")
     argumenty.wyjscie = tmp_path / "wyniki"

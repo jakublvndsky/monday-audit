@@ -64,6 +64,7 @@ from monday_audit.narzedzia import Narzedzia
 from monday_audit.obserwowalnosc import hasz_obrazu, wyslij_bezpiecznie, zbuduj_trace_analizy
 from monday_audit.przebieg import wykonaj_run, zapisz_zuzycie
 from monday_audit.przechowanie import PrzechowanieError, zapisz_statystyki, zapisz_uwagi
+from monday_audit.raport_uwag import oddaj_raport, zbuduj_raport_uwag
 from monday_audit.rubryka import wczytaj_rubryke
 from monday_audit.uwagi import waliduj_uwagi
 from monday_audit.wysylka_langfuse import wysylka_z_ustawien
@@ -115,6 +116,16 @@ def zbuduj_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--raport",
+        type=Path,
+        default=None,
+        metavar="PLIK",
+        help=(
+            "zapisz raport Z NAZWISKAMI (HTML) do tego pliku. Tylko teraz — po runie "
+            "mapowanie osób znika i raportu nie da się złożyć. Plik przekaż i usuń"
+        ),
+    )
+    parser.add_argument(
         "--tylko-szacunek",
         action="store_true",
         help="policz koszt i wyjdź, BEZ wołania modelu — do decyzji przed wydaniem pieniędzy",
@@ -163,6 +174,50 @@ def zapisz_surowa_odpowiedz(run_id: str, odpowiedz: dict[str, Any], katalog: Pat
     sciezka = katalog / f"analiza_{run_id}.json"
     sciezka.write_text(json.dumps(odpowiedz, ensure_ascii=False, indent=1), encoding="utf-8")
     return sciezka
+
+
+def _oddaj_raport(
+    argumenty: argparse.Namespace,
+    wynik: Any,
+    *,
+    zrodlo: sqlite3.Connection,
+    run_id: str,
+    rubryka: Any,
+    wejscie: dict[str, Any],
+) -> None:
+    """Raport z nazwiskami do pliku — tylko z `--raport`. Nigdy nie wywraca runu.
+
+    Awaria renderowania nie może kosztować wyniku, za który zapłacono: ten
+    już jest na ekranie, a zapis minimalny idzie dalej. Tracimy wtedy raport
+    z nazwiskami i mówimy o tym głośno.
+    """
+    if argumenty.raport is None:
+        print(
+            "\n  raport z nazwiskami NIE powstał (bez `--raport PLIK`). Po tym runie "
+            "złożyć go już się nie da — mapowanie osób znika z procesem."
+        )
+        return
+    try:
+        raport = zbuduj_raport_uwag(
+            wynik.przyjete,
+            con=zrodlo,
+            client_id=argumenty.klient,
+            run_id=run_id,
+            run_at=_teraz(),
+            rubryka=rubryka,
+            pominietych=len(wynik.pominiete),
+            zastrzezenia=tuple(wejscie.get("zastrzezenia") or ()),
+        )
+        sciezka = oddaj_raport(raport, argumenty.raport)
+    except Exception:  # raport nie jest wynikiem — wynik jest już na ekranie
+        logger.exception(
+            "raport z nazwiskami NIE powstał — wynik jest na ekranie, zapis idzie dalej"
+        )
+        return
+    print(
+        f"\n  raport z nazwiskami: {sciezka} (prawa 600). Zawiera dane osób — "
+        "przekaż klientowi i usuń. Kopii na serwerze nie ma."
+    )
 
 
 def _teraz() -> str:
@@ -317,6 +372,13 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
                 print(json.dumps({"uwagi": wynik.przyjete, "zuzycie": zuzycie}, ensure_ascii=False))
             else:
                 _wypisz(wynik, wynik.przyjete)
+
+            # 1b. RAPORT Z NAZWISKAMI — teraz albo nigdy (faza 5c, wariant A).
+            # Mapowanie osób żyje w `zrodlo`, a w trybie pamięci znika razem
+            # z procesem. Po tym miejscu raportu z nazwiskami nie da się złożyć.
+            _oddaj_raport(
+                argumenty, wynik, zrodlo=zrodlo, run_id=run_id, rubryka=rubryka, wejscie=wejscie
+            )
 
             # 2. ZAPIS MINIMALNY — wyłącznie przez `przechowanie.py`.
             zapisz_zuzycie(trwala, run_id, zuzycie)

@@ -1,0 +1,53 @@
+{# Raport uwag krytycznych (faza 5c, wariant A). Wygląd tymczasowy — faza 7.
+
+   Dokument niesie NAZWISKA pracowników klienta. Powstaje raz, w trakcie runu,
+   i nie ma kopii na serwerze. Jeden plik, zero zasobów zewnętrznych.
+#}
+{% from "_makra.html.j2" import wartosc_dowodu %}
+<!doctype html>
+<html lang="pl">
+<meta charset="utf-8">
+<title>Uwagi krytyczne — {{ r.client_id }} — {{ r.run_at[:10] }}</title>
+<style>
+{% include "_marka.css.j2" %}
+  body { max-width: 900px; margin: 0 auto; padding: var(--space-7) var(--space-6); }
+  .znak { height: 32px; width: auto; margin-bottom: var(--space-4); display: block; }
+  .meta { color: var(--fg-muted); font-size: var(--fs-small); }
+  .uwaga { border: 1px solid var(--border-subtle); border-radius: var(--radius-xl);
+           padding: var(--space-5) var(--space-6); margin: var(--space-5) 0; }
+  .uwaga h3 { margin: 0 0 var(--space-2); }
+  .zrodlo { color: var(--fg-muted); font-size: var(--fs-xs); text-transform: uppercase; }
+  .rekomendacja { font-weight: 600; }
+  table.dowod { font-size: var(--fs-small); border-collapse: collapse; width: 100%; }
+  table.dowod td { padding: var(--space-1) var(--space-2); vertical-align: top;
+                   border-top: 1px solid var(--border-subtle); }
+  pre { white-space: pre-wrap; margin: 0; }
+</style>
+{% if logo %}<img class="znak" src="{{ logo }}" alt="CXLABS">{% endif %}
+<h1>Uwagi krytyczne</h1>
+<p class="meta">{{ r.client_id }} · {{ r.run_at[:10] }} · run {{ r.run_id }} ·
+  {{ r.uwagi | length }} {{ odmiana(r.uwagi | length, "uwaga", "uwagi", "uwag") }},
+  {{ r.pominietych }} {{ odmiana(r.pominietych, "hipoteza sprawdzona i odrzucona", "hipotezy sprawdzone i odrzucone", "hipotez sprawdzonych i odrzuconych") }}</p>
+
+{% if r.zastrzezenia %}
+<h2>Czego ten raport nie obejmuje</h2>
+<ul>{% for z in r.zastrzezenia %}<li>{{ z }}</li>{% endfor %}</ul>
+{% endif %}
+
+{% for u in r.uwagi %}
+<section class="uwaga">
+  <div class="zrodlo">{{ u.nazwa_klasy }}{% if u.zrodlo == "szablon" %} · reguła{% endif %}</div>
+  <h3>{{ u.opis }}</h3>
+  <p class="rekomendacja">→ {{ u.rekomendacja }}</p>
+  <table class="dowod">
+    {% for k, v in u.dowod | dictsort %}
+    <tr><td>{{ k | etykieta }}</td><td>{{ wartosc_dowodu(v) }}</td></tr>
+    {% endfor %}
+  </table>
+</section>
+{% endfor %}
+
+{% if r.nieznane_hashe %}
+<p class="meta">{{ r.nieznane_hashe }} kont bez rozwiniętej nazwy — oznaczone jako „nieznane konto".</p>
+{% endif %}
+</html>
