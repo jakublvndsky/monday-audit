@@ -51,9 +51,11 @@ from monday_audit.konfiguracja import KonfiguracjaError, klucz_anthropic, sol_z_
 from monday_audit.kontrakt import KontraktError
 from monday_audit.koszt import historia_analiz, oszacuj, porownaj, zapisz_zuzycie_analizy
 from monday_audit.narzedzia import Narzedzia
+from monday_audit.obserwowalnosc import hasz_obrazu, wyslij_bezpiecznie, zbuduj_trace_analizy
 from monday_audit.przebieg import zapisz_zuzycie
 from monday_audit.rubryka import wczytaj_rubryke
 from monday_audit.uwagi import waliduj_uwagi
+from monday_audit.wysylka_langfuse import wysylka_z_ustawien
 
 logger = logging.getLogger(__name__)
 
@@ -189,6 +191,23 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
         )
         con.commit()
 
+        # Ślad do Langfuse — `None`, gdy nie jest skonfigurowany, i to jest stan
+        # domyślny. Do fazy 5b nowa ścieżka nie wysyłała trace'ów WCALE: tracing
+        # z fazy 4 siedział w `agent.zbadaj_hipotezy`, a `zbadaj_konto` to osobna
+        # funkcja. Obserwowalność nie obejmowała ścieżki, która ma ją zastąpić.
+        slad = wysylka_z_ustawien(ustawienia)
+        hipotezy_do_trace = [h.do_zapisu() for h in do_modelu]
+        wspolne = {
+            "run_id": run_id,
+            "snapshot_id": argumenty.snapshot,
+            "model": MODEL,
+            "prompt_hash": hash_promptu(SCIEZKA_PROMPTU_ANALIZY),
+            "obraz_hash": hasz_obrazu(wejscie),
+            "hipotezy": hipotezy_do_trace,
+            "z_szablonu": len(z_szablonow),
+            "szacunek_usd": szacunek.koszt_usd,
+        }
+
         try:
             zaczeto = time.monotonic()
             if do_modelu:
@@ -213,6 +232,11 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
             # PIERWSZY zapis po sesji. Nic, co może paść, nie stoi przed nim.
             plik = zapisz_surowa_odpowiedz(run_id, odpowiedz, KATALOG_WYNIKOW)
 
+            # Kopia PRZED doklejeniem szablonów. Trace generacji opisuje wywołanie
+            # modelu — uwaga z szablonu w jego wyjściu kazałaby przypisać modelowi
+            # coś, czego nie napisał.
+            odpowiedz_modelu = dict(odpowiedz)
+
             odpowiedz["uwagi"] = z_szablonow + list(odpowiedz.get("uwagi") or [])
             wynik = waliduj_uwagi(odpowiedz, rubryka)
             zuzycie = odpowiedz.get("zuzycie") or {}
@@ -233,7 +257,38 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
                 (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), len(wynik.przyjete), run_id),
             )
             con.commit()
-        except BaseException:
+
+            # Trace PO zapisie do bazy, nie przed. Kolejność ma znaczenie tylko
+            # w jedną stronę: padnięty eksport nie może zabrać wyniku, a
+            # `wyslij_bezpiecznie` i tak nie przepuszcza żadnego wyjątku.
+            if do_modelu:
+                wyslij_bezpiecznie(
+                    slad,
+                    lambda: zbuduj_trace_analizy(
+                        **wspolne,
+                        odpowiedz=odpowiedz_modelu,
+                        przyjetych=len(wynik.przyjete),
+                        odrzucone_reguly=[o.regula for o in wynik.odrzucone],
+                    ),
+                    opis=f"analiza {run_id}",
+                )
+        except BaseException as awaria:
+            # Run, który padł, jest NAJCIEKAWSZY w trace'ach — więc też go
+            # wysyłamy. Tylko przy `Exception`: przy Ctrl-C człowiek chce
+            # przerwać, a nie czekać na eksport.
+            if isinstance(awaria, Exception) and do_modelu:
+                # Tekst liczony TU, nie w lambdzie: nazwa z `except ... as` znika
+                # po wyjściu z bloku, a lambda odwołuje się do nazw leniwie.
+                opis_awarii = f"{type(awaria).__name__}: {awaria}"[:500]
+                wyslij_bezpiecznie(
+                    slad,
+                    lambda: zbuduj_trace_analizy(
+                        **wspolne,
+                        odpowiedz=None,
+                        blad=opis_awarii,
+                    ),
+                    opis=f"analiza {run_id} (awaria)",
+                )
             # `przerwany`, nie zostawiony w `w_toku`. Wiersz, który wisi w toku
             # na zawsze, wygląda jak run, który wciąż trwa.
             con.execute(
@@ -242,6 +297,11 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
             )
             con.commit()
             raise
+        finally:
+            # Bez dosłania bufora krótki proces CLI kończy się przed eksportem
+            # i trace nie wychodzi wcale — także ten o awarii.
+            if slad is not None:
+                slad.zamknij()
 
         if argumenty.json:
             print(json.dumps({"uwagi": wynik.przyjete, "zuzycie": zuzycie}, ensure_ascii=False))

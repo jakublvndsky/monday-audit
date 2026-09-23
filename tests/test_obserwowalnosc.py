@@ -320,3 +320,139 @@ async def test_bezpiecznik_maskowania_krzyczy_ale_run_konczy(monkeypatch: Any, c
 
     assert odpowiedz["findings"], "audyt ma się dokończyć mimo bezpiecznika"
     assert "trace NIE wyszedł" in caplog.text
+
+
+# ── nowa ścieżka: jedna sesja na całe konto (faza 5b) ────────────────────
+#
+# Do fazy 5b `zbadaj_konto` nie wysyłało trace'ów wcale — tracing z fazy 4
+# siedział w `zbadaj_hipotezy`. Te testy pilnują, że druga droga na zewnątrz
+# idzie tą samą bramką i nie wynosi więcej niż pierwsza.
+
+
+def _trace_analizy(**nadpisz: Any) -> Any:
+    from monday_audit.obserwowalnosc import zbuduj_trace_analizy
+
+    parametry: dict[str, Any] = {
+        "run_id": "analiza-1",
+        "snapshot_id": 1,
+        "model": "claude-sonnet-5",
+        "prompt_hash": "p123",
+        "obraz_hash": "o456",
+        "hipotezy": [{"klasa_id": "AUTOMATION_DEAD", "obiekt_id": "132931514", "fakty": {}}],
+        "odpowiedz": {
+            "uwagi": [{"klasa_id": "AUTOMATION_DEAD", "opis": "pada", "dowod": {"a": 1}}],
+            "pominiete": [],
+            "zuzycie": {"tokens_in": 6, "tokens_out": 23129, "koszt_usd": 0.63},
+            "wywolania_narzedzi": ["zapytaj_snapshot:osoba"],
+        },
+        "z_szablonu": 8,
+    }
+    parametry.update(nadpisz)
+    return zbuduj_trace_analizy(**parametry)
+
+
+def test_obraz_konta_nie_wychodzi_tylko_jego_hasz() -> None:
+    """W nowej ścieżce inwentarz jedzie w ZADANIU, nie w prompcie systemowym.
+    Wysłanie zadania w całości obeszłoby regułę z CLAUDE.md bocznymi drzwiami."""
+    trace = _trace_analizy()
+
+    assert trace.metadane["obraz_hash"] == "o456"
+    assert "zastrzezenia" not in str(trace)
+    assert "OBRAZ KONTA" not in str(trace)
+
+
+def test_hasz_obrazu_nie_zalezy_od_kolejnosci_kluczy() -> None:
+    """Kolejność kluczy nie jest treścią. Bez `sort_keys` ten sam obraz dawałby
+    różne hasze i porównanie między runami by kłamało."""
+    from monday_audit.obserwowalnosc import hasz_obrazu
+
+    assert hasz_obrazu({"a": 1, "b": 2}) == hasz_obrazu({"b": 2, "a": 1})
+    assert hasz_obrazu({"a": 1}) != hasz_obrazu({"a": 2})
+
+
+def test_wyjscie_generacji_to_tylko_rozstrzygniecia_modelu() -> None:
+    """Uwagi z szablonów nie są wywołaniem modelu. Wmieszane do wyjścia
+    generacji kazałyby czytającemu przypisać modelowi coś, czego nie napisał —
+    dlatego ich liczba jest w metadanych, a nie w wyjściu."""
+    trace = _trace_analizy()
+
+    generacja = trace.obserwacje[0]
+    assert generacja.rodzaj == RODZAJ_GENERACJA
+    assert len(generacja.wyjscie["uwagi"]) == 1
+    assert trace.metadane["uwag_z_szablonu"] == 8
+
+
+def test_odrzucone_widac_jako_reguly_a_nie_tresc() -> None:
+    """„Odrzucono 9" i „odrzucono 9 za brak pola w dowodzie" to dwie różne
+    poprawki. Nazwy reguł są naszymi stałymi, bez danych klienta."""
+    trace = _trace_analizy(
+        odrzucone_reguly=["dowod nie pokrywa pol", "dowod nie pokrywa pol", "brak pola"]
+    )
+
+    assert trace.metadane["uwag_odrzuconych"] == 3
+    assert trace.metadane["odrzucone_reguly"] == {"dowod nie pokrywa pol": 2, "brak pola": 1}
+
+
+def test_zuzycie_i_koszt_sesji_trafiaja_do_generacji() -> None:
+    generacja = _trace_analizy().obserwacje[0]
+
+    assert generacja.zuzycie["output"] == 23129
+    assert generacja.koszt_usd == 0.63
+
+
+def test_trace_awarii_niesie_blad_a_nie_puste_wyjscie() -> None:
+    """Run, który padł, jest najciekawszy w trace'ach — i musi mówić, CO padło."""
+    trace = _trace_analizy(odpowiedz=None, blad="AgentError: sesja padła")
+
+    assert trace.metadane["rozstrzygniecie"] == "blad"
+    assert trace.obserwacje[0].wyjscie == {"blad": "AgentError: sesja padła"}
+
+
+def test_mail_w_uwadze_modelu_jest_zamaskowany_i_policzony() -> None:
+    """Ta sama bramka co w starej ścieżce — trafienie to alarm, nie sukces."""
+    trace = _trace_analizy(odpowiedz={"uwagi": [{"opis": "zgłasza lead@obcy.test"}], "zuzycie": {}})
+
+    assert "[E-MAIL]" in trace.obserwacje[0].wyjscie["uwagi"][0]["opis"]
+    assert trace.metadane["trafien_maskowania"] == 1
+
+
+# ── wspólna reguła „nie wywracaj runu, ale nie milcz" ────────────────────
+
+
+def test_wspolna_wysylka_przelyka_awarie_sieci(caplog: Any) -> None:
+    from monday_audit.obserwowalnosc import wyslij_bezpiecznie
+
+    with caplog.at_level(logging.WARNING):
+        wyslij_bezpiecznie(
+            AtrapaSladu(blad=ConnectionError("Langfuse leży")),
+            _trace_analizy,
+            opis="analiza x",
+        )
+
+    assert "nie udało się wysłać" in caplog.text
+
+
+def test_wspolna_wysylka_krzyczy_przy_bezpieczniku_z_budowy(caplog: Any) -> None:
+    """`MaskowanieError` rodzi się zwykle przy BUDOWIE trace'u, nie przy
+    wysyłce — dlatego `wyslij_bezpiecznie` bierze funkcję, a nie gotowy trace."""
+    from monday_audit.maskowanie import MaskowanieError
+    from monday_audit.obserwowalnosc import wyslij_bezpiecznie
+
+    def budowa_padajaca() -> Any:
+        raise MaskowanieError("nieznany typ w polu x")
+
+    with caplog.at_level(logging.ERROR):
+        wyslij_bezpiecznie(AtrapaSladu(), budowa_padajaca, opis="analiza x")
+
+    assert "trace NIE wyszedł" in caplog.text
+
+
+def test_stara_sciezka_korzysta_z_tej_samej_reguly() -> None:
+    """Dwie kopie reguły o bezpieczniku to dwie okazje, żeby jedna z nich
+    zaczęła łapać `MaskowanieError` razem z błędami sieci."""
+    import inspect
+
+    from monday_audit import agent
+
+    assert "wyslij_bezpiecznie" in inspect.getsource(agent._wyslij_slad)
+    assert "except MaskowanieError" not in inspect.getsource(agent._wyslij_slad)

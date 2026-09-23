@@ -32,13 +32,15 @@ w kosmetykę.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from monday_audit.maskowanie import zamaskuj
+from monday_audit.maskowanie import MaskowanieError, zamaskuj
 from monday_audit.osoby import MaPII
 
 logger = logging.getLogger(__name__)
@@ -204,3 +206,163 @@ class Wysylka(Protocol):
     def wyslij(self, trace: Trace) -> None: ...
 
     def zamknij(self) -> None: ...
+
+
+# ── nowa ścieżka: jedna sesja na całe konto (faza 5b) ────────────────────
+
+
+def hasz_obrazu(wejscie: dict[str, Any]) -> str:
+    """Hasz obrazu konta — to, co idzie do trace'u ZAMIAST obrazu.
+
+    W starej ścieżce inwentarz jedzie w prompcie systemowym i reguła z
+    `CLAUDE.md` mówi: wychodzi sam hasz. W nowej ten sam inwentarz jedzie
+    w treści ZADANIA (`analiza.zbuduj_zadanie`), więc wysłanie zadania w całości
+    obeszłoby tę regułę bocznymi drzwiami. Hasz daje to, po co trace'owi obraz:
+    wiedzę, że dwa runy analizowały ten sam stan konta.
+
+    `sort_keys=True`, bo kolejność kluczy w słowniku nie jest treścią — bez tego
+    ten sam obraz dawałby różne hasze i porównanie między runami by kłamało.
+    """
+    tresc = json.dumps(wejscie, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(tresc.encode()).hexdigest()[:16]
+
+
+def zbuduj_trace_analizy(
+    *,
+    run_id: str,
+    snapshot_id: int,
+    model: str,
+    prompt_hash: str,
+    obraz_hash: str,
+    hipotezy: list[dict[str, Any]],
+    odpowiedz: dict[str, Any] | None,
+    z_szablonu: int,
+    przyjetych: int = 0,
+    odrzucone_reguly: Sequence[str] = (),
+    szacunek_usd: float | None = None,
+    blad: str | None = None,
+) -> Trace:
+    """Sesja analizy → zamaskowany trace. Druga droga na zewnątrz, tą samą bramką.
+
+    Przyjmuje gotowe słowniki, a nie obiekty z `analiza` i `uwagi`, z tego
+    samego powodu co `zbuduj_trace`: ten moduł ma się dać zbudować
+    i przetestować bez Agent SDK.
+
+    Co wychodzi, a co NIE:
+
+    * **wejście generacji to hipotezy** (klasa, obiekt, fakty) — to samo, co
+      stara ścieżka wysyła od fazy 4, więc zakres danych na zewnątrz nie rośnie,
+    * **obraz konta NIE wychodzi**, idzie `obraz_hash` — powód w `hasz_obrazu`,
+    * **wyjście to rozstrzygnięcia MODELU**, bez uwag z szablonów. Szablon nie
+      jest wywołaniem modelu, a trace generacji opisuje wywołanie modelu —
+      wmieszanie szablonów kazałoby czytającemu przypisać modelowi coś, czego
+      nie napisał. Ich liczba jest w metadanych.
+
+    `odrzucone_reguly` to nazwy reguł walidacji, nie treść uwag — czyli nasze
+    stałe, bez danych klienta. Dzięki nim trace mówi nie tylko „odrzucono 9",
+    ale „odrzucono 9 za brak pola w dowodzie", a to są dwie różne poprawki.
+    """
+    odpowiedz = odpowiedz or {}
+    zuzycie = dict(odpowiedz.get("zuzycie") or {})
+    if blad:
+        rozstrzygniecie = "blad"
+        wyjscie: Any = {"blad": blad}
+    else:
+        rozstrzygniecie = "zakonczona"
+        wyjscie = {
+            "uwagi": list(odpowiedz.get("uwagi") or []),
+            "pominiete": list(odpowiedz.get("pominiete") or []),
+        }
+
+    surowe = {
+        "metadane": {
+            "run_id": run_id,
+            "snapshot_id": snapshot_id,
+            "model": model,
+            "prompt_hash": prompt_hash,
+            "obraz_hash": obraz_hash,
+            "rozstrzygniecie": rozstrzygniecie,
+            "hipotez_do_modelu": len(hipotezy),
+            "uwag_z_szablonu": z_szablonu,
+            "uwag_przyjetych": przyjetych,
+            "uwag_odrzuconych": len(odrzucone_reguly),
+            "odrzucone_reguly": dict(Counter(odrzucone_reguly)),
+            "szacunek_usd": szacunek_usd,
+        },
+        "wejscie": {"hipotezy": hipotezy},
+        "wyjscie": wyjscie,
+        "narzedzia": list(odpowiedz.get("wywolania_narzedzi") or []),
+    }
+
+    zamaskowane = zamaskuj(surowe)
+    if not zamaskowane.czyste:
+        logger.warning(
+            "trace analizy %s: %s — PIERWSZA linia (brak PII w kontekście modelu) "
+            "puściła, maskowanie zdążyło przed wysyłką",
+            run_id,
+            zamaskowane.podsumowanie(),
+        )
+
+    czyste = zamaskowane.dane
+    metadane = dict(czyste["metadane"])
+    metadane["trafien_maskowania"] = zamaskowane.ile
+    metadane["pola_z_trafieniami"] = list(zamaskowane.sciezki)
+
+    obserwacje = [
+        Obserwacja(
+            nazwa="analiza:sesja",
+            rodzaj=RODZAJ_GENERACJA,
+            wejscie=czyste["wejscie"],
+            wyjscie=czyste["wyjscie"],
+            metadane={"rozstrzygniecie": rozstrzygniecie},
+            zuzycie=_zuzycie_dla_langfuse(zuzycie),
+            koszt_usd=float(zuzycie.get("koszt_usd", 0.0)) or None,
+        )
+    ]
+    obserwacje += [
+        Obserwacja(nazwa=f"narzedzie:{nazwa}", rodzaj=RODZAJ_SPAN) for nazwa in czyste["narzedzia"]
+    ]
+    return Trace(
+        nazwa="analiza:konto",
+        metadane=metadane,
+        obserwacje=tuple(obserwacje),
+        trafienia_maskowania=zamaskowane.trafienia,
+    )
+
+
+def wyslij_bezpiecznie(slad: Wysylka | None, budowa: Callable[[], Trace], *, opis: str) -> None:
+    """Zbuduj i wyślij trace. NIGDY nie wywraca runu — ale nie milczy.
+
+    Wydzielone z `agent._wyslij_slad`, bo nowa ścieżka potrzebuje DOKŁADNIE tej
+    samej reguły, a dwie kopie reguły o bezpieczniku to dwie okazje, żeby jedna
+    z nich zaczęła łapać `MaskowanieError` razem z błędami sieci.
+
+    Warstwy odpowiedzialności są rozdzielone celowo:
+
+    * `WysylkaLangfuse.wyslij` **nie połyka** `MaskowanieError` — w środku
+      odbiorcy zrównanie bezpiecznika z awarią sieci zamieniłoby go w ozdobę,
+    * tutaj decyzja jest odwrotna: audyt ma się dokończyć, bo klient zapłacił
+      za run, nie za trace'y.
+
+    Dwa poziomy logu. `MaskowanieError` to ERROR ze śladem stosu — payload
+    zawierał coś, czego nie umiemy zamaskować, i trace NIE wyszedł. Reszta to
+    WARNING: stracony ślad, nic więcej.
+
+    `budowa` jest funkcją, a nie gotowym trace'em, bo `MaskowanieError` rodzi się
+    zwykle przy BUDOWIE, nie przy wysyłce — i też musi trafić pod ten `try`.
+    """
+    if slad is None:
+        return
+    try:
+        slad.wyslij(budowa())
+    except MaskowanieError:
+        # `exception`, nie `error`: ślad stosu pokazuje, KTÓRE pole wywróciło
+        # maskowanie. Nie niesie wartości — Python nie wypisuje w nim zmiennych
+        # lokalnych, a komunikat `MaskowanieError` jest budowany bez danych.
+        logger.exception(
+            "%s: trace NIE wyszedł — maskowanie nie poradziło sobie z payloadem. "
+            "Audyt leci dalej, ale to jest do obejrzenia",
+            opis,
+        )
+    except Exception as blad:  # obserwowalność nie jest produktem
+        logger.warning("%s: nie udało się wysłać trace'u (%s: %s)", opis, type(blad).__name__, blad)
