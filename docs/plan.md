@@ -117,27 +117,49 @@ koszt i różne źródła, a sklejone dawałyby jeden wynik dopiero na końcu ob
     imię i nazwisko w nazwie tablicy albo w treści itemu **nie są** — i trzeba
     powiedzieć wprost, czego ta warstwa nie złapie.
 
-- [ ] **5. Analiza: co to za konto** — model dostaje agregaty i produkuje trzy
-  rzeczy: sugestię produktu z nomenklatury, przypadki użycia agentów oraz uwagi
-  krytyczne. Każde stwierdzenie z dowodem.
+Faza 5 podzielona 2026-09-23 na 5a i 5b: jedna połowa jest deterministyczna
+i da się ją sprawdzić testem, druga to model. Sklejone dawałyby wynik dopiero
+na końcu obu, a błąd w liczbach wychodziłby dopiero w tekście, który model
+na nich napisał.
 
-  **Faza 1 zdjęła stąd jedną pozycję i zawęziła drugą.** Typ workspace'u to
-  odczyt pola `account_product` (O40), nie wnioskowanie — model nie ma tu nic do
-  roboty. Nomenklatura zostaje potrzebna wyłącznie tam, gdzie produkt **nie
-  jest** ustawiony, a dane wyglądają, jakby powinien być: „macie leady
-  w zwykłych tablicach, rozważcie monday CRM".
-  - Ryzyko: fałszywe rozpoznania w tej zawężonej roli. „To wygląda na leady"
-    postawione na nazwach kolumn bywa trafne i bywa mylące — potrzebny próg
-    pewności i jawne „nie wiem" zamiast zgadywania.
-  - Ryzyko drugie: przypadki użycia agentów opierają się na aktywności kont
-    agentowych, bo `agent_runs` nie istnieje w żadnej wersji API (O20, pomiar
-    z fazy 1), a `agents` działa dopiero w nieprzypiętej `2027-01`.
-  - **Doszło z fazy 3 (2026-09-22): rollupy produktowe** — „ile leadów",
-    „ile szans sprzedaży", „ile ticketów", „ile zamknięć dziennie". Surowce są
-    gotowe (rozkład etapów per tablica, przyrost dzienny, produkt workspace'u),
-    brakuje wyłącznie **reguły, co liczy się jako szansa i co jako zamknięcie**.
-    Ta reguła jest osądem, nie odczytem, więc należy tutaj, a nie do fazy
-    zbierania danych. Bez niej rollup byłby sumą, której nikt nie umie obronić.
+- [x] **5a. Agregaty i bramka** — rollupy produktowe (leady, szanse, tickety,
+  zamknięcia), reguła etapów końcowych i JEDYNA droga danych do modelu.
+  Zero modelu, wszystko sprawdzalne testem.
+  - Ryzyko rozstrzygnięte: **reguła „co jest szansą" jest osądem, nie odczytem.**
+    Stanęło na tym, że rozpoznajemy etapy KOŃCOWE, a nierozpoznany liczy się
+    jako w toku — z dwóch źródeł: deklaracji klienta (`done_colors`, O48)
+    i słownika zapasowego. Cena nazwana wprost i widoczna w wyjściu.
+  - Ryzyko, którego plan NIE przewidywał: **nowa ścieżka nie miała bramki PII
+    w ogóle.** Stara ma ją w `przebieg.py`; nowa szła do modelu bez niczego.
+    Zamknięte przez `wejscie_analizy.py`, ale z dziurą na nazwiska (O50).
+
+- [ ] **5b. Analiza modelem: uwagi krytyczne** — zastąpienie rubryki 13 klas
+  jedną kategorią, wycena w dolarach, przypadki użycia agentów. Każde
+  stwierdzenie z dowodem.
+
+  **Zakres zawężony przez pomiary, nie przez decyzję.** Sugestia produktu
+  z nomenklatury **odpada**: faza 1 zawęziła ją do workspace'ów bez ustawionego
+  `account_product` (O40), a pomiar pokazał, że na CXLABS takich nie ma ani
+  jednego ze 136. Budowanie jej teraz byłoby pisaniem na wyobrażonym kliencie.
+  Wraca, gdy trafi się konto, które jej potrzebuje.
+
+  **DO USZCZEGÓŁOWIENIA — rozmowa z 2026-09-23, jeszcze nie rozstrzygnięta.**
+  Cztery pytania decydują o kształcie i żadnego nie wolno przemilczeć:
+  1. czy detektory zostają (deterministyczne wykrywanie, model tylko orzeka),
+     czy model sam szuka problemów w dokumencie,
+  2. jedna sesja na całe konto czy sesja na znalezisko — dziś jest to drugie,
+     z budżetami z rubryki,
+  3. skąd biorą się kwoty w dolarach i które uwagi w ogóle mają kwotę,
+  4. co się dzieje ze starą ścieżką w międzyczasie — kasujemy od razu czy
+     zostawiamy równolegle, aż nowa się obroni.
+  - Ryzyko: **przypadki użycia agentów stoją na cienkim materiale.**
+    `agent_runs` nie istnieje w żadnej wersji API (O20), `agents` działa
+    dopiero w nieprzypiętej `2027-01`, więc zostaje liczba kont agentowych
+    i aktywność automatyzacji. To mało jak na „przypadki użycia".
+  - Ryzyko drugie: **zakaz z `CLAUDE.md` o dowodzie zostaje w mocy.** Rubryka
+    znika, ale „finding bez pola `dowod` nie przechodzi walidacji" jest zakazem
+    twardym, nie elementem rubryki. Cokolwiek zastąpi `kontrakt.py`, musi to
+    egzekwować.
 
 - [ ] **6. Przepływ: dwa kroki, jedno kliknięcie między nimi** — user story
   z 2026-09-21. Użytkownik jest już zalogowany w portalu, a klucz monday leży
