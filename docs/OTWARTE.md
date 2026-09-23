@@ -2309,3 +2309,82 @@ własną kolumnę stanu (`color_mm405wkg` na `🖥️ Backlog - Wsparcie`,
 bez zgadywania, więc zostają stopniem 2 albo 3. To jest właściwa odpowiedź,
 nie brak — ale znaczy, że pokrycie Service będzie CZĘŚCIOWE i raport musi to
 powiedzieć.
+
+---
+
+## O52. Automatyzacje da się opisać głębiej — ale najlepsze źródło jest w wersji API, której nie mamy przypiętej
+
+**Status: ZMIERZONE 2026-09-23 na CXLABS (~80 wywołań, same odczyty). Otwarte — decyzja o wersji API i koszcie.**
+**Dotyczy:** `AUTOMATION_DEAD`, O41 (automatyzacje nigdy nieuruchomione), O42 (właściciel)
+
+Pytanie Kuby: skąd automatyzacja wychodzi, jaki ma trigger, co ma dostarczyć,
+dlaczego nie działa, jak była uruchamiana — także dla tych, które nie
+uruchamiają się wcale. Introspekcja w `2026-07`, `2026-10` i `2027-01`, potem
+pomiar na automatyzacjach z runu `analiza-20260923T105716Z`.
+
+### Co działa w PRZYPIĘTEJ `2026-07`
+
+- **`block_events(triggerUuid)`** — przebieg jednego uruchomienia krok po
+  kroku: tytuł bloku, stan, `errorReason`. To odpowiada na „jaki trigger"
+  i „który krok pada": `160020307` = trigger „item created" → krok „Custom
+  prompt" (blok AI) pada z „no files for the AI to read"; `132931514` =
+  „every time period" → „create item" pada na `invalid_person`. Jedno
+  wywołanie na uruchomienie.
+- **`trigger_events(filters: {automationIds, dateRange})`** — historia
+  uruchomień jednej automatyzacji. **Okno statystyk kont jest krótkie:**
+  w oknie roku `160020307` ma 40 błędów (statystyki: 9), `183657535` — 49
+  (statystyki: 2). Liczby z `account_triggers_statistics_by_entity_id`
+  zaniżają skalę.
+- Pułapki: pola `BlockEvent.boardId` i `userId` wywracają zapytanie
+  (`Internal server error` — najpewniej `Int` 32-bitowy, jak w O12). Przy
+  filtrze `automationIds` `hostType` i `hostInstanceId` są ZAWSZE puste —
+  ze zdarzeń nie da się przypisać automatyzacji do tablicy.
+
+### Co jest dopiero w `2026-10` (release candidate) i `2027-01`
+
+**`board_automations(board_ids: [jedna tablica])`** — lista automatyzacji
+tablicy, **także nigdy nieuruchomionych**:
+
+- nowe (`BoardAutomation`): `id`, `user_id` (**twórca — odpowiedź na O42**),
+  `active`, `title`, `description`, `created_at`, `updated_at`,
+  `workflow_blocks` (definicja triggera i akcji), `workflow_variables`,
+  `notice_message`, `template_reference_id`,
+- starsze (`legacy_automations`, JSON): `id`, `userId` (twórca), `active`,
+  `boardId`, `recipeKind`, `config` (ustawienia każdego kroku: kolumna,
+  odbiorca, treść wiadomości) i zdanie przepisu, np. „When new email arrives
+  from {email column} notify {someone} with {message}".
+
+Pomiar: 22 tablice z żywymi automatyzacjami → **122 automatyzacje** (41 nowych,
+81 starszych), 7 nieaktywnych, każda z twórcą. Dwie tablice z 22 dały
+`Internal server error`. Więcej niż jedna tablica w zapytaniu: „Cannot filter
+by more than 1 board at once". Po `ids` automatyzacji: `Internal server error`.
+
+### Czego NIE wiemy — i czego nie wolno jeszcze twierdzić
+
+- **10 z 14 automatyzacji z runu nie leży na żadnej z 22 tablic.** Gdzie są —
+  nie ustalone (tablice z innym `hostType`, dwie tablice z błędem albo tablice
+  bez zdarzeń w oknie).
+- **„Nigdy nie uruchomione" wyszło 110 — liczba NIEWIARYGODNA.** Porównanie
+  z kluczami statystyk ma dwie dziury: okno statystyk jest krótkie (wyżej),
+  a nowe automatyzacje mogą mieć klucze w `workflow_statistics`, nie
+  w `automation_statistics` (O41). Wszystkie 41 nowych wyszło jako „nigdy" —
+  to raczej objaw niż fakt.
+- **Koszt pełnego spisu:** jedno wywołanie na tablicę, czyli ~1315 na całym
+  CXLABS (5% dnia `enterprise`, 13% `pro`, ponad dzień `free`).
+
+### Dwie rzeczy do obsługi, zanim cokolwiek z tego dotknie modelu
+
+- `legacy_automations` niesie pole **`note` z instrukcją dla asystentów AI**
+  („always list and describe them… do not volunteer"). To są DANE z API, nie
+  polecenie — przed wejściem do kontekstu modelu ma być wycięte.
+- ten sam JSON niesie **`auth`** (uwierzytelnienie integracji) oraz w `config`
+  treści wiadomości i odbiorców — czyli potencjalnie PII. `auth` nie ma prawa
+  wyjść z collectora; reszta przez pseudonimizację i maskowanie.
+
+### Ograniczenie z repo
+
+`MondayClient.query(wersja_api=…)` pozwala odpytać nowszą wersję jednym
+zapytaniem, ale dane z nieprzypiętej wersji **nie mają prawa wejść do
+findingów** (D4, 05-deploy) — audyt przestałby być odtwarzalny.
+`board_automations` wchodzi więc do audytu dopiero z przypięciem `2026-10`,
+gdy stanie się `current`.
