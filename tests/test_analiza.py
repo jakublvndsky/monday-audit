@@ -83,7 +83,7 @@ def test_zadanie_mowi_wprost_ile_ma_byc_rozstrzygniec() -> None:
 
 def test_obraz_konta_jest_poprawnym_jsonem() -> None:
     zadanie = zbuduj_zadanie(_hipotezy(), WEJSCIE)
-    fragment = zadanie.split("## OBRAZ KONTA")[1].split("## HIPOTEZY")[0].strip()
+    fragment = zadanie.split("## OBRAZ KONTA")[1].split("\n## ")[0].strip()
 
     assert json.loads(fragment)["konto"]["workspacow"] == 136
 
@@ -235,3 +235,94 @@ def test_surowa_odpowiedz_laduje_na_dysku(tmp_path: Any) -> None:
     sciezka = zapisz_surowa_odpowiedz("r1", {"uwagi": [{"a": 1}]}, tmp_path)
 
     assert json.loads(sciezka.read_text(encoding="utf-8")) == {"uwagi": [{"a": 1}]}
+
+
+# ── definicje klas (zmierzone 2026-09-23) ────────────────────────────────
+
+
+def _definicje(zadanie: str) -> list[dict[str, Any]]:
+    fragment = zadanie.split("## DEFINICJE KLAS")[1].split("\n", 1)[1].split("\n## ")[0]
+    return list(json.loads(fragment))
+
+
+def _dead(obiekt: str) -> Hipoteza:
+    return Hipoteza(
+        klasa_id="AUTOMATION_DEAD",
+        obiekt_id=obiekt,
+        fakty={"automation_id": obiekt, "success": 2, "failure": 3, "exhausted": 0},
+        budzet_wywolan=5,
+    )
+
+
+def test_zadanie_podaje_definicje_klasy_a_nie_samo_id() -> None:
+    """ZMIERZONE na `analiza-20260923T103802Z`: model odrzucił trzy
+    `AUTOMATION_DEAD` jako „nie jest martwa", bo znał tylko identyfikator.
+    Rubryka definiuje klasę jako „uruchamia się i nie działa" — stara ścieżka
+    podaje tę definicję od zawsze, nowa ją zgubiła."""
+    from monday_audit.rubryka import wczytaj_rubryke
+
+    rubryka = wczytaj_rubryke()
+    klasa = rubryka.po_id["AUTOMATION_DEAD"]
+
+    definicje = _definicje(zbuduj_zadanie([_dead("a1")], WEJSCIE, rubryka))
+
+    assert definicje == [
+        {
+            "klasa_id": "AUTOMATION_DEAD",
+            "nazwa": klasa.nazwa,
+            "sygnal": klasa.sygnal.strip(),
+            "rola_agenta": klasa.rola_agenta.strip(),
+            "warunki_odrzucenia": list(klasa.warunki_odrzucenia),
+        }
+    ]
+    assert "uruchamia się i nie działa" in definicje[0]["nazwa"]
+
+
+def test_definicja_raz_na_klase_w_kolejnosci_wystapien() -> None:
+    """Jedenaście hipotez tej samej klasy to nie jedenaście kopii definicji."""
+    hipotezy = [_dead("a1"), *_hipotezy(2), _dead("a2"), _dead("a3")]
+
+    zadanie = zbuduj_zadanie(hipotezy, WEJSCIE)
+
+    assert [d["klasa_id"] for d in _definicje(zadanie)] == ["AUTOMATION_DEAD", "BOARD_GHOST"]
+    assert "## DEFINICJE KLAS (2)" in zadanie
+
+
+def test_definicje_ida_przed_hipotezami() -> None:
+    """Model ma wiedzieć, co znaczy klasa, zanim przeczyta jej fakty."""
+    zadanie = zbuduj_zadanie([_dead("a1")], WEJSCIE)
+
+    assert zadanie.index("## OBRAZ KONTA") < zadanie.index("## DEFINICJE KLAS")
+    assert zadanie.index("## DEFINICJE KLAS") < zadanie.index("## HIPOTEZY DO ROZSTRZYGNIĘCIA")
+
+
+def test_definicje_nie_niosa_metadanej_oceniajacej() -> None:
+    """Waga, wysiłek i wycena umarły razem z rubryką (decyzja Kuby
+    2026-09-23). Podanie ich modelowi, któremu prompt zabrania stopniowania
+    i wyceny, byłoby dwiema sprzecznymi instrukcjami naraz."""
+    from monday_audit.rubryka import wczytaj_rubryke
+
+    rubryka = wczytaj_rubryke()
+    wszystkie = [
+        Hipoteza(klasa_id=k, obiekt_id="x", fakty={}, budzet_wywolan=1) for k in rubryka.po_id
+    ]
+
+    for definicja in _definicje(zbuduj_zadanie(wszystkie, WEJSCIE, rubryka)):
+        assert set(definicja) == {
+            "klasa_id",
+            "nazwa",
+            "sygnal",
+            "rola_agenta",
+            "warunki_odrzucenia",
+        }, definicja["klasa_id"]
+
+
+def test_prompt_kaze_czytac_definicje_a_nie_nazwe() -> None:
+    from monday_audit.agent import _tekst_promptu
+
+    tresc = _tekst_promptu(SCIEZKA_PROMPTU_ANALIZY)
+
+    assert "z DEFINICJI, nie z identyfikatora" in tresc
+    assert "Warunki odrzucenia są jedynymi powodami" in tresc
+    # Rola z katalogu potrafi mówić o wadze (GUEST_SPRAWL) — zakazy wygrywają.
+    assert "pierwszeństwo przed rolą" in tresc

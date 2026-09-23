@@ -102,6 +102,53 @@ def rozdziel_hipotezy(
     return do_modelu, z_szablonow
 
 
+def definicje_klas(hipotezy: list[Hipoteza], rubryka: Rubryka) -> list[dict[str, Any]]:
+    """Definicje klas obecnych w hipotezach — RAZ na klasę, w kolejności wystąpień.
+
+    ## Regresja, którą to naprawia — ZMIERZONA 2026-09-23
+
+    Stara ścieżka podaje modelowi przy każdej hipotezie definicję klasy
+    (`agent._opis_klasy`): nazwę, sygnał, `rola_agenta`, `warunki_odrzucenia`.
+    Nowa podawała samo `klasa_id` — więc model rozumiał klasę z NAZWY
+    identyfikatora. Na runie `analiza-20260923T103802Z` odrzucił trzy
+    `AUTOMATION_DEAD` z powodem „automatyzacja nie jest martwa", bo miały też
+    udane uruchomienia. Rubryka definiuje tę klasę jako „uruchamia się i nie
+    działa" i każe odrzucać tylko „pojedynczy błąd przy tysiącach udanych".
+
+    Ta sama klasa błędu co w `rozdziel_hipotezy` i `dowod_wymagany`: przy
+    przenoszeniu hydrauliki zgubiła się wiedza. Decyzja Kuby z 2026-09-23
+    mówi wprost, że katalog wykrywania — z `rola_agenta` — zostaje.
+
+    ## Czego tu NIE ma, celowo
+
+    `waga`, `wysilek_naprawy`, `typ_wyceny`, `wzor`, `zmienne_od_klienta` —
+    metadana OCENIAJĄCA, która w tej ścieżce umarła razem z rubryką. Podanie
+    jej modelowi, któremu prompt zabrania stopniowania i wyceny, byłoby dwiema
+    sprzecznymi instrukcjami naraz. `budzet_wywolan` też nie: budżet jest
+    wspólny na sesję (`BUDZET_NARZEDZI`).
+
+    Raz na klasę, nie przy każdej hipotezie: 11 hipotez `AUTOMATION_DEAD`
+    z tą samą definicją to jedenaście kopii tego samego tekstu w kontekście.
+    """
+    definicje: list[dict[str, Any]] = []
+    widziane: set[str] = set()
+    for hipoteza in hipotezy:
+        klasa = rubryka.po_id.get(hipoteza.klasa_id)
+        if klasa is None or klasa.id in widziane:
+            continue
+        widziane.add(klasa.id)
+        definicje.append(
+            {
+                "klasa_id": klasa.id,
+                "nazwa": klasa.nazwa,
+                "sygnal": klasa.sygnal.strip(),
+                "rola_agenta": klasa.rola_agenta.strip(),
+                "warunki_odrzucenia": list(klasa.warunki_odrzucenia),
+            }
+        )
+    return definicje
+
+
 def zbuduj_zadanie(
     hipotezy: list[Hipoteza],
     wejscie: dict[str, Any],
@@ -122,10 +169,17 @@ def zbuduj_zadanie(
     zawsze (`dowod=", ".join(klasa.dowod)`); pierwsza wersja nowej zgubiła to
     przy przenoszeniu. Walidacja sprawdza pola z rubryki, więc model musi je
     znać — inaczej walidacja karze go za brak informacji, której mu nie daliśmy.
+
+    ## Definicje klas przed hipotezami
+
+    Definicje klas idą PRZED hipotezami, z tego samego powodu co zastrzeżenia
+    przed liczbami: model ma wiedzieć, co znaczy klasa, zanim zacznie czytać
+    jej fakty — a nie zgadywać to z nazwy (`definicje_klas`).
     """
     rubryka = rubryka or wczytaj_rubryke()
     zastrzezenia = wejscie.get("zastrzezenia") or []
     obraz = {k: v for k, v in wejscie.items() if k != "zastrzezenia"}
+    definicje = definicje_klas(hipotezy, rubryka)
 
     opisane = []
     for hipoteza in hipotezy:
@@ -142,6 +196,10 @@ def zbuduj_zadanie(
         "## OBRAZ KONTA",
         "",
         json.dumps(obraz, ensure_ascii=False, indent=1),
+        "",
+        f"## DEFINICJE KLAS ({len(definicje)})",
+        "",
+        json.dumps(definicje, ensure_ascii=False, indent=1),
         "",
         f"## HIPOTEZY DO ROZSTRZYGNIĘCIA ({len(hipotezy)})",
         "",
@@ -262,4 +320,10 @@ async def zbadaj_konto(
     return odpowiedz
 
 
-__all__ = ["BUDZET_NARZEDZI", "SCIEZKA_PROMPTU_ANALIZY", "zbadaj_konto", "zbuduj_zadanie"]
+__all__ = [
+    "BUDZET_NARZEDZI",
+    "SCIEZKA_PROMPTU_ANALIZY",
+    "definicje_klas",
+    "zbadaj_konto",
+    "zbuduj_zadanie",
+]

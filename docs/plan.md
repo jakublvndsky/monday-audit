@@ -169,14 +169,24 @@ na nich napisał.
     Teraz: koszt na hipotezę z historii analiz, celowo zawyżany w małych runach.
   - [x] Langfuse dla nowej ścieżki — trace sesji, także z runu, który padł;
     obraz konta idzie jako hasz, nie treść.
-  - [ ] **Zostaje w 5b:** przypadki użycia agentów (materiał za cienki, O20),
-    próg detektora `AUTOMATION_DEAD` 0,05 łapie automatyzacje, które w większości
-    działają (model odrzucił taki przypadek sam), jednorazowe „priorytetowo"
-    w uwadze mimo zakazu stopniowania.
-  - Ryzyko: **przypadki użycia agentów stoją na cienkim materiale.**
-    `agent_runs` nie istnieje w żadnej wersji API (O20), `agents` działa
-    dopiero w nieprzypiętej `2027-01`, więc zostaje liczba kont agentowych
-    i aktywność automatyzacji. To mało jak na „przypadki użycia".
+  - [x] **definicje klas w zadaniu** (`analiza.definicje_klas`). Plan mówił
+    „próg `AUTOMATION_DEAD` 0,05 łapie automatyzacje, które w większości
+    działają" — i to była **zła diagnoza**. Próg niczego nie odcina: sygnał to
+    `failure > 0 OR … OR udział > 0,05`, a udział powyżej zera wymaga
+    `failure > 0`. Prawdziwa przyczyna: nowa ścieżka podawała modelowi samo
+    `klasa_id`, bez `rola_agenta` i `warunki_odrzucenia`, więc model rozumiał
+    klasę z nazwy — i na `analiza-20260923T103802Z` odrzucił trzy
+    automatyzacje „bo nie jest martwa", choć rubryka definiuje klasę jako
+    „uruchamia się i nie działa". Trzecia regresja tej samej klasy co
+    szablony i `dowod_wymagany`: hydraulika przeniesiona, wiedza zgubiona.
+  - [ ] rerun na tym samym workspace — jak model rozstrzyga teraz
+    `AUTOMATION_DEAD`; dopiero z tym wynikiem decyzja o sygnale detektora.
+    Przy okazji: jednorazowe „priorytetowo" w uwadze mimo zakazu stopniowania.
+  - **Wyniesione z 5b** (decyzja Kuby 2026-09-23): **przypadki użycia
+    agentów.** Blokuje je API, nie kod — `agent_runs` nie istnieje w żadnej
+    wersji (O20), `agents` działa dopiero w nieprzypiętej `2027-01`. Zostaje
+    liczba kont agentowych (kafelek z 2a). Wraca, gdy przypniemy wersję API,
+    która oddaje dane agentów.
   - Ryzyko drugie: **zakaz z `CLAUDE.md` o dowodzie zostaje w mocy.** Rubryka
     znika, ale „finding bez pola `dowod` nie przechodzi walidacji" jest zakazem
     twardym, nie elementem rubryki. Cokolwiek zastąpi `kontrakt.py`, musi to
