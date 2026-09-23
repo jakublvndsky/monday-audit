@@ -100,9 +100,16 @@ def zdarzenie(stan: str = "success", *, testowe: bool = False) -> dict[str, Any]
     }
 
 
-def router(zdarzenia_per_tablica: dict[str, list[dict[str, Any]]] | None = None) -> Any:
+def router(
+    zdarzenia_per_tablica: dict[str, list[dict[str, Any]]] | None = None,
+    *,
+    historia: dict[int, list[dict[str, Any]]] | None = None,
+    kroki: dict[str, list[dict[str, Any]]] | None = None,
+) -> Any:
     """Rozdziela odpowiedzi po treści zapytania, tak jak prawdziwe API."""
     zdarzenia_per_tablica = zdarzenia_per_tablica or {}
+    historia = historia or {}
+    kroki = kroki or {}
 
     def uchwyt(zapytanie: httpx.Request) -> httpx.Response:
         cialo = json.loads(zapytanie.content)
@@ -113,6 +120,12 @@ def router(zdarzenia_per_tablica: dict[str, list[dict[str, Any]]] | None = None)
         if "account_triggers_statistics_by_entity_id" in gql:
             status = cialo["variables"]["status"]
             return odpowiedz(BLEDY if status == "failure" else SUKCESY)
+        if "block_events" in gql:
+            uuid = cialo["variables"]["uuid"]
+            return odpowiedz({"block_events": {"blockEvents": kroki.get(uuid, [])}})
+        if "trigger_events" in gql and "automationIds" in cialo["variables"]["f"]:
+            (aid,) = cialo["variables"]["f"]["automationIds"]
+            return odpowiedz({"trigger_events": {"triggerEvents": historia.get(aid, [])}})
         if "trigger_events" in gql:
             board = cialo["variables"]["f"].get("boardId")
             return odpowiedz(
@@ -137,19 +150,22 @@ async def test_statystyki_konta_to_jedno_wywolanie(zbuduj: Any) -> None:
     assert klient.liczba_wywolan == 1
 
 
-async def test_bez_tablic_kosztuje_cztery_wywolania(zbuduj: Any) -> None:
+async def test_bez_tablic_kosztuje_cztery_wywolania_plus_przebiegi(zbuduj: Any) -> None:
     """Koszt poziomu konta jest STAŁY, niezależny od wielkości konta.
 
     Cztery, nie trzy: statystyki konta plus jedno zapytanie na każdy z trzech
     stanów uruchomień. Wcześniej pytaliśmy tylko o `failure` i `success`,
     a liczby sukcesów wyrzucaliśmy — przez co AUTOMATION_DEAD nie mógł policzyć
     udziału błędów ani zobaczyć automatyzacji zatrzymanej limitem.
+
+    Od O52 dochodzi historia każdej automatyzacji z błędem — tu dwóch, bez
+    uruchomień nieudanych w oknie, więc bez drugiego zapytania o kroki.
     """
     klient = zbuduj(router())
 
     wynik = await zbierz_automatyzacje(klient)
 
-    assert klient.liczba_wywolan == 4
+    assert klient.liczba_wywolan == 4 + 2
     assert wynik.uruchomien_razem == 1237
     assert wynik.sondy == ()
 
@@ -382,3 +398,122 @@ def test_wynik_jest_niemutowalny() -> None:
 
     with pytest.raises((AttributeError, TypeError)):
         wynik.uruchomien_razem = 2  # type: ignore[misc]
+
+
+# ── przebieg automatyzacji z błędami (O52) ──────────────────────────────
+
+
+UUID = "3f1c-uruchomienie"
+
+
+def uruchomienie(stan: str, kiedy: str, *, uuid: str = UUID) -> dict[str, Any]:
+    return {
+        "triggerUuid": uuid,
+        "eventState": stan,
+        "triggerStartedAt": kiedy,
+        "is_test_run": False,
+    }
+
+
+# Kształt zmierzony w O52 na `160020307`: trigger „item created", pada blok AI.
+KROKI_AI = [
+    {
+        "title": "item created",
+        "eventState": "success",
+        "conditionSatisfied": None,
+        "errorReason": None,
+    },
+    {
+        "title": "Custom prompt",
+        "eventState": "failure",
+        "conditionSatisfied": None,
+        "errorReason": "No results – there are no files for the AI to read.",
+    },
+]
+
+
+async def test_przebieg_mowi_jaki_trigger_i_ktory_krok_pada(zbuduj: Any) -> None:
+    """Pytanie Kuby: skąd wychodzi, jaki ma trigger, dlaczego nie działa. Tekst
+    błędu sam tego nie mówi — „no files for the AI to read" to równie dobrze
+    pomyłka człowieka, jak automatyzacja odpalana tam, gdzie plików nie ma."""
+    historia = {
+        156134682: [
+            uruchomienie("failure", "2026-09-18T06:14:05Z", uuid="stare"),
+            uruchomienie("failure", "2026-09-22T07:43:39Z"),
+            uruchomienie("success", "2026-09-01T10:00:00Z", uuid="ok"),
+        ]
+    }
+    klient = zbuduj(router(historia=historia, kroki={UUID: KROKI_AI}))
+
+    wynik = await zbierz_automatyzacje(klient)
+
+    rekord = next(r for r in wynik.statystyki if r["automation_id"] == "156134682")
+    przebieg = rekord["przebieg"]
+    assert przebieg["historia"]["uruchomien"] == 3
+    assert przebieg["historia"]["po_stanie"] == {"failure": 2, "success": 1}
+    assert przebieg["historia"]["ostatnie"] == "2026-09-22T07:43:39Z"
+    # Kroki NAJNOWSZEGO nieudanego uruchomienia, nie pierwszego z listy.
+    ostatni = przebieg["ostatni_nieudany"]
+    assert ostatni["kiedy"] == "2026-09-22T07:43:39Z"
+    assert ostatni["trigger"] == "item created"
+    assert ostatni["padajacy_krok"] == "Custom prompt"
+    assert "no files" in ostatni["blad_kroku"]
+
+
+async def test_okno_historii_to_rok_a_nie_okno_statystyk(zbuduj: Any) -> None:
+    """ZMIERZONE w O52: w roku 40 błędów, w statystykach konta 9."""
+    from datetime import UTC, datetime
+
+    filtry: list[dict[str, Any]] = []
+    uchwyt = router()
+
+    def podsluch(zapytanie: httpx.Request) -> httpx.Response:
+        cialo = json.loads(zapytanie.content)
+        if "automationIds" in (cialo.get("variables") or {}).get("f", {}):
+            filtry.append(cialo["variables"]["f"])
+        return uchwyt(zapytanie)
+
+    klient = zbuduj(podsluch)
+    await zbierz_automatyzacje(klient, teraz=datetime(2026, 9, 23, tzinfo=UTC))
+
+    assert filtry[0]["dateRange"] == {"startDate": "2025-09-23", "endDate": "2026-09-23"}
+
+
+async def test_sufit_przebiegow_jest_odnotowany(zbuduj: Any) -> None:
+    """Ta sama zasada co przy sondach: cichy limit wygląda jak komplet."""
+    klient = zbuduj(router())
+
+    wynik = await zbierz_automatyzacje(klient, maks_przebiegow=1)
+
+    assert wynik.discovery["przebiegow_pobranych"] == 1
+    assert wynik.discovery["przebiegow_pominietych"] == 1
+    assert sum(1 for r in wynik.statystyki if "przebieg" in r) == 1
+
+
+async def test_awaria_przebiegu_nie_przerywa_zbierania(zbuduj: Any) -> None:
+    """Brak szczegółu jednej automatyzacji nie unieważnia reszty audytu."""
+    uchwyt = router()
+
+    def zle_kroki(zapytanie: httpx.Request) -> httpx.Response:
+        cialo = json.loads(zapytanie.content)
+        if "automationIds" in (cialo.get("variables") or {}).get("f", {}):
+            return httpx.Response(200, json={"errors": [{"message": "Field 'x' doesn't exist"}]})
+        return uchwyt(zapytanie)
+
+    klient = zbuduj(zle_kroki)
+
+    wynik = await zbierz_automatyzacje(klient)
+
+    przebiegi = [r["przebieg"] for r in wynik.statystyki if "przebieg" in r]
+    assert przebiegi and all(p == {"blad_pobrania": "ZapytanieError"} for p in przebiegi)
+
+
+async def test_email_w_bledzie_kroku_przerywa(zbuduj: Any) -> None:
+    """Przebieg idzie przez tę samą bramkę PII co reszta — komunikat kroku
+    potrafi wymienić odbiorcę."""
+    historia = {156134682: [uruchomienie("failure", "2026-09-22T07:43:39Z")]}
+    kroki = {UUID: [{**KROKI_AI[1], "errorReason": "nie można wysłać do jan@klient.test"}]}
+    klient = zbuduj(router(historia=historia, kroki=kroki))
+
+    with pytest.raises(PseudonimizacjaError):
+        await zbierz_automatyzacje(klient)

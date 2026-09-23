@@ -261,7 +261,8 @@ SELECT
     COALESCE(json_extract(a.value, '$.success'), 0)   AS success,
     COALESCE(json_extract(a.value, '$.failure'), 0)   AS failure,
     COALESCE(json_extract(a.value, '$.exhausted'), 0) AS exhausted,
-    json_extract(a.value, '$.powody_bledow')   AS powody_bledow
+    json_extract(a.value, '$.powody_bledow')   AS powody_bledow,
+    json_extract(a.value, '$.przebieg')        AS przebieg
 FROM snap, json_each(snap.payload, '$.automatyzacje.statystyki_automatyzacji') AS a
 WHERE COALESCE(json_extract(a.value, '$.failure'), 0) > 0
    OR COALESCE(json_extract(a.value, '$.exhausted'), 0) > 0
@@ -294,6 +295,12 @@ def automation_dead(con: sqlite3.Connection, snapshot_id: int, budzet: int) -> l
                         udzial is not None and udzial > PROG_UDZIALU_BLEDOW
                     ),
                     "prog_udzialu": PROG_UDZIALU_BLEDOW,
+                    # Historia z roku i przebieg ostatniego nieudanego
+                    # uruchomienia (O52): jaki trigger, który krok pada, z jakim
+                    # błędem. Bez tego model rozstrzygał „konfiguracja czy dane
+                    # od człowieka" z samego tekstu błędu. Pusty obiekt, gdy
+                    # collector przebiegu nie pobrał (sufit albo stary snapshot).
+                    "przebieg": json.loads(w["przebieg"] or "{}"),
                 },
                 budzet_wywolan=budzet,
             )

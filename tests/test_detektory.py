@@ -335,6 +335,29 @@ def test_hipoteza_nie_zmyśla_tablicy(con: sqlite3.Connection) -> None:
     assert "board_id" not in fakty
 
 
+def test_przebieg_z_collectora_trafia_do_faktow(con: sqlite3.Connection) -> None:
+    """O52: jaki trigger i który krok pada — bez tego model rozstrzygał
+    „konfiguracja czy dane od człowieka" z samego tekstu błędu."""
+    rekord = automatyzacja("a1", failure=9, exhausted=9)
+    rekord["przebieg"] = {
+        "historia": {"uruchomien": 40, "po_stanie": {"failure": 40}},
+        "ostatni_nieudany": {"trigger": "item created", "padajacy_krok": "Custom prompt"},
+    }
+    snapshot_id = zapisz(con, payload(statystyki=[rekord]))
+
+    fakty = automation_dead(con, snapshot_id, 0)[0].fakty
+
+    assert fakty["przebieg"]["historia"]["uruchomien"] == 40
+    assert fakty["przebieg"]["ostatni_nieudany"]["padajacy_krok"] == "Custom prompt"
+
+
+def test_stary_snapshot_bez_przebiegu_daje_pusty_obiekt(con: sqlite3.Connection) -> None:
+    """Snapshoty sprzed O52 nie mają przebiegu — detektor nie może na tym paść."""
+    snapshot_id = zapisz(con, payload(statystyki=[automatyzacja("a1", failure=1)]))
+
+    assert automation_dead(con, snapshot_id, 0)[0].fakty["przebieg"] == {}
+
+
 # ── runner: powtarzalność i uczciwość raportu ────────────────────────────
 
 

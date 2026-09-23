@@ -179,9 +179,20 @@ na nich napisał.
     automatyzacje „bo nie jest martwa", choć rubryka definiuje klasę jako
     „uruchamia się i nie działa". Trzecia regresja tej samej klasy co
     szablony i `dowod_wymagany`: hydraulika przeniesiona, wiedza zgubiona.
-  - [ ] rerun na tym samym workspace — jak model rozstrzyga teraz
-    `AUTOMATION_DEAD`; dopiero z tym wynikiem decyzja o sygnale detektora.
-    Przy okazji: jednorazowe „priorytetowo" w uwadze mimo zakazu stopniowania.
+  - [x] rerun `analiza-20260923T105716Z`: definicje dochodzą (żaden powód nie
+    brzmi już „nie jest martwa"), ale model zastosował warunek „dane wejściowe
+    od człowieka" do błędów bloków AI — także do automatyzacji z 0 sukcesów.
+    Przyjętych `AUTOMATION_DEAD` 5 zamiast 11. „Priorytetowo" nie pojawiło się
+    w żadnym z dwóch runów; jedyne stopniujące zdanie jest w NASZYM szablonie
+    `ZOMBIE_ACCOUNT` dla adminów.
+  - [x] **przebieg automatyzacji z błędami** (O52, `automatyzacje.przebieg_automatyzacji`):
+    historia z 365 dni i ostatnie nieudane uruchomienie krok po kroku — trigger,
+    padający krok, błąd. W przypiętej `2026-07`, ~2 wywołania na automatyzację,
+    sufit 30. Na żywo CXLABS: 32 wywołania, 14 z 14. Obraz: bloki AI na
+    „item created" z ZEREM sukcesów w roku (40, 49, 16 błędów) obok
+    automatyzacji, które przy dobrym wejściu działają (10/3, 5/1, 4/1).
+  - [ ] rerun z przebiegiem w faktach — czy model odróżnia teraz konfigurację
+    od danych wejściowych; decyzja o warunku w rubryce dopiero po nim.
   - **Wyniesione z 5b** (decyzja Kuby 2026-09-23): **przypadki użycia
     agentów.** Blokuje je API, nie kod — `agent_runs` nie istnieje w żadnej
     wersji (O20), `agents` działa dopiero w nieprzypiętej `2027-01`. Zostaje

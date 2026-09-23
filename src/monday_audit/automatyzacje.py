@@ -47,9 +47,10 @@ import logging
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from monday_audit.klient import MondayClient
+from monday_audit.klient import MondayClient, PrzejsciowyError, ZapytanieError
 from monday_audit.osoby import waliduj_brak_pii
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,48 @@ query ($f: TriggerEventsFiltersInput) {
   }
 }
 """
+
+# ── przebieg automatyzacji z błędami (O52, 2026-09-23) ───────────────────
+#
+# Statystyki konta mówią ILE razy automatyzacja padła, ale nie JAK. O52
+# zmierzył dwa zapytania z przypiętej wersji, które odpowiadają na resztę:
+#
+# * `trigger_events(filters: {automationIds, dateRange})` — historia jednej
+#   automatyzacji w jawnym oknie. Okno statystyk konta jest krótkie:
+#   `160020307` miała w roku 40 błędów, a w statystykach 9.
+# * `block_events(triggerUuid)` — jedno uruchomienie krok po kroku: jaki
+#   trigger, który krok padł i z jakim błędem.
+#
+# Pola, których tu świadomie NIE ma: `BlockEvent.boardId` i `userId` wywracają
+# zapytanie (`Internal server error`, najpewniej `Int` 32-bitowy jak w O12),
+# a `hostInstanceId` przy filtrze `automationIds` jest zawsze pusty. Przypisania
+# automatyzacji do tablicy stąd więc nadal nie ma.
+HISTORIA_AUTOMATYZACJI = """
+query ($f: TriggerEventsFiltersInput) {
+  trigger_events (filters: $f) {
+    triggerEvents { triggerUuid eventState triggerStartedAt is_test_run }
+  }
+}
+"""
+
+KROKI_URUCHOMIENIA = """
+query ($uuid: String!) {
+  block_events (triggerUuid: $uuid) {
+    blockEvents { title eventState conditionSatisfied errorReason }
+  }
+}
+"""
+
+# Rok, bo tyle trzeba, żeby zobaczyć automatyzację odpalaną raz w miesiącu
+# kilkanaście razy — a nie dwa, jak w oknie statystyk.
+OKNO_HISTORII_DNI = 365
+
+# Dwa wywołania na automatyzację. 30 to 60 wywołań — przy dzisiejszym CXLABS
+# (14 automatyzacji z błędami) z zapasem, a na koncie z setką nie zjada dnia.
+MAKS_PRZEBIEGOW = 30
+
+# Komunikat błędu kroku bywa długi; w faktach wystarcza jego początek.
+DLUGOSC_BLEDU = 300
 
 # Zmierzone: `trigger_events` zwraca 200 zdarzeń na stronę. Pełna strona znaczy
 # „jest więcej", więc sonda musi to odnotować, zamiast udawać, że policzyła.
@@ -254,6 +297,85 @@ async def sonduj_tablice(
     return tuple(sondy), pominietych
 
 
+async def przebieg_automatyzacji(
+    klient: MondayClient, automation_id: str, *, od: str, do: str
+) -> dict[str, Any]:
+    """Historia jednej automatyzacji w oknie plus ostatnie nieudane uruchomienie.
+
+    Dwa wywołania, drugie tylko wtedy, gdy w oknie jest uruchomienie nieudane.
+    Błąd zapytania NIE przerywa runu — wraca jako `blad_pobrania`, bo brak
+    szczegółu jednej automatyzacji nie unieważnia reszty audytu. Limit dzienny
+    przechodzi dalej, bo to jest powód do przerwania.
+    """
+    try:
+        dane = await klient.query(
+            HISTORIA_AUTOMATYZACJI,
+            {
+                "f": {
+                    "automationIds": [int(automation_id)],
+                    "dateRange": {"startDate": od, "endDate": do},
+                }
+            },
+            etykieta="przebieg_automatyzacji",
+        )
+    except (ZapytanieError, PrzejsciowyError, ValueError) as blad:
+        return {"blad_pobrania": type(blad).__name__}
+
+    zdarzenia = (dane.get("trigger_events") or {}).get("triggerEvents") or []
+    znaczniki = sorted(str(z["triggerStartedAt"]) for z in zdarzenia if z.get("triggerStartedAt"))
+    przebieg: dict[str, Any] = {
+        "historia": {
+            "okno": {"od": od, "do": do},
+            "uruchomien": len(zdarzenia),
+            "po_stanie": dict(Counter(str(z.get("eventState")) for z in zdarzenia)),
+            "testowych": sum(1 for z in zdarzenia if z.get("is_test_run")),
+            "pierwsze": znaczniki[0] if znaczniki else None,
+            "ostatnie": znaczniki[-1] if znaczniki else None,
+            # Pełna strona to „jest więcej" — stronicowania tu nie ma (O41).
+            "urwane": len(zdarzenia) >= ROZMIAR_STRONY,
+        }
+    }
+
+    nieudane = sorted(
+        (z for z in zdarzenia if z.get("eventState") in ("failure", "exhausted")),
+        key=lambda z: str(z.get("triggerStartedAt") or ""),
+    )
+    if not nieudane or not nieudane[-1].get("triggerUuid"):
+        return przebieg
+
+    ostatnie = nieudane[-1]
+    try:
+        bloki_dane = await klient.query(
+            KROKI_URUCHOMIENIA, {"uuid": ostatnie["triggerUuid"]}, etykieta="przebieg_automatyzacji"
+        )
+    except (ZapytanieError, PrzejsciowyError) as blad:
+        przebieg["ostatni_nieudany"] = {"blad_pobrania": type(blad).__name__}
+        return przebieg
+
+    kroki = [
+        {
+            "krok": str(b.get("title") or "").strip(),
+            "stan": b.get("eventState"),
+            "warunek_spelniony": b.get("conditionSatisfied"),
+            "blad": (str(b["errorReason"])[:DLUGOSC_BLEDU] if b.get("errorReason") else None),
+        }
+        for b in ((bloki_dane.get("block_events") or {}).get("blockEvents") or [])
+        if isinstance(b, dict)
+    ]
+    # Pierwszy krok to trigger — tak oddaje go API (zmierzone w O52: „item
+    # created", „every time period", „Invoked on demand").
+    padajacy = next((k for k in kroki if k["stan"] in ("failure", "exhausted")), None)
+    przebieg["ostatni_nieudany"] = {
+        "kiedy": ostatnie.get("triggerStartedAt"),
+        "stan": ostatnie.get("eventState"),
+        "trigger": kroki[0]["krok"] if kroki else None,
+        "padajacy_krok": padajacy["krok"] if padajacy else None,
+        "blad_kroku": padajacy["blad"] if padajacy else None,
+        "kroki": kroki,
+    }
+    return przebieg
+
+
 async def zbierz_automatyzacje(
     klient: MondayClient,
     *,
@@ -261,10 +383,14 @@ async def zbierz_automatyzacje(
     od: str | None = None,
     do: str | None = None,
     maks_sond: int = MAKS_SOND,
+    maks_przebiegow: int = MAKS_PRZEBIEGOW,
+    teraz: datetime | None = None,
 ) -> WynikAutomatyzacji:
     """Zbiera to, co API faktycznie daje: statystyki konta plus opcjonalne sondy.
 
-    Bez `board_ids` kosztuje **trzy wywołania** niezależnie od wielkości konta.
+    Bez `board_ids` kosztuje **cztery wywołania** plus do dwóch na każdą
+    automatyzację z błędem albo wyczerpaniem (`przebieg_automatyzacji`, O52),
+    z sufitem `maks_przebiegow`.
     """
     liczby, discovery = await statystyki_konta(klient)
 
@@ -294,6 +420,31 @@ async def zbierz_automatyzacje(
                 # Powody to teksty od monday, nie treść klienta — ale i tak
                 # przechodzą przez walidację PII razem z resztą payloadu.
                 biezacy["powody_bledow"] = dict(rekord["powody"])
+
+    # Przebieg dla automatyzacji z błędami — to one idą do AUTOMATION_DEAD.
+    # Rekord statystyk dostaje go w miejscu, więc detektor czyta jedno źródło.
+    koniec = (teraz or datetime.now(UTC)).date()
+    okno_od = (koniec - timedelta(days=OKNO_HISTORII_DNI)).isoformat()
+    z_problemem = [
+        r
+        for r in sorted(po_automatyzacji.values(), key=lambda r: r["automation_id"])
+        if r["failure"] or r["exhausted"]
+    ]
+    for rekord in z_problemem[:maks_przebiegow]:
+        rekord["przebieg"] = await przebieg_automatyzacji(
+            klient, rekord["automation_id"], od=okno_od, do=koniec.isoformat()
+        )
+    pominietych_przebiegow = max(0, len(z_problemem) - maks_przebiegow)
+    if pominietych_przebiegow:
+        logger.warning(
+            "przebieg pobrany dla %d z %d automatyzacji z błędami — sufit %d; "
+            "reszta ma tylko statystyki",
+            maks_przebiegow,
+            len(z_problemem),
+            maks_przebiegow,
+        )
+    discovery["przebiegow_pobranych"] = min(len(z_problemem), maks_przebiegow)
+    discovery["przebiegow_pominietych"] = pominietych_przebiegow
 
     statystyki = tuple(sorted(po_automatyzacji.values(), key=lambda r: r["automation_id"]))
 
