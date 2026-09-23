@@ -58,16 +58,20 @@ def srodowisko(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any
     monkeypatch.setattr(cli_analiza, "klucz_anthropic", lambda _: "klucz-testowy")
     monkeypatch.setattr(cli_analiza, "uruchom_detektory", lambda *_: ([hipoteza], {}))
     monkeypatch.setattr(cli_analiza, "wysylka_z_ustawien", lambda _: slad)
-    monkeypatch.setattr(cli_analiza, "KATALOG_WYNIKOW", tmp_path / "raporty")
     return {"baza": baza, "snapshot_id": snapshot_id, "slad": slad}
 
 
-def _argumenty(srodowisko: dict[str, Any], run_id: str) -> argparse.Namespace:
+def _argumenty(
+    srodowisko: dict[str, Any], run_id: str, *, w_pamieci: bool = False
+) -> argparse.Namespace:
     return argparse.Namespace(
         klient="cxlabs",
-        snapshot=srodowisko["snapshot_id"],
+        snapshot=None if w_pamieci else srodowisko["snapshot_id"],
+        zakres="cale_konto" if w_pamieci else None,
+        id=[],
         baza=None,
         wejscie=None,
+        wyjscie=None,
         tylko_szacunek=False,
         run_id=run_id,
         json=False,
@@ -130,3 +134,149 @@ async def test_padnieta_analiza_tez_wysyla_trace(
     assert "błąd API" in trace.obserwacje[0].wyjscie["blad"]
     assert slad.zamkniety
     assert _status(srodowisko, "t-awaria") == "przerwany"
+
+
+# ── faza 5c: po runie na dysku nie zostaje nic o konkretnej osobie ────────
+#
+# To jest weryfikowalny rezultat fazy 5c i dlatego test przegląda CAŁĄ
+# trwałą bazę — każdą tabelę, każdy wiersz — a nie tylko tabele, o których
+# wiemy, że mogłyby coś zawierać. Dane osoby w tabeli, o której nikt nie
+# pomyślał, to dokładnie ten przypadek, który ma się nie zdarzyć.
+
+NAZWISKO = "Zdzisława Wąchockańska"
+MAIL = "zdzislawa@klient.test"
+PSEUDONIM = "1dcfeabe7fa5d9a7"
+DATA_AKTYWNOSCI = "2026-06-09"
+
+
+def _cala_baza(sciezka: Path) -> str:
+    con = polacz(sciezka)
+    try:
+        tabele = [
+            w["name"] for w in con.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        ]
+        zrzut = []
+        for tabela in tabele:
+            for wiersz in con.execute(f'SELECT * FROM "{tabela}"'):  # noqa: S608
+                zrzut.append(f"{tabela}: {dict(wiersz)}")
+        return "\n".join(zrzut)
+    finally:
+        con.close()
+
+
+async def test_run_w_pamieci_nie_zostawia_na_dysku_nic_o_osobie(
+    srodowisko: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def collector_w_pamieci(*, con: Any, client_id: str, **_: Any) -> Any:
+        # Dokładnie to, co robi prawdziwy collector: snapshot z pseudonimem
+        # i tabela mapowania z PRAWDZIWYM nazwiskiem i mailem — w połączeniu,
+        # które dostał.
+        con.execute(
+            "INSERT INTO osoby_mapowanie (client_id, user_hash, imie_nazwisko, email) "
+            "VALUES (?, ?, ?, ?)",
+            (client_id, PSEUDONIM, NAZWISKO, MAIL),
+        )
+        snapshot_id = zapisz_snapshot(
+            con,
+            client_id=client_id,
+            payload={"uzytkownicy": {"uzytkownicy": [{"user_hash": PSEUDONIM}]}},
+            run_at="2026-09-23T00:00:00Z",
+        )
+        con.commit()
+        return SimpleNamespace(snapshot_id=snapshot_id, wywolan=42)
+
+    zombie = Hipoteza(
+        klasa_id="ZOMBIE_ACCOUNT",
+        obiekt_id=PSEUDONIM,
+        fakty={
+            "user_hash": PSEUDONIM,
+            "kind": "member",
+            "status": "ACTIVE",
+            "last_activity": f"{DATA_AKTYWNOSCI}T13:01:12Z",
+            "obecnosc_w_logach": False,
+            "plan_tier": "enterprise",
+        },
+        budzet_wywolan=0,
+    )
+    ghost = Hipoteza(klasa_id="BOARD_GHOST", obiekt_id="b1", fakty={"wpisow": 0}, budzet_wywolan=2)
+
+    async def atrapa_sesji(*_: Any, **__: Any) -> dict[str, Any]:
+        return {
+            "uwagi": [],
+            "pominiete": [{"klasa_id": "BOARD_GHOST", "obiekt_id": "b1", "powod": "świeża"}],
+            "zuzycie": {"tokens_out": 100, "koszt_usd": 0.12},
+            "wywolania_narzedzi": [],
+        }
+
+    monkeypatch.setattr(cli_analiza, "wykonaj_run", collector_w_pamieci)
+    monkeypatch.setattr(cli_analiza, "uruchom_detektory", lambda *_: ([zombie, ghost], {}))
+    monkeypatch.setattr(cli_analiza, "zbadaj_konto", atrapa_sesji)
+    monkeypatch.setattr(
+        cli_analiza,
+        "wczytaj",
+        lambda: SimpleNamespace(
+            monday_audit_db=srodowisko["baza"],
+            monday_token=SimpleNamespace(get_secret_value=lambda: "token-testowy"),
+        ),
+    )
+
+    assert await cli_analiza.uruchom(_argumenty(srodowisko, "t-pamiec", w_pamieci=True)) == 0
+
+    zrzut = _cala_baza(srodowisko["baza"])
+
+    # Nic o osobie — w ŻADNEJ tabeli.
+    assert NAZWISKO not in zrzut
+    assert MAIL not in zrzut
+    assert PSEUDONIM not in zrzut
+    assert DATA_AKTYWNOSCI not in zrzut
+
+    con = polacz(srodowisko["baza"])
+    try:
+        # Snapshot fixture'u sprzed fazy 5c jest jeden; nowy NIE doszedł.
+        assert con.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0] == 1
+        assert con.execute("SELECT COUNT(*) FROM osoby_mapowanie").fetchone()[0] == 0
+
+        # Ale wynik audytu JEST — zamaskowany, z liczbami (prośba Kuby).
+        uwaga = con.execute(
+            "SELECT klasa_id, zrodlo, dowod FROM uwagi_zapisane WHERE run_id = 't-pamiec'"
+        ).fetchone()
+        assert uwaga["klasa_id"] == "ZOMBIE_ACCOUNT"
+        assert uwaga["zrodlo"] == "szablon"
+        assert "[OSOBA]" in uwaga["dowod"]
+        assert "dni przed runem" in uwaga["dowod"]
+
+        run = con.execute("SELECT * FROM runy WHERE run_id = 't-pamiec'").fetchone()
+        assert run["status"] == "zakonczony"
+        # Snapshot z pamięci nie istnieje w tej bazie — klucz obcy by go odrzucił.
+        assert run["snapshot_id"] is None
+        assert run["findingow"] == 1
+        assert run["hipotez_zbadanych"] == 2
+        assert run["hipotez_odrzuconych"] == 1
+        assert run["wywolania_monday"] == 42
+    finally:
+        con.close()
+
+
+def _pliki(katalog: Path, wzorzec: str) -> list[Path]:
+    """Synchronicznie, bo w funkcji `async` metody `pathlib` blokują pętlę."""
+    return list(katalog.rglob(wzorzec))
+
+
+async def test_pelna_odpowiedz_na_dysk_tylko_na_zadanie(
+    srodowisko: dict[str, Any], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Do fazy 5c plik z pełną odpowiedzią powstawał zawsze — i niósł pseudonimy
+    na dysk. Teraz tylko z `--wyjscie`."""
+
+    async def atrapa_sesji(*_: Any, **__: Any) -> dict[str, Any]:
+        return {"uwagi": [], "pominiete": [], "zuzycie": {}, "wywolania_narzedzi": []}
+
+    monkeypatch.setattr(cli_analiza, "zbadaj_konto", atrapa_sesji)
+
+    await cli_analiza.uruchom(_argumenty(srodowisko, "t-bez-pliku"))
+    assert not _pliki(tmp_path, "analiza_t-bez-pliku.json")
+
+    argumenty = _argumenty(srodowisko, "t-z-plikiem")
+    argumenty.wyjscie = tmp_path / "wyniki"
+    await cli_analiza.uruchom(argumenty)
+    assert _pliki(tmp_path / "wyniki", "analiza_t-z-plikiem.json")

@@ -1,31 +1,39 @@
-"""Analiza konta jedną sesją: detektory → model → uwagi krytyczne (faza 5b-3).
+"""Analiza konta jedną sesją: detektory → model → uwagi krytyczne (fazy 5b, 5c).
 
-    uv run python -m monday_audit.cli_analiza --klient cxlabs --snapshot 1
-    uv run python -m monday_audit.cli_analiza --snapshot 1 --wejscie obraz.json
-    uv run python -m monday_audit.cli_analiza --snapshot 1 --tylko-szacunek
+    uv run python -m monday_audit.cli_analiza --klient cxlabs --zakres workspace --id 7465500
+    uv run python -m monday_audit.cli_analiza --zakres cale_konto --wejscie obraz.json
+    uv run python -m monday_audit.cli_analiza --zakres cale_konto --tylko-szacunek
+    uv run python -m monday_audit.cli_analiza --snapshot 1      # stary, zapisany snapshot
 
-## Dwa źródła, i to jest decyzja, nie prowizorka
+## Minimalne przechowywanie (faza 5c) — dwa połączenia, i to jest sedno
 
-**Detektory potrzebują SNAPSHOTU**, bo ich warunkiem odbioru jest „ten sam
-snapshot daje tę samą listę hipotez" — czysty SQL po zamrożonym payloadzie.
+Decyzja Kuby z 2026-09-23: po runie na dysku nie zostaje nic, co dotyczy
+konkretnej osoby. Kod robi to przez podział na dwie bazy, a nie przez
+sprzątanie po fakcie:
 
-**Obraz konta dla modelu pochodzi z NOWEGO potoku** (inwentarz → przegląd →
-itemy → zestawienia), bo tylko tam są rollupy produktowe i pokrycia.
+* **`zrodlo` — SQLite W PAMIĘCI.** Tu collector zapisuje snapshot i tabelę
+  `osoby_mapowanie` (prawdziwe imiona, nazwiska, maile). Tu pracują detektory
+  i narzędzia agenta. Znika razem z procesem — nie ma czego usuwać, bo nigdy
+  nie było na dysku.
+* **`trwala` — baza na dysku.** Trafia do niej WYŁĄCZNIE to, co przeszło przez
+  `przechowanie.py`: metadane runu, koszt, liczby i uwagi po maskowaniu.
 
-Te dwa potoki **współistnieją celowo**: nowy jest tanim pierwszym ekranem,
-stary — głęboką analizą. Dlatego obraz konta wchodzi tu PLIKIEM (`--wejscie`),
-a nie jest zbierany na nowo: pełny przebieg po itemach kosztuje ~1100 wywołań
-z limitu klienta i nie ma powodu płacić go drugi raz przy każdej analizie.
+Sprzątanie po fakcie zawodzi w najgorszym momencie: wystarczy, że proces padnie
+między zapisem a usunięciem. Baza w pamięci nie ma takiego okna.
 
-Bez `--wejscie` analiza też działa — model dostaje wtedy sam snapshot
-i mniej rzeczy do powiedzenia. Jest to stan gorszy, ale uczciwy, i CLI mówi
-o nim wprost zamiast udawać komplet.
+`--snapshot N` zostaje dla snapshotów zebranych przed tą fazą — wtedy `zrodlo`
+jest bazą trwałą, bo tam już leżą. Nowych tak nie zbieramy.
+
+## Najpierw wynik, potem zapis
+
+Raport idzie na wyjście PRZED zapisem do bazy. Pierwszy prawdziwy run tej
+ścieżki padł na zapisie po opłaconej sesji i nie zostawił po sobie nic. Plik
+z surową odpowiedzią tamto naprawiał, ale niósł pseudonimy na dysk — więc teraz
+jest tylko na wyraźne żądanie (`--wyjscie`), a domyślnie ratunkiem jest ekran.
 
 ## Nic nie zapisuje do monday
 
-Ta ścieżka czyta snapshot i woła model. Narzędzia agenta idą przez
-`MondayClient`, który odrzuca `mutation` — ale tutaj klient nie jest nawet
-tworzony, bo analiza stoi na zamrożonych danych.
+Collector i narzędzia agenta idą przez `MondayClient`, który odrzuca `mutation`.
 """
 
 from __future__ import annotations
@@ -34,6 +42,7 @@ import argparse
 import asyncio
 import json
 import logging
+import sqlite3
 import sys
 import time
 from pathlib import Path
@@ -46,24 +55,44 @@ from monday_audit.analiza import (
     zbadaj_konto,
 )
 from monday_audit.baza import polacz, zastosuj_migracje
+from monday_audit.cli import zbuduj_zakres
 from monday_audit.detektory import uruchom_detektory
 from monday_audit.konfiguracja import KonfiguracjaError, klucz_anthropic, sol_z_ustawien, wczytaj
 from monday_audit.kontrakt import KontraktError
 from monday_audit.koszt import historia_analiz, oszacuj, porownaj, zapisz_zuzycie_analizy
 from monday_audit.narzedzia import Narzedzia
 from monday_audit.obserwowalnosc import hasz_obrazu, wyslij_bezpiecznie, zbuduj_trace_analizy
-from monday_audit.przebieg import zapisz_zuzycie
+from monday_audit.przebieg import wykonaj_run, zapisz_zuzycie
+from monday_audit.przechowanie import PrzechowanieError, zapisz_statystyki, zapisz_uwagi
 from monday_audit.rubryka import wczytaj_rubryke
 from monday_audit.uwagi import waliduj_uwagi
 from monday_audit.wysylka_langfuse import wysylka_z_ustawien
 
 logger = logging.getLogger(__name__)
 
+BAZA_W_PAMIECI = ":memory:"
+
 
 def zbuduj_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Analiza konta jedną sesją (uwagi krytyczne)")
     parser.add_argument("--klient", default="cxlabs", help="identyfikator klienta")
-    parser.add_argument("--snapshot", type=int, required=True, help="id snapshotu z bazy")
+    zrodlo = parser.add_mutually_exclusive_group(required=True)
+    zrodlo.add_argument(
+        "--zakres",
+        choices=("cale_konto", "workspace", "tablice"),
+        help="zbierz snapshot DO PAMIĘCI i przeanalizuj — nic o osobach nie trafia na dysk",
+    )
+    zrodlo.add_argument(
+        "--snapshot",
+        type=int,
+        help="przeanalizuj snapshot zapisany w bazie przed fazą 5c",
+    )
+    parser.add_argument(
+        "--id",
+        action="append",
+        default=[],
+        help="workspace_id albo board_id przy --zakres; można podać wielokrotnie",
+    )
     parser.add_argument("--baza", type=Path, default=None)
     parser.add_argument(
         "--wejscie",
@@ -72,6 +101,17 @@ def zbuduj_parser() -> argparse.ArgumentParser:
         help=(
             "plik z obrazem konta — wynik `cli_inwentarz --wejscie-modelu`. "
             "Bez niego model widzi sam snapshot i ma mniej do powiedzenia"
+        ),
+    )
+    parser.add_argument(
+        "--wyjscie",
+        type=Path,
+        default=None,
+        metavar="KATALOG",
+        help=(
+            "zapisz PEŁNĄ odpowiedź modelu w tym katalogu (analiza_<run_id>.json). "
+            "Domyślnie nie — plik niesie pseudonimy, więc ląduje na dysku tylko "
+            "na wyraźne żądanie"
         ),
     )
     parser.add_argument(
@@ -111,18 +151,13 @@ def _wypisz(wynik: Any, uwagi: list[dict[str, Any]]) -> None:
         print(f"  ODRZUCONA [{odrzucona.klasa_id}]: {odrzucona.powod}")
 
 
-KATALOG_WYNIKOW = Path("raporty")
-
-
 def zapisz_surowa_odpowiedz(run_id: str, odpowiedz: dict[str, Any], katalog: Path) -> Path:
-    """Surowa odpowiedź modelu na dysk — PIERWSZA rzecz po sesji.
+    """Pełna odpowiedź modelu do pliku — TYLKO na wyraźne żądanie (`--wyjscie`).
 
-    ZMIERZONE na pierwszym runie 5b-2: model odpowiedział, walidacja zadziałała,
-    a potem zapis zużycia padł na kluczu obcym i proces zakończył się PRZED
-    wypisaniem uwag. Zapłaciliśmy za run i straciliśmy i treść, i faktyczny
-    koszt. Od teraz nic, co może paść, nie stoi między sesją a tym zapisem.
-
-    `raporty/` jest w `.gitignore` — plik niesie treść o koncie klienta.
+    Do fazy 5c ten zapis szedł zawsze, jako ratunek po pierwszym runie, który
+    padł po opłaconej sesji. Ale plik niesie pseudonimy, więc był danymi osoby
+    na dysku. Ratunkiem jest teraz kolejność (wynik na wyjście przed zapisem),
+    a plik — decyzją operatora, który wie, co z nim zrobi.
     """
     katalog.mkdir(parents=True, exist_ok=True)
     sciezka = katalog / f"analiza_{run_id}.json"
@@ -130,17 +165,48 @@ def zapisz_surowa_odpowiedz(run_id: str, odpowiedz: dict[str, Any], katalog: Pat
     return sciezka
 
 
+def _teraz() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+async def _zbierz_do_pamieci(
+    argumenty: argparse.Namespace, ustawienia: Any
+) -> tuple[sqlite3.Connection, int, int | None]:
+    """Collector do bazy W PAMIĘCI. Zwraca (połączenie, snapshot_id, wywołań).
+
+    `wykonaj_run` zapisuje snapshot i tabelę `osoby_mapowanie` w połączeniu,
+    które dostaje — więc wystarczy podać mu bazę w RAM-ie, żeby żadne z nich
+    nie dotknęło dysku. Collector nie wie, że pracuje w pamięci, i nie musi.
+    """
+    zrodlo = polacz(BAZA_W_PAMIECI)
+    zastosuj_migracje(zrodlo)
+    raport = await wykonaj_run(
+        token=ustawienia.monday_token.get_secret_value(),
+        con=zrodlo,
+        client_id=argumenty.klient,
+        zakres=zbuduj_zakres(argumenty.zakres, argumenty.id),
+        sol=sol_z_ustawien(ustawienia),
+    )
+    return zrodlo, raport.snapshot_id, raport.wywolan
+
+
 async def uruchom(argumenty: argparse.Namespace) -> int:
     ustawienia = wczytaj()
-    baza = argumenty.baza or ustawienia.monday_audit_db
-    con = polacz(baza)
+    trwala = polacz(argumenty.baza or ustawienia.monday_audit_db)
+    zrodlo: sqlite3.Connection | None = None
     try:
         # Jak w każdym innym CLI tego repo. Pierwsza wersja to pominęła,
-        # a bez tego kolumna `zuzycie_hipotez.hipotez` (migracja 013) nie
-        # powstałaby w istniejącej bazie i zapis zużycia padłby po opłaconym runie.
-        zastosuj_migracje(con)
+        # a bez tego nowe tabele nie powstałyby w istniejącej bazie.
+        zastosuj_migracje(trwala)
+
+        if argumenty.snapshot is not None:
+            zrodlo, snapshot_id, wywolan_monday = trwala, argumenty.snapshot, None
+        else:
+            zrodlo, snapshot_id, wywolan_monday = await _zbierz_do_pamieci(argumenty, ustawienia)
+        w_pamieci = zrodlo is not trwala
+
         rubryka = wczytaj_rubryke()
-        hipotezy, raport = uruchom_detektory(con, argumenty.snapshot, rubryka)
+        hipotezy, raport = uruchom_detektory(zrodlo, snapshot_id, rubryka)
         if not hipotezy:
             print("Detektory nie wzbudziły ani jednej hipotezy — nie ma czego analizować.")
             return 0
@@ -160,7 +226,7 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
 
         # Szacunek liczymy WYŁĄCZNIE dla tego, co pójdzie do modelu. Szablon
         # kosztuje zero, więc liczenie go zawyżałoby kwotę bez powodu.
-        szacunek = oszacuj(len(do_modelu), historia_analiz(con))
+        szacunek = oszacuj(len(do_modelu), historia_analiz(trwala))
         print(
             f"\n  hipotez: {len(hipotezy)} — do modelu {len(do_modelu)}, "
             f"z szablonu {len(z_szablonow)} (bez kosztu)"
@@ -172,38 +238,33 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
             return 0
 
         run_id = argumenty.run_id or f"analiza-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}"
-        # Wiersz w `runy` PRZED sesją, jak w `cli_agent`. `zuzycie_hipotez.run_id`
-        # ma klucz obcy do `runy` — pierwsza wersja tego nie robiła i padła na
-        # zapisie zużycia po opłaconym runie. Test tego nie złapał, bo stawiał
-        # schemat w pamięci BEZ klucza obcego.
-        con.execute(
+        # Wiersz w `runy` PRZED sesją, jak w `cli_agent` — `zuzycie_hipotez.run_id`
+        # ma klucz obcy do `runy`. `snapshot_id` tylko przy starym snapshocie:
+        # snapshot z pamięci nie istnieje w tej bazie i klucz obcy by go odrzucił.
+        trwala.execute(
             "INSERT INTO runy (run_id, client_id, snapshot_id, status, started_at, model, "
             "rubric_ver, prompt_hash) VALUES (?, ?, ?, 'w_toku', ?, ?, ?, ?)",
             (
                 run_id,
                 argumenty.klient,
-                argumenty.snapshot,
-                time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                None if w_pamieci else snapshot_id,
+                _teraz(),
                 MODEL,
                 rubryka.wersja,
                 hash_promptu(SCIEZKA_PROMPTU_ANALIZY),
             ),
         )
-        con.commit()
+        trwala.commit()
 
-        # Ślad do Langfuse — `None`, gdy nie jest skonfigurowany, i to jest stan
-        # domyślny. Do fazy 5b nowa ścieżka nie wysyłała trace'ów WCALE: tracing
-        # z fazy 4 siedział w `agent.zbadaj_hipotezy`, a `zbadaj_konto` to osobna
-        # funkcja. Obserwowalność nie obejmowała ścieżki, która ma ją zastąpić.
+        # Ślad do Langfuse — `None`, gdy nie jest skonfigurowany.
         slad = wysylka_z_ustawien(ustawienia)
-        hipotezy_do_trace = [h.do_zapisu() for h in do_modelu]
         wspolne = {
             "run_id": run_id,
-            "snapshot_id": argumenty.snapshot,
+            "snapshot_id": snapshot_id,
             "model": MODEL,
             "prompt_hash": hash_promptu(SCIEZKA_PROMPTU_ANALIZY),
             "obraz_hash": hasz_obrazu(wejscie),
-            "hipotezy": hipotezy_do_trace,
+            "hipotezy": [h.do_zapisu() for h in do_modelu],
             "z_szablonu": len(z_szablonow),
             "szacunek_usd": szacunek.koszt_usd,
         }
@@ -212,8 +273,8 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
             zaczeto = time.monotonic()
             if do_modelu:
                 zestaw = Narzedzia(
-                    con=con,
-                    snapshot_id=argumenty.snapshot,
+                    con=zrodlo,
+                    snapshot_id=snapshot_id,
                     client_id=argumenty.klient,
                     sol=sol_z_ustawien(ustawienia),
                     klient=None,
@@ -229,21 +290,33 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
                 odpowiedz = {"uwagi": [], "pominiete": [], "zuzycie": {}}
             sekund = round(time.monotonic() - zaczeto, 3)
 
-            # PIERWSZY zapis po sesji. Nic, co może paść, nie stoi przed nim.
-            plik = zapisz_surowa_odpowiedz(run_id, odpowiedz, KATALOG_WYNIKOW)
-
-            # Kopia PRZED doklejeniem szablonów. Trace generacji opisuje wywołanie
-            # modelu — uwaga z szablonu w jego wyjściu kazałaby przypisać modelowi
-            # coś, czego nie napisał.
+            # Kopia PRZED doklejeniem szablonów. Trace generacji opisuje
+            # wywołanie modelu — uwaga z szablonu w jego wyjściu kazałaby
+            # przypisać modelowi coś, czego nie napisał.
             odpowiedz_modelu = dict(odpowiedz)
+            if argumenty.wyjscie is not None:
+                zapisz_surowa_odpowiedz(run_id, odpowiedz_modelu, argumenty.wyjscie)
 
             odpowiedz["uwagi"] = z_szablonow + list(odpowiedz.get("uwagi") or [])
-            wynik = waliduj_uwagi(odpowiedz, rubryka)
+            try:
+                wynik = waliduj_uwagi(odpowiedz, rubryka)
+            except KontraktError:
+                # Odpowiedź bez struktury: treść na EKRAN, nie na dysk. Za sesję
+                # już zapłacono i nie wolno jej zgubić bez śladu.
+                print(json.dumps(odpowiedz_modelu, ensure_ascii=False, indent=1))
+                raise
             zuzycie = odpowiedz.get("zuzycie") or {}
 
-            zapisz_zuzycie(con, run_id, zuzycie)
+            # 1. WYNIK NA WYJŚCIE — zanim cokolwiek, co może paść, dotknie bazy.
+            if argumenty.json:
+                print(json.dumps({"uwagi": wynik.przyjete, "zuzycie": zuzycie}, ensure_ascii=False))
+            else:
+                _wypisz(wynik, wynik.przyjete)
+
+            # 2. ZAPIS MINIMALNY — wyłącznie przez `przechowanie.py`.
+            zapisz_zuzycie(trwala, run_id, zuzycie)
             zapisz_zuzycie_analizy(
-                con,
+                trwala,
                 run_id,
                 zuzycie,
                 ile_hipotez=len(do_modelu),
@@ -251,16 +324,33 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
                 wywolan_narzedzi=len(odpowiedz.get("wywolania_narzedzi") or []),
                 sekund=sekund,
             )
-            con.execute(
-                "UPDATE runy SET status = 'zakonczony', finished_at = ?, findingow = ? "
-                "WHERE run_id = ?",
-                (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), len(wynik.przyjete), run_id),
-            )
-            con.commit()
+            try:
+                zapisanych = zapisz_uwagi(trwala, run_id, wynik.przyjete)
+                if wejscie:
+                    zapisz_statystyki(trwala, run_id, wejscie)
+            except PrzechowanieError:
+                # Bramka zadziałała: w zapisie został identyfikator osoby. Raport
+                # już wyszedł, więc tracimy wiersz w bazie, a nie wynik audytu.
+                logger.exception("uwagi NIE zapisane — bramka przechowania zadziałała")
+                zapisanych = 0
 
-            # Trace PO zapisie do bazy, nie przed. Kolejność ma znaczenie tylko
-            # w jedną stronę: padnięty eksport nie może zabrać wyniku, a
-            # `wyslij_bezpiecznie` i tak nie przepuszcza żadnego wyjątku.
+            trwala.execute(
+                "UPDATE runy SET status = 'zakonczony', finished_at = ?, findingow = ?, "
+                "odrzuconych_walidacja = ?, hipotez_zbadanych = ?, hipotez_odrzuconych = ?, "
+                "wywolania_monday = ? WHERE run_id = ?",
+                (
+                    _teraz(),
+                    zapisanych,
+                    len(wynik.odrzucone),
+                    len(hipotezy),
+                    len(wynik.pominiete),
+                    wywolan_monday,
+                    run_id,
+                ),
+            )
+            trwala.commit()
+
+            # Trace PO zapisie — padnięty eksport nie może zabrać wyniku.
             if do_modelu:
                 wyslij_bezpiecznie(
                     slad,
@@ -273,48 +363,44 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
                     opis=f"analiza {run_id}",
                 )
         except BaseException as awaria:
-            # Run, który padł, jest NAJCIEKAWSZY w trace'ach — więc też go
-            # wysyłamy. Tylko przy `Exception`: przy Ctrl-C człowiek chce
-            # przerwać, a nie czekać na eksport.
+            # Run, który padł, jest NAJCIEKAWSZY w trace'ach. Tylko przy
+            # `Exception`: przy Ctrl-C człowiek chce przerwać, a nie czekać.
             if isinstance(awaria, Exception) and do_modelu:
                 # Tekst liczony TU, nie w lambdzie: nazwa z `except ... as` znika
                 # po wyjściu z bloku, a lambda odwołuje się do nazw leniwie.
                 opis_awarii = f"{type(awaria).__name__}: {awaria}"[:500]
                 wyslij_bezpiecznie(
                     slad,
-                    lambda: zbuduj_trace_analizy(
-                        **wspolne,
-                        odpowiedz=None,
-                        blad=opis_awarii,
-                    ),
+                    lambda: zbuduj_trace_analizy(**wspolne, odpowiedz=None, blad=opis_awarii),
                     opis=f"analiza {run_id} (awaria)",
                 )
-            # `przerwany`, nie zostawiony w `w_toku`. Wiersz, który wisi w toku
-            # na zawsze, wygląda jak run, który wciąż trwa.
-            con.execute(
+            # `przerwany`, nie zostawiony w `w_toku` — wiersz wiszący w toku na
+            # zawsze wygląda jak run, który wciąż trwa.
+            trwala.execute(
                 "UPDATE runy SET status = 'przerwany', finished_at = ? WHERE run_id = ?",
-                (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), run_id),
+                (_teraz(), run_id),
             )
-            con.commit()
+            trwala.commit()
             raise
         finally:
-            # Bez dosłania bufora krótki proces CLI kończy się przed eksportem
-            # i trace nie wychodzi wcale — także ten o awarii.
+            # Bez dosłania bufora krótki proces CLI kończy się przed eksportem.
             if slad is not None:
                 slad.zamknij()
 
-        if argumenty.json:
-            print(json.dumps({"uwagi": wynik.przyjete, "zuzycie": zuzycie}, ensure_ascii=False))
-        else:
-            _wypisz(wynik, wynik.przyjete)
-
-        # Szacunek OBOK rachunku. Szacunek, którego nikt nie konfrontuje
-        # z rachunkiem, po kilku runach staje się ozdobą.
+        # Szacunek OBOK rachunku — inaczej po kilku runach staje się ozdobą.
         print(f"\n  {porownaj(szacunek, zuzycie)}")
-        print(f"  run: {run_id}, {sekund:.1f} s, surowa odpowiedź: {plik}")
+        miejsce = (
+            "snapshot w PAMIĘCI, nic o osobach nie zostało na dysku"
+            if w_pamieci
+            else (f"snapshot {snapshot_id} z bazy")
+        )
+        print(f"  run: {run_id}, {sekund:.1f} s, {miejsce}")
         return 0
     finally:
-        con.close()
+        # Baza w pamięci znika razem z tym zamknięciem — i to jest cały mechanizm.
+        if zrodlo is not None and zrodlo is not trwala:
+            zrodlo.close()
+        trwala.close()
 
 
 def main(argv: list[str] | None = None) -> int:
