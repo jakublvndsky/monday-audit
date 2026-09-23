@@ -2,7 +2,8 @@
 
 **Cel:** podanie klucza API monday zwraca raport HTML i PDF opisujący konto —
 inwentarz, typy workspace'ów, aktywność ludzi i agentów, uwagi krytyczne —
-z wyceną w dolarach.
+z szacowanym kosztem runu agenta w dolarach (znalezisk nie wyceniamy —
+decyzja Kuby z 2026-09-23).
 
 **Poza zakresem** (świadomie, nie z zapomnienia):
 
@@ -13,7 +14,7 @@ z wyceną w dolarach.
   rozmiaru (decyzja 2026-09-21). Wypada z tym dwufazowa zgoda na koszt,
   widełki liczone ze snapshotu, flagi przy tablicach i podłoga kosztu,
 - **rubryka z wagami, wysiłkiem i pewnością** oraz wycena w złotówkach —
-  zastępuje je jedna kategoria „uwagi krytyczne" i kwoty w dolarach,
+  zastępuje je jedna kategoria „uwagi krytyczne", bez wyceny (2026-09-23),
 - **MCP monday** — flaga `--read-only` nie działa (sprawdzone), zakaz zostaje,
 - **harmonogram i cykliczność** — audyt jest odpalany na żądanie,
 - **czat z agentem.**
@@ -133,9 +134,10 @@ na nich napisał.
     w ogóle.** Stara ma ją w `przebieg.py`; nowa szła do modelu bez niczego.
     Zamknięte przez `wejscie_analizy.py`, ale z dziurą na nazwiska (O50).
 
-- [ ] **5b. Analiza modelem: uwagi krytyczne** — zastąpienie rubryki 13 klas
-  jedną kategorią, wycena w dolarach, przypadki użycia agentów. Każde
-  stwierdzenie z dowodem.
+- [x] **5b. Analiza modelem: uwagi krytyczne** — zastąpienie rubryki 13 klas
+  jedną kategorią i szacowany koszt runu. Każde stwierdzenie z dowodem.
+  (Pierwotnie także wycena w dolarach i przypadki użycia agentów — pierwsza
+  odpadła decyzją 2026-09-23, druga wyniesiona, bo blokuje ją API, O20.)
 
   **Zakres zawężony przez pomiary, nie przez decyzję.** Sugestia produktu
   z nomenklatury **odpada**: faza 1 zawęziła ją do workspace'ów bez ustawionego
@@ -191,8 +193,13 @@ na nich napisał.
     sufit 30. Na żywo CXLABS: 32 wywołania, 14 z 14. Obraz: bloki AI na
     „item created" z ZEREM sukcesów w roku (40, 49, 16 błędów) obok
     automatyzacji, które przy dobrym wejściu działają (10/3, 5/1, 4/1).
-  - [ ] rerun z przebiegiem w faktach — czy model odróżnia teraz konfigurację
-    od danych wejściowych; decyzja o warunku w rubryce dopiero po nim.
+  - [x] rerun z przebiegiem w faktach, `analiza-20260923T115710Z`: 11 z 14
+    `AUTOMATION_DEAD` przyjętych — dokładnie te z zerem sukcesów w roku, każda
+    z triggerem i padającym krokiem w opisie („every time period → create
+    item"). Trzy pominięte to te, które przy dobrym wejściu działają (10/3,
+    5/1, 4/1), z powodem „dane wejściowe od człowieka". **Zmiana warunku
+    w rubryce okazała się niepotrzebna** — modelowi brakowało faktów, nie
+    reguły. 0,47 USD, 0 trafień maskowania.
   - **Wyniesione z 5b** (decyzja Kuby 2026-09-23): **przypadki użycia
     agentów.** Blokuje je API, nie kod — `agent_runs` nie istnieje w żadnej
     wersji (O20), `agents` działa dopiero w nieprzypiętej `2027-01`. Zostaje
@@ -300,7 +307,7 @@ na nich napisał.
 
 - [ ] **7. Raport: przebudowa treści, HTML i PDF** — wejście w kafelek pogłębia
   do szczegółów, a sam raport jest **pogrupowany i opisany przez agenta**, nie
-  wyliczany zdarzenie po zdarzeniu. Kwoty w dolarach.
+  wyliczany zdarzenie po zdarzeniu. Bez kwot przy znaleziskach (2026-09-23).
 
   **Kształt grupowania jest do dopracowania** (decyzja 2026-09-21: „to będzie
   do dopracowania"). Wiadomo tylko, czego ma nie być: listy pojedynczych
@@ -315,6 +322,30 @@ na nich napisał.
 
 <!-- Uzupełniany przy zamykaniu faz: data, faza, link do dokumentu
      w `docs/features/`, odchylenia od planu. -->
+
+**2026-09-23 — faza 5b zamknięta.** `uwagi.py`, `analiza.py`,
+`PROMPT_ANALIZY.md`, `koszt.py`, `cli_analiza.py`, przebieg automatyzacji
+w `automatyzacje.py`. Ostatni run: `analiza-20260923T115710Z` — 24 hipotezy,
+20 uwag, 1 odrzucona zgodnie z O31, 0,47 USD.
+
+Co poszło inaczej, niż zakładał plan:
+
+- **Trzy razy ta sama regresja: hydraulika przeniesiona, wiedza zgubiona.**
+  Szablony, `dowod_wymagany` i definicje klas — stara ścieżka dawała je
+  modelowi od zawsze, nowa za każdym razem zaczynała bez nich. Każdą wykrył
+  dopiero prawdziwy run. Wniosek dla dalszych faz: przy przenoszeniu z starej
+  ścieżki sprawdzać, co ona podaje modelowi, a nie tylko, jak go woła.
+- **„Próg 0,05" był złą diagnozą.** Nigdy niczego nie odcinał. Model odrzucał
+  automatyzacje, bo znał samą nazwę klasy, a potem — z definicją — bo nie
+  miał faktów o triggerze i padającym kroku. Po dołożeniu przebiegu (O52)
+  rozdziela konfigurację od złego wejścia sam; zmiana rubryki niepotrzebna.
+- **Wycena odpadła, estymator kosztu runu został** — i dwa razy musiał być
+  poprawiany pomiarem: model tokenów zaniżał 12×, a sama historia zaniżałaby
+  2×, bo koszt sesji waha się od obrazu konta i narzędzi (0,30–0,63 USD przy
+  tych samych 16 hipotezach). Stąd podłoga z pomiaru startowego.
+- **Wyniesione:** przypadki użycia agentów (O20). **Otwarte na później:**
+  pełny spis automatyzacji z twórcą i konfiguracją czeka na przypięcie
+  `2026-10` (O52); zmienność wyniku między runami na tych samych danych.
 
 **2026-09-22 — faza 1 zamknięta.** Wyniki: `docs/OTWARTE.md` O40–O43.
 Trzynaście wywołań na koncie CXLABS, plus jedenaście w dwóch dopytaniach.
