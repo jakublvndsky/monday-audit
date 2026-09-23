@@ -297,6 +297,64 @@ kontrolną SHA-256 każdego pliku; edycja już zastosowanej migracji przerywa
 działanie z błędem. Bez tego baza i pliki rozjeżdżają się po cichu,
 a etap 5 wymaga odtwarzalności audytu sprzed miesięcy.
 
+### Faza 5c: snapshot przestaje być trwały w nowej ścieżce (2026-09-23)
+
+**Decyzja Kuby z 2026-09-23:** po runie na dysku nie zostaje nic, co dotyczy
+konkretnej osoby — żeby nie trzymać niczyich danych i nie musieć ich prawnie
+zabezpieczać. To cofa część D7 i trzeba nazwać którą.
+
+**Co się zmienia.** `cli_analiza --zakres …` zbiera snapshot i tabelę
+`osoby_mapowanie` do SQLite **w pamięci** (`:memory:`). Collector, detektory
+i narzędzia agenta pracują na niej bez zmian — biorą połączenie parametrem.
+Baza znika razem z procesem. Do bazy na dysku trafia wyłącznie to, co przeszło
+przez `przechowanie.py`, do dwóch tabel z migracji 014:
+
+| Tabela | Co trzyma | Czego nie |
+|---|---|---|
+| `uwagi_zapisane` | opis, rekomendacja i dowód po maskowaniu: pseudonim → `[OSOBA]`, lista pseudonimów → `[OSOBY: n]`, data → liczba dni przed runem, dane kontaktowe jak w trace'ach | kto konkretnie |
+| `statystyki_runow` | same liczby z obrazu konta, klucze wyłącznie w kształcie naszego schematu | nazw tablic, workspace'ów, grup i etykiet — także w roli kluczy |
+
+Oprócz tego zostają `runy` (metadane, liczniki) i `zuzycie_hipotez` (koszt,
+który zasila estymator). `runy.snapshot_id` jest w tej ścieżce **zawsze NULL**:
+snapshot z pamięci nie istnieje w trwałej bazie i klucz obcy by go odrzucił.
+
+**Dlaczego baza w pamięci, a nie sprzątanie po runie.** Sprzątanie zawodzi
+w najgorszym momencie — wystarczy, że proces padnie między zapisem a usunięciem.
+Baza w pamięci nie ma takiego okna: danych osoby na dysku nie trzeba usuwać,
+bo nigdy ich tam nie było.
+
+**Co tracimy z trzech powodów niemutowalnego snapshotu** (lista wyżej):
+
+1. **Harness ewaluacyjny za darmo — tracimy w nowej ścieżce.** Ponowna analiza
+   wymaga ponownego zebrania, czyli wywołań z limitu konta klienta (39 na
+   jednym workspace CXLABS; całe konto w tej ścieżce niezmierzone). Snapshoty
+   zebrane przed 5c zostają używalne przez `--snapshot N`.
+2. **Case study #1 vs #4 — zostaje w liczbach, nie w obiektach.** Porównanie
+   idzie po `statystyki_runow` i liczbie uwag w klasach. Nie da się już
+   powiedzieć, że ta sama tablica albo ta sama osoba była problemem w obu
+   runach — i to jest dokładnie to, czego nie chcemy przechowywać.
+3. **Weryfikacja dowodu wobec snapshotu — tylko w trakcie runu.** Walidacja
+   (`uwagi.waliduj_uwagi`) działa przed zapisem. Po runie fakty detektorów
+   zostają wyłącznie w trace'ach Langfuse (pseudonimy, bez obrazu konta),
+   czyli w przetwarzaniu objętym DPA, a nie w naszym magazynie.
+
+**Czego to NIE zmienia.** Schemat `snapshots`, trigger niemutowalności,
+`findings` i stara ścieżka (`cli_agent`, panel webowy) zostają. Stara ścieżka
+na serwerze **dalej zapisuje snapshoty i mapowanie** — plan, faza 5c, pozycje
+otwarte do decyzji Kuby.
+
+**ZMIERZONE na runie `analiza-20260923T103802Z`** (CXLABS, workspace
+7465500): 24 hipotezy, 16 do modelu, 8 z szablonu; 20 uwag zapisanych
+(12 modelu, 8 szablonów), 1 odrzucona na walidacji (`GUEST_SPRAWL`, O31).
+Po runie w trwałej bazie: 0 snapshotów, 0 wierszy mapowania, a skan wszystkich
+tabel nie znalazł w treści ani pseudonimu, ani adresu, ani daty — daty są
+wyłącznie znacznikami czasu runu i migracji.
+
+**Co unieważni:** potrzeba porównywania OBIEKTÓW między runami (która tablica,
+które konto) albo harness ewaluacyjny na świeżych danych klienta. Obie wymagają
+trwałego identyfikatora osoby lub tablicy — czyli powrotu do pierwotnego D7
+razem z jego konsekwencją prawną.
+
 ---
 
 ## D8. Kontrakt wyjściowy agenta

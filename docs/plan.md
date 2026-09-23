@@ -236,11 +236,24 @@ na nich napisał.
   - [x] lokalne dane z sesji 2026-09-22/23 (snapshot CXLABS, 100 wierszy
     mapowania, odpowiedzi modelu, pliki robocze) przeniesione do Kosza —
     nie usunięte trwale; opróżnienie Kosza po stronie Kuby.
-  - [ ] pełna analiza z modelem w trybie pamięci — zamaskowane uwagi z
-    prawdziwego runu jeszcze niewidziane poza testami,
+  - [x] code review 19 commitów przed pełnym runem — trzy blokery, dwa z nich
+    w tej fazie: klucze słowników (nazwy grup, etykiety) omijały maskowanie
+    i trafiały do `statystyki_runow` wprost. Poprawione w `36c21a3`.
+  - [x] pełna analiza z modelem w trybie pamięci, `analiza-20260923T103802Z`
+    (workspace 7465500): 20 uwag zapisanych zamaskowanych, 0 snapshotów,
+    0 wierszy mapowania, w treści trwałej bazy ani pseudonimu, ani adresu,
+    ani daty. 39 wywołań monday, 0,30 USD. Trace w Langfuse: 0 trafień
+    maskowania, obraz konta jako hasz. `statystyki_runow` na żywo NIESPRAWDZONE
+    — run szedł bez `--wejscie`, a obraz konta to ~1100 wywołań; pokrywa to
+    test `test_tresc_klienta_w_kluczach_nie_zostaje_na_dysku`,
   - [ ] dane na serwerze i w `/var/backups` — tylko na wyraźną decyzję,
   - [ ] stara ścieżka na serwerze dalej zapisuje snapshoty,
-  - [ ] D7 w `docs/ARCHITEKTURA.md` przy zamknięciu fazy.
+  - [x] D7 w `docs/ARCHITEKTURA.md` — sekcja „Faza 5c: snapshot przestaje być
+    trwały w nowej ścieżce".
+
+  Faza zostaje NIEODHACZONA: lokalnie rezultat jest osiągnięty, ale na serwerze
+  stara ścieżka dalej zapisuje snapshoty i mapowanie — a to są dwie pozycje do
+  decyzji Kuby, nie do zamknięcia kodem.
 
 - [ ] **6. Przepływ: dwa kroki, jedno kliknięcie między nimi** — user story
   z 2026-09-21. Użytkownik jest już zalogowany w portalu, a klucz monday leży
