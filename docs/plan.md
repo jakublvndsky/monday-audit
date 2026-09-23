@@ -282,8 +282,21 @@ na nich napisał.
     klient odnajdzie konto (rodzaj, dni bez aktywności, plan). Wygląd
     tymczasowy — grupowanie i PDF to faza 7. Na żywo jeszcze NIE uruchomione.
   - [x] Langfuse bez pseudonimów: `[OSOBA]` / `[IMIĘ] [NAZWISKO]` (`b57da37`).
-  - [ ] panel na serwerze przełączony na ten sam układ (punkt 1) — raport
-    oddawany do pobrania zamiast budowania z bazy przy każdym otwarciu,
+  - [x] **panel: nowe audyty WSTRZYMANE** (decyzja Kuby 2026-09-23, droga 1
+    z trzech). Przełączenie panelu na tryb pamięci to w praktyce faza 6 —
+    pulpit, API i front stoją na snapshotach i `findings` — więc zamiast
+    przełączać stary panel i zaraz go przepisywać, `AUDYTY_WSTRZYMANE` w
+    `web/api.py`: przycisk dostaje powód, `POST /api/audyt` i `/zgoda` dają
+    503. Dotychczasowe audyty da się przeglądać. Stała w kodzie, nie zmienna
+    środowiskowa — włączenie z powrotem przez commit i review. Na produkcji
+    dopiero po wdrożeniu.
+  - [x] **inwentarz danych na serwerze** (odczyt, 2026-09-23): `/var/backups`
+    to w większości kopie systemu (dpkg, apt) — nasz jest tylko
+    `monday-audit/`, 14 dziennych kopii bazy (10–23.09). Baza: jeden klient
+    (`cxlabs`), 3 snapshoty, 101 wierszy mapowania (użytkownicy konta monday
+    CXLABS, w tym 13 gości — mogą być spoza firmy), 6 runów, 47 findingów;
+    osobno dane logowania do panelu (5 kont). Raportów w plikach brak.
+    Serwer stoi na 12 migracjach — kod sprzed faz 4–5c.
   - [ ] dane na serwerze i w `/var/backups` — tylko na wyraźną decyzję,
   - [ ] stara ścieżka na serwerze dalej zapisuje snapshoty,
   - [x] D7 w `docs/ARCHITEKTURA.md` — sekcja „Faza 5c: snapshot przestaje być

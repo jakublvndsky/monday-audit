@@ -146,6 +146,17 @@ PAYLOAD: dict[str, Any] = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _audyty_odblokowane(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ten plik testuje PRZEPŁYW startu audytu, który od 2026-09-23 jest
+    w panelu wstrzymany (`AUDYTY_WSTRZYMANE`). Logika zostaje w kodzie i wraca
+    w fazie 6 — więc jej testy zostają zielone, a samo wstrzymanie pilnuje
+    `test_web_wstrzymanie.py`."""
+    from monday_audit.web import api
+
+    monkeypatch.setattr(api, "AUDYTY_WSTRZYMANE", False)
+
+
 @pytest.fixture
 def baza(tmp_path: Path) -> Iterator[Path]:
     sciezka = tmp_path / "zgoda.db"

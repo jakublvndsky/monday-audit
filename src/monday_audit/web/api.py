@@ -757,6 +757,8 @@ def zbuduj_aplikacje(
         if not cel:
             raise HTTPException(status_code=404, detail="brak klienta")
         wolno, powod = wolno_odpalic(con, cel)
+        if AUDYTY_WSTRZYMANE:
+            wolno, powod = False, POWOD_WSTRZYMANIA
         # Identyfikator zadania czekającego na zgodę — żeby ODŚWIEŻENIE STRONY
         # nie gubiło audytu.
         #
@@ -832,6 +834,7 @@ def zbuduj_aplikacje(
         klient: str | None = None,
     ) -> dict[str, str]:
         """Startuje audyt. Klucze API idą do zadania i **nie są zapisywane**."""
+        _odmow_gdy_wstrzymane()
         cel = sesja.client_id if sesja.to_klient else (klient or _pierwszy_klient(con))
         if not cel or not sesja.widzi_klienta(cel):
             raise HTTPException(status_code=404, detail="nie znaleziono")
@@ -928,6 +931,7 @@ def zbuduj_aplikacje(
         w_tle: BackgroundTasks,
     ) -> dict[str, str]:
         """Przyjmuje zgodę na zakres i odpala agenta. Faza druga."""
+        _odmow_gdy_wstrzymane()
         stan = wczytaj_stan(con, zadanie_id)
         if stan is None or not sesja.widzi_klienta(stan.client_id):
             raise HTTPException(status_code=404, detail="nie znaleziono")
@@ -1064,6 +1068,30 @@ def _wybrane_tablice(payload: dict[str, Any], dane: DaneZgody) -> frozenset[str]
             raise WyborError("wskazane workspace'y nie mają w tym snapshocie ani jednej tablicy")
         return frozenset(z_workspace)
     return None
+
+
+# ── wstrzymanie audytów (decyzja Kuby 2026-09-23, plan faza 5c) ──────────
+#
+# Panel chodzi starą ścieżką: każdy audyt zapisuje na dysku snapshot i tabelę
+# `osoby_mapowanie` z imionami, nazwiskami i mailami. Faza 5c zakłada, że po
+# runie nie zostaje nic o osobie. Przełączenie panelu na tryb pamięci to
+# w praktyce faza 6 (nowy przepływ), więc do tego czasu nowe audyty z panelu
+# są WSTRZYMANE — a dotychczasowe da się dalej przeglądać.
+#
+# Stała w kodzie, nie zmienna środowiskowa: włączenie z powrotem ma przejść
+# przez commit i review, a nie przez edycję `/etc/monday-audit.env`.
+AUDYTY_WSTRZYMANE = True
+
+POWOD_WSTRZYMANIA = (
+    "Nowe audyty są tymczasowo wstrzymane — przebudowujemy przepływ tak, żeby po "
+    "audycie nie zostawały na serwerze dane osób. Dotychczasowe audyty można przeglądać."
+)
+
+
+def _odmow_gdy_wstrzymane() -> None:
+    """503, nie 403: to stan usługi, nie brak uprawnień — i minie."""
+    if AUDYTY_WSTRZYMANE:
+        raise HTTPException(status_code=503, detail=POWOD_WSTRZYMANIA)
 
 
 def _pierwszy_klient(con: sqlite3.Connection) -> str | None:
