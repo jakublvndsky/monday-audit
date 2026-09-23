@@ -164,7 +164,10 @@ def oddaj_raport(raport: RaportUwag, sciezka: Path) -> Path:
     """
     sciezka.parent.mkdir(parents=True, exist_ok=True)
     deskryptor = os.open(sciezka, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    # `os.open` ustawia prawa tylko przy TWORZENIU. Plik, który już istniał
+    # z 644, dostałby nazwiska przed zawężeniem praw — stąd `fchmod` na
+    # deskryptorze PRZED zapisem (review 2026-09-23).
+    os.fchmod(deskryptor, 0o600)
     with os.fdopen(deskryptor, "w", encoding="utf-8") as plik:
         plik.write(wyrenderuj_uwagi(raport))
-    sciezka.chmod(0o600)  # także gdy plik istniał wcześniej z innymi prawami
     return sciezka

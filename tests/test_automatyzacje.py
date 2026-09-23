@@ -476,7 +476,7 @@ async def test_okno_historii_to_rok_a_nie_okno_statystyk(zbuduj: Any) -> None:
     klient = zbuduj(podsluch)
     await zbierz_automatyzacje(klient, teraz=datetime(2026, 9, 23, tzinfo=UTC))
 
-    assert filtry[0]["dateRange"] == {"startDate": "2025-09-23", "endDate": "2026-09-23"}
+    assert filtry[0]["dateRange"] == {"startDate": "2025-09-23", "endDate": "2026-09-24"}
 
 
 async def test_sufit_przebiegow_jest_odnotowany(zbuduj: Any) -> None:

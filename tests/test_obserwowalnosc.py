@@ -523,3 +523,25 @@ def test_hasz_promptu_nie_jest_mylony_z_osoba() -> None:
     assert trace.metadane["prompt_hash"] == "e434645e0836d635"
     assert trace.metadane["obraz_hash"] == "44136fa355b3678a"
     assert trace.obserwacje[0].wejscie == {"hipotezy": [{"obiekt_id": "[OSOBA]"}]}
+
+
+def test_sciezki_trafien_tez_bez_pseudonimu() -> None:
+    """Review 2026-09-23: `pola_z_trafieniami` składało się z kluczy, a klucz
+    mapy `tablice_dostepne` to pseudonim gościa — wychodził obok czystych danych."""
+    from monday_audit.obserwowalnosc import zbuduj_trace_analizy
+
+    trace = zbuduj_trace_analizy(
+        run_id="r",
+        snapshot_id=1,
+        model="m",
+        prompt_hash="p",
+        obraz_hash="o",
+        hipotezy=[{"fakty": {"tablice_dostepne": {PSEUDONIM: ["Kontakt biuro@klient.test"]}}}],
+        odpowiedz={"uwagi": [], "pominiete": []},
+        z_szablonu=0,
+    )
+
+    assert PSEUDONIM not in repr(trace.metadane)
+    assert trace.metadane["pola_z_trafieniami"] == [
+        "wejscie.hipotezy[0].fakty.tablice_dostepne.[OSOBA][0]"
+    ]

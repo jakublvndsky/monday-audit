@@ -177,7 +177,10 @@ def zbuduj_trace(
     czyste = bez_tozsamosci(zamaskowane.dane, pomin_klucze=KLUCZE_HASZY)
     metadane = dict(czyste["metadane"])
     metadane["trafien_maskowania"] = zamaskowane.ile
-    metadane["pola_z_trafieniami"] = list(zamaskowane.sciezki)
+    # Ścieżki też: składają się z kluczy, a klucz bywa pseudonimem (mapa
+    # `tablice_dostepne` gość → tablice). Review 2026-09-23 — tędy pseudonim
+    # wychodził do Langfuse'a obok oczyszczonych danych.
+    metadane["pola_z_trafieniami"] = bez_tozsamosci(list(zamaskowane.sciezki))
 
     obserwacje = [
         Obserwacja(
@@ -315,7 +318,10 @@ def zbuduj_trace_analizy(
     czyste = bez_tozsamosci(zamaskowane.dane, pomin_klucze=KLUCZE_HASZY)
     metadane = dict(czyste["metadane"])
     metadane["trafien_maskowania"] = zamaskowane.ile
-    metadane["pola_z_trafieniami"] = list(zamaskowane.sciezki)
+    # Ścieżki też: składają się z kluczy, a klucz bywa pseudonimem (mapa
+    # `tablice_dostepne` gość → tablice). Review 2026-09-23 — tędy pseudonim
+    # wychodził do Langfuse'a obok oczyszczonych danych.
+    metadane["pola_z_trafieniami"] = bez_tozsamosci(list(zamaskowane.sciezki))
 
     obserwacje = [
         Obserwacja(

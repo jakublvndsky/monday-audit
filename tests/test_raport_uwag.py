@@ -125,3 +125,36 @@ def test_uwagi_sa_grupowane_po_klasie_a_nie_wyliczane(con: sqlite3.Connection) -
     html = wyrenderuj_uwagi(raport)
     assert html.count('class="grupa"') == 2
     assert html.count("Potwierdzić u właściciela konta.") == 1
+
+
+def test_istniejacy_plik_z_szerszymi_prawami_nie_dostaje_nazwisk_przed_zawezeniem(
+    con: sqlite3.Connection, tmp_path: Path
+) -> None:
+    """`os.open` ustawia prawa tylko przy tworzeniu — plik 644 dostałby
+    nazwiska, zanim prawa się zawężą."""
+    import os
+
+    sciezka = tmp_path / "raport.html"
+    sciezka.write_text("stary", encoding="utf-8")
+    sciezka.chmod(0o644)
+    widziane: list[int] = []
+    prawdziwy = os.fdopen
+
+    def podgladaj(fd: int, *a: object, **k: object) -> object:
+        widziane.append(os.fstat(fd).st_mode & 0o777)
+        return prawdziwy(fd, *a, **k)  # type: ignore[call-overload]
+
+    raport = zbuduj_raport_uwag(
+        [_uwaga()],
+        con=con,
+        client_id="cxlabs",
+        run_id="r1",
+        run_at="2026-09-23T12:00:00Z",
+        rubryka=wczytaj_rubryke(),
+    )
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(os, "fdopen", podgladaj)
+        oddaj_raport(raport, sciezka)
+
+    assert widziane == [0o600], "prawa zawężone PRZED zapisem"
+    assert sciezka.stat().st_mode & 0o777 == 0o600

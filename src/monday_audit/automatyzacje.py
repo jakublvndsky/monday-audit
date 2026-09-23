@@ -423,8 +423,11 @@ async def zbierz_automatyzacje(
 
     # Przebieg dla automatyzacji z błędami — to one idą do AUTOMATION_DEAD.
     # Rekord statystyk dostaje go w miejscu, więc detektor czyta jedno źródło.
-    koniec = (teraz or datetime.now(UTC)).date()
-    okno_od = (koniec - timedelta(days=OKNO_HISTORII_DNI)).isoformat()
+    dzis = (teraz or datetime.now(UTC)).date()
+    okno_od = (dzis - timedelta(days=OKNO_HISTORII_DNI)).isoformat()
+    # Koniec okna JUTRO: nie zmierzyliśmy, czy `endDate` jest włącznie. Gdyby
+    # nie był, dzisiejsze uruchomienia wypadałyby z historii (review 2026-09-23).
+    koniec = dzis + timedelta(days=1)
     z_problemem = [
         r
         for r in sorted(po_automatyzacji.values(), key=lambda r: r["automation_id"])
