@@ -27,7 +27,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from typing import Any
 
-from monday_audit.rubryka import STATUS_DO_WERYFIKACJI, Rubryka
+from monday_audit.rubryka import STATUS_DO_WERYFIKACJI, Klasa, Rubryka
 
 logger = logging.getLogger(__name__)
 
@@ -189,6 +189,40 @@ def _cisza_jest_dowodem(pole: str, dowod: dict[str, Any]) -> bool:
     return False
 
 
+def sprawdz_dowod(dowod: Any, klasa: Klasa) -> tuple[str, str] | None:
+    """Zakaz twardy z `CLAUDE.md`: bez dowodu finding nie istnieje.
+
+    **Publiczna i wydzielona, bo korzystają z niej DWIE ścieżki** — stara
+    (`_sprawdz_finding`, findingi z rubryką) i nowa (`uwagi.py`, jedna
+    kategoria). Kopia tej reguły w drugim miejscu rozjechałaby się przy
+    pierwszej zmianie — dokładnie tak, jak rozjechał się literał
+    `personal_agent_member` między `osoby` a `pulpit` (O44).
+
+    Zwraca `(regula, powod)` przy odrzuceniu albo `None`, gdy dowód przechodzi.
+    """
+    if not isinstance(dowod, dict) or not dowod:
+        # Pusty obiekt jest tak samo zły jak brak pola: obie sytuacje znaczą
+        # „agent nie wskazał faktu".
+        return REGULA_DOWOD_PUSTY, "dowod musi być niepustym obiektem"
+
+    wymagane = {p.rstrip("[]") for p in klasa.dowod}
+    obecne = {k.rstrip("[]") for k in dowod}
+    niepokryte = sorted(wymagane - obecne)
+    if niepokryte:
+        return (
+            REGULA_DOWOD_NIEPELNY,
+            f"klasa {klasa.id} wymaga w dowodzie: {', '.join(niepokryte)}",
+        )
+    # Klucz obecny, ale puste znaczy tyle samo co brak — Z JEDNYM wyjątkiem
+    # opisanym w `_cisza_jest_dowodem`.
+    puste = sorted(
+        k for k in dowod if dowod[k] in (None, "", [], {}) and not _cisza_jest_dowodem(k, dowod)
+    )
+    if puste:
+        return REGULA_DOWOD_NIEPELNY, f"pola dowodu są puste: {', '.join(puste)}"
+    return None
+
+
 def _sprawdz_finding(
     surowy: Any, rubryka: Rubryka, stawki: dict[str, Any] | None = None
 ) -> tuple[str, str] | None:
@@ -215,27 +249,9 @@ def _sprawdz_finding(
             f"klasa {klasa_id} ma status {STATUS_DO_WERYFIKACJI} — nie wolno jej raportować",
         )
 
-    # `dowod` — zakaz twardy z CLAUDE.md. Pusty obiekt jest tak samo zły
-    # jak brak pola: obie sytuacje znaczą „agent nie wskazał faktu".
-    dowod = surowy["dowod"]
-    if not isinstance(dowod, dict) or not dowod:
-        return REGULA_DOWOD_PUSTY, "dowod musi być niepustym obiektem"
-
-    wymagane = {p.rstrip("[]") for p in klasa.dowod}
-    obecne = {k.rstrip("[]") for k in dowod}
-    niepokryte = sorted(wymagane - obecne)
-    if niepokryte:
-        return (
-            REGULA_DOWOD_NIEPELNY,
-            f"klasa {klasa_id} wymaga w dowodzie: {', '.join(niepokryte)}",
-        )
-    # Klucz obecny, ale puste znaczy tyle samo co brak — Z JEDNYM wyjątkiem
-    # opisanym w `_cisza_jest_dowodem`.
-    puste = sorted(
-        k for k in dowod if dowod[k] in (None, "", [], {}) and not _cisza_jest_dowodem(k, dowod)
-    )
-    if puste:
-        return REGULA_DOWOD_NIEPELNY, f"pola dowodu są puste: {', '.join(puste)}"
+    odrzut = sprawdz_dowod(surowy["dowod"], klasa)
+    if odrzut:
+        return odrzut
 
     # Wycena. `kwota_pln` przy `ryzyko` to wymyślona liczba w raporcie —
     # dokładnie to, co podważa całą wiarygodność u pierwszego klienta,
