@@ -530,6 +530,7 @@ async def analizuj_snapshot(
     )
     trwala.commit()
 
+    obraz_hash = hasz_obrazu(wejscie)
     wspolne: dict[str, Any] = {
         "wpisy": wpisy if slad is not None else (),
         "nie_ludzie": nie_ludzie,
@@ -537,14 +538,14 @@ async def analizuj_snapshot(
         "snapshot_id": snapshot_id,
         "model": MODEL,
         "prompt_hash": prompt_hash,
-        "obraz_hash": hasz_obrazu(wejscie),
+        "obraz_hash": obraz_hash,
         # Zadanie w postaci, którą dostał model, z obrazem konta jako haszem —
         # żeby trace dało się przeczytać i odtworzyć (zgłoszone 2026-09-24).
         "zadanie": zbuduj_zadanie(
             do_modelu,
             wejscie,
             rubryka,
-            obraz_zastepczy=f"[obraz konta — tylko hasz {hasz_obrazu(wejscie)}]",
+            obraz_zastepczy=f"[obraz konta — tylko hasz {obraz_hash}]",
         )
         if do_modelu
         else None,

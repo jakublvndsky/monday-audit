@@ -162,9 +162,11 @@ def zapisz_surowa_odpowiedz(run_id: str, odpowiedz: dict[str, Any], katalog: Pat
     a plik — decyzją operatora, który wie, co z nim zrobi.
     """
     katalog.mkdir(parents=True, exist_ok=True)
-    sciezka = katalog / f"analiza_{run_id}.json"
-    sciezka.write_text(json.dumps(odpowiedz, ensure_ascii=False, indent=1), encoding="utf-8")
-    return sciezka
+    # Prawa 600 jak raport z nazwiskami (review 2026-09-24): plik niesie
+    # pseudonimy i wyniki narzędzi, czyli wycinki snapshotu klienta.
+    return zapisz_html(
+        json.dumps(odpowiedz, ensure_ascii=False, indent=1), katalog / f"analiza_{run_id}.json"
+    )
 
 
 def _oddaj_raport(argumenty: argparse.Namespace, wynik: WynikAnalizy) -> None:

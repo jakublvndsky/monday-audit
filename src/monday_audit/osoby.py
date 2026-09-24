@@ -295,10 +295,14 @@ def _pary_do_redakcji(wpisy: Sequence[MaPII]) -> tuple[tuple[str, str], ...]:
 MIN_CZLONU_IMIENIA = 3
 
 
+# Człony, które kolidowałyby z naszymi własnymi znacznikami po redakcji.
+_ZNACZNIKI = frozenset({"Osoba", "Email", "OSOBA", "EMAIL"})
+
+
 def _czlony_do_redakcji(
     wpisy: Sequence[MaPII], nie_ludzie: frozenset[str]
-) -> tuple[tuple[re.Pattern[str], str], ...]:
-    """Pojedyncze człony imion i nazwisk LUDZI → (wzorzec, zamiennik).
+) -> tuple[tuple[str, str], ...]:
+    """Pojedyncze człony imion i nazwisk LUDZI → (wariant, zamiennik).
 
     ## ZMIERZONE 2026-09-24 na pełnym koncie CXLABS
 
@@ -317,6 +321,10 @@ def _czlony_do_redakcji(
     z nazwiskami umie go rozwinąć), `[OSOBA]`, gdy dzieli go kilka osób — wtedy
     wybranie jednej byłoby zgadywaniem, a zgadnięta tożsamość jest gorsza niż
     żadna.
+
+    Świadomy kompromis: nazwisko będące zwykłym słowem („Maj", „Lis",
+    „Kwiecień") zredaguje też „Raport Maj 2026". Nadmiar redakcji psuje nazwę
+    obiektu; jej brak wysyła osobę do modelu — wybieramy pierwsze.
     """
     wlasciciele: dict[str, set[str]] = {}
     zakazane: set[str] = set()
@@ -328,23 +336,40 @@ def _czlony_do_redakcji(
             continue
         if len(czlony) < 2:
             continue
-        for czlon in czlony:
-            if len(czlon) >= MIN_CZLONU_IMIENIA and czlon.isalpha():
+        # Człon z łącznikiem („Kowalska-Nowak", „Anna-Maria") to dwa człony —
+        # klient pisze je też osobno. Całość idzie jako wariant dodatkowy.
+        for czlon in [*czlony, *(c for cz in czlony if "-" in cz for c in cz.split("-"))]:
+            czysty = czlon.replace("-", "")
+            if len(czlon) >= MIN_CZLONU_IMIENIA and czysty.isalpha():
                 # Postać kanoniczna z wielką literą — `name` bywa wpisane małymi.
                 kanon = czlon[0].upper() + czlon[1:]
                 wlasciciele.setdefault(kanon, set()).add(haszyk)
-    wynik: list[tuple[re.Pattern[str], str]] = []
-    for czlon in sorted(wlasciciele, key=lambda c: (-len(c), c)):
-        if czlon in zakazane:
+    wynik: list[tuple[str, str]] = []
+    for czlon, hasze in wlasciciele.items():
+        if czlon in zakazane or czlon in _ZNACZNIKI:
             continue
-        hasze = wlasciciele[czlon]
         zamiennik = f"[OSOBA:{next(iter(hasze))}]" if len(hasze) == 1 else "[OSOBA]"
-        warianty = {czlon, czlon.upper()}
-        wzorzec = re.compile(
-            rf"\b(?:{'|'.join(re.escape(w) for w in sorted(warianty, key=len, reverse=True))})\b"
-        )
-        wynik.append((wzorzec, zamiennik))
-    return tuple(wynik)
+        for wariant in {czlon, czlon.upper()}:
+            wynik.append((wariant, zamiennik))
+    return tuple(sorted(wynik, key=lambda p: (-len(p[0]), p[0])))
+
+
+def _jeden_wzorzec(szukane: Sequence[str], flagi: int = 0) -> re.Pattern[str] | None:
+    """Jedna alternatywa zamiast wzorca na osobę — ZMIERZONE w review 2026-09-24.
+
+    Redakcja wołała `re.sub` osobno dla każdej osoby i każdego napisu: 60 osób
+    na 32 tys. napisów to 4 s, 200 osób — 12,8 s, a 1000 osób nie skończyło się
+    w 10 minut (powyżej 512 wzorców cache `re` przestaje pomagać). Tu jest jeden
+    przebieg po napisie. Najdłuższe najpierw: alternatywa bierze pierwszą
+    pasującą gałąź, więc „Jan Kowalski" wygrywa z „Jan".
+
+    GRANICE SŁÓW są kluczowe. Bez nich konto serwisowe „AI Agent" wpasowuje się
+    w nazwę workspace „monday AI Agents" i redakcja psuje 105 rekordów,
+    zamieniając je na „monday [OSOBA:...]s" (zmierzone na CXLABS przy 3.8).
+    """
+    if not szukane:
+        return None
+    return re.compile(rf"\b(?:{'|'.join(re.escape(s) for s in szukane)})\b", flagi)
 
 
 def unikalny_klucz(klucz: Any, zajete: dict[Any, Any]) -> Any:
@@ -392,18 +417,32 @@ def zredaguj_pii(
     """
     pary = _pary_do_redakcji(wpisy)
     czlony = _czlony_do_redakcji(wpisy, nie_ludzie)
+    # Pełne nazwy i adresy bez względu na wielkość liter, człony — z nią.
+    # Pierwsza pasująca para wygrywa, jak w wersji z pętlą.
+    zamiennik_pary: dict[str, str] = {}
+    for szukane, pseudonim in pary:
+        zamiennik_pary.setdefault(szukane.lower(), pseudonim)
+    zamiennik_czlonu = dict(czlony)
+    wzorzec_par = _jeden_wzorzec([s for s, _ in pary], re.IGNORECASE)
+    wzorzec_czlonow = _jeden_wzorzec([s for s, _ in czlony])
+
+    def _zamiennik_pary(trafienie: str) -> str:
+        # `lower()` i `IGNORECASE` składają wielkość liter prawie zawsze tak samo;
+        # na rzadki wyjątek Unicode — szukanie wprost, żeby NIE zostawić trafienia.
+        znany = zamiennik_pary.get(trafienie.lower())
+        if znany is not None:
+            return znany
+        return next(
+            p for s, p in pary if re.fullmatch(re.escape(s), trafienie, flags=re.IGNORECASE)
+        )
 
     def redaguj_tekst(tekst: str) -> str:
-        for szukane, pseudonim in pary:
-            # GRANICE SŁÓW są tu kluczowe. Bez nich konto serwisowe
-            # „AI Agent" wpasowuje się w nazwę workspace „monday AI Agents"
-            # i redakcja psuje 105 rekordów, zamieniając je na
-            # „monday [OSOBA:...]s" (zmierzone na CXLABS przy 3.8).
-            tekst = re.sub(rf"\b{re.escape(szukane)}\b", pseudonim, tekst, flags=re.IGNORECASE)
+        if wzorzec_par is not None:
+            tekst = wzorzec_par.sub(lambda m: _zamiennik_pary(m.group(0)), tekst)
         # Człony PO pełnych nazwach: „Jan Kowalski" ma zostać jednym
         # pseudonimem, a nie dwoma sklejonymi.
-        for wzorzec, zamiennik in czlony:
-            tekst = wzorzec.sub(zamiennik, tekst)
+        if wzorzec_czlonow is not None:
+            tekst = wzorzec_czlonow.sub(lambda m: zamiennik_czlonu[m.group(0)], tekst)
         return tekst
 
     def redaguj(wartosc: Any, gdzie: str) -> tuple[Any, list[str]]:

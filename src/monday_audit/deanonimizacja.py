@@ -57,6 +57,10 @@ WZORZEC_HASHA = re.compile(rf"\b[0-9a-f]{{{DLUGOSC_HASHA}}}\b")
 # „Konto administratora (hash 05677b1a…) ma status ACTIVE" — po samej podmianie
 # w dokumencie dla klienta zostałoby „(hash Jan Kowalski)", co czyta się jak
 # usterka. Zjadamy więc to słowo razem z hashem.
+# Znacznik z redakcji treści klienta (`osoby.zredaguj_pii`): `[OSOBA:hash]`
+# i `[EMAIL:hash]`. Rozwijany CAŁY — inaczej zostawało „[OSOBA:Anna Nowak]".
+WZORZEC_ZNACZNIKA = re.compile(rf"\[(?:OSOBA|EMAIL):({WZORZEC_HASHA.pattern})\]")
+
 WZORZEC_W_ZDANIU = re.compile(rf"(?:hash(?:e|u|em|a)?\s+)?({WZORZEC_HASHA.pattern})", re.IGNORECASE)
 
 # Ile znaków hasha zostaje w oznaczeniu nierozwiązanego konta.
@@ -113,6 +117,7 @@ class Deanonimizacja:
 
     def tekst(self, tresc: str) -> str:
         """Podmienia hashe WEWNĄTRZ zdania — `opis` i `rekomendacja` od agenta."""
+        tresc = WZORZEC_ZNACZNIKA.sub(lambda m: self.nazwa(m.group(1)), tresc)
         return WZORZEC_W_ZDANIU.sub(lambda m: self.nazwa(m.group(1)), tresc)
 
     def wartosc(self, wartosc: Any, *, klucz: str = "") -> Any:

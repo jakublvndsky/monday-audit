@@ -158,3 +158,19 @@ def test_istniejacy_plik_z_szerszymi_prawami_nie_dostaje_nazwisk_przed_zawezenie
 
     assert widziane == [0o600], "prawa zawężone PRZED zapisem"
     assert sciezka.stat().st_mode & 0o777 == 0o600
+
+
+def test_zastrzezenia_tez_dostaja_nazwiska(con: sqlite3.Connection) -> None:
+    """Review 2026-09-24: obraz konta jest redagowany przed modelem, więc jego
+    zastrzeżenia niosą `[OSOBA:…]` — w raporcie ma stać nazwisko, nie hasz."""
+    raport = zbuduj_raport_uwag(
+        [_uwaga()],
+        con=con,
+        client_id="cxlabs",
+        run_id="r1",
+        run_at="2026-09-23T12:00:00Z",
+        rubryka=wczytaj_rubryke(),
+        zastrzezenia=(f"[tablice] workspace [OSOBA:{PSEUDONIM}] Leady bez próbki logu",),
+    )
+
+    assert raport.zastrzezenia == (f"[tablice] workspace {NAZWISKO} Leady bez próbki logu",)

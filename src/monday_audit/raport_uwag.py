@@ -136,6 +136,9 @@ def zbuduj_raport_uwag(
         )
         for u in przyjete
     )
+    # Zastrzeżenia też: obraz konta jest redagowany przed modelem, więc niosą
+    # `[OSOBA:…]` — bez tego czytelnik raportu widziałby surowy hasz.
+    zastrzezenia = tuple(deanon.tekst(z) for z in zastrzezenia)
     deanon.podsumuj()
     return RaportUwag(
         client_id=client_id,

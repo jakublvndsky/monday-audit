@@ -2,11 +2,24 @@
 
 ## Skąd bierzemy dane
 
-Z `WynikHipotezy`, czyli z tego, co **i tak już zapisujemy do własnej bazy** —
-nie ze strumienia wiadomości SDK. To nie jest wygoda, tylko granica: Langfuse
-nie dostaje niczego, czego nie mamy u siebie. Gdyby trace powstawał z podglądu
-strumienia, powstałby drugi, równoległy zbiór danych o kliencie, o którym
-`docs/ARCHITEKTURA.md` nic nie mówi.
+Z wyniku sesji zebranego przez nasz kod — nie ze strumienia wiadomości SDK.
+Trace powstaje PO sesji z gotowych słowników, a każdy z nich przechodzi przez
+`zamaskuj` i `bez_tozsamosci`. Nie ma drugiej drogi na zewnątrz.
+
+## Co wychodzi — granica danych, zapisana wprost
+
+Do 2026-09-24 obowiązywało „Langfuse nie dostaje niczego, czego nie mamy
+u siebie". **Już nie obowiązuje** i to jest decyzja Kuby, nie dryf: tracing
+narzędzi wysyła argumenty i WYNIKI narzędzi (wycinki snapshotu, które widział
+model), a tych nie przechowujemy — tryb pamięci (5c) nic o osobie nie zapisuje.
+Wychodzi więc:
+
+* hipotezy z faktami i zadanie modelu (definicje klas, polecenie),
+* wyniki narzędzi — w postaci, którą dostał model,
+* rozstrzygnięcia modelu i nazwy reguł walidacji.
+
+Nie wychodzi: prompt systemowy i obraz konta (hasze), pseudonimy
+(`[OSOBA]`), e-maile, telefony, numery kont (wzorce).
 
 Skutek uboczny jest równie ważny: pętla w `zbadaj_hipoteze` zostaje nietknięta.
 Ta pętla ma za sobą dwie usterki klasy „przeszło testy, a nie było podpięte"
@@ -300,9 +313,12 @@ def zbuduj_trace_analizy(
 
     Co wychodzi, a co NIE:
 
-    * **wejście generacji to hipotezy** (klasa, obiekt, fakty) — to samo, co
-      stara ścieżka wysyła od fazy 4, więc zakres danych na zewnątrz nie rośnie,
+    * **wejście generacji to rozmowa** `[system, user]`, gdy znamy `zadanie`:
+      system to sam hasz promptu, user — zadanie z obrazem konta zastąpionym
+      haszem (`analiza.zbuduj_zadanie(obraz_zastepczy=…)`). Bez `zadanie` —
+      same hipotezy, jak przed 2026-09-24,
     * **obraz konta NIE wychodzi**, idzie `obraz_hash` — powód w `hasz_obrazu`,
+    * **narzędzia z wejściem i wyjściem** (`_obserwacje_narzedzi`),
     * **wyjście to rozstrzygnięcia MODELU**, bez uwag z szablonów. Szablon nie
       jest wywołaniem modelu, a trace generacji opisuje wywołanie modelu —
       wmieszanie szablonów kazałoby czytającemu przypisać modelowi coś, czego

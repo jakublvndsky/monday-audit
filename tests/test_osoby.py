@@ -616,3 +616,30 @@ def test_krotki_czlon_nie_jest_redagowany() -> None:
     wynik, _ = zredaguj_pii("Al Capone Ed", [WpisPII("h1", "Al Ed", None)])
 
     assert wynik == "Al Capone Ed"
+
+
+def test_czlon_z_lacznikiem_jest_redagowany_w_calosci_i_po_kawalku() -> None:
+    wpisy = [WpisPII("h1", "Anna Kowalska-Nowak", None)]
+
+    wynik, _ = zredaguj_pii(["Leady Kowalska-Nowak", "Zadania Nowak"], wpisy)
+
+    assert wynik == ["Leady [OSOBA:h1]", "Zadania [OSOBA:h1]"]
+
+
+def test_redakcja_duzego_konta_nie_stoi() -> None:
+    """ZMIERZONE w review 2026-09-24: wzorzec na osobę dawał >10 min przy 1000
+    osób na 32 tys. napisów. Jeden wzorzec — ułamek sekundy. Próg hojny, żeby
+    test nie migał na wolnej maszynie; pilnuje rzędu wielkości, nie milisekund."""
+    import time
+
+    def litery(i: int) -> str:  # 1000 różnych członów z samych liter
+        return "".join(chr(ord("a") + (i // 26**k) % 26) for k in range(3))
+
+    wpisy = [WpisPII(f"h{i}", f"Imie{litery(i)} Nazwisko{litery(i)}", None) for i in range(1000)]
+    payload = [f"Tablica {n} Nazwisko{litery(n % 1000)}" for n in range(20_000)]
+
+    zaczeto = time.monotonic()
+    wynik, _ = zredaguj_pii(payload, wpisy)
+
+    assert time.monotonic() - zaczeto < 10
+    assert wynik[5] == "Tablica 5 [OSOBA:h5]"

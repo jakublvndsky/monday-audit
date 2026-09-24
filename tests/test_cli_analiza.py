@@ -454,3 +454,11 @@ async def test_pelna_odpowiedz_na_dysk_tylko_na_zadanie(
     argumenty.wyjscie = tmp_path / "wyniki"
     await cli_analiza.uruchom(argumenty)
     assert _pliki(tmp_path / "wyniki", "analiza_t-z-plikiem.json")
+
+
+def test_surowa_odpowiedz_ma_prawa_600(tmp_path: Path) -> None:
+    """Review 2026-09-24: plik z `--wyjscie` niesie pseudonimy i wyniki narzędzi."""
+    sciezka = cli_analiza.zapisz_surowa_odpowiedz("r1", {"uwagi": []}, tmp_path / "wyj")
+
+    assert sciezka.stat().st_mode & 0o777 == 0o600
+    assert json.loads(sciezka.read_text(encoding="utf-8")) == {"uwagi": []}

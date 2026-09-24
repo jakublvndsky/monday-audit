@@ -326,6 +326,11 @@ def odsiej_hipotezy(
         # Wszystkie strony muszą być wybrane. Para, której jedna połowa
         # wypadła, nie jest parą — a `DUPLICATE_STRUCTURE` bez drugiej
         # tablicy nie ma czego porównać.
+        #
+        # Od rubryki 0.5 DUPLICATE_STRUCTURE to GRUPA, więc wybór części grupy
+        # odsiewa całą (wcześniej zostawały pary w obrębie wyboru). Dotyczy
+        # tylko panelu; portal zawęża już collector, więc grupy powstają
+        # wyłącznie z wybranych tablic.
         if all(bid in board_ids for bid in _tablice_hipotezy(hipoteza)):
             badane.append(hipoteza)
         else:

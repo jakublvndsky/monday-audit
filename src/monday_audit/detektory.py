@@ -1531,9 +1531,11 @@ def uruchom_detektory(
             ", ".join(sorted(bez_detektora)),
         )
     if budzet_zamowiony > rubryka.maks_wywolan_na_run:
+        # Liczone PRZED sufitem na klasę (`analiza.SUFIT_NA_KLASE`), więc
+        # w nowej ścieżce to górna granica, nie zamówienie sesji (review 2026-09-24).
         logger.warning(
-            "hipotezy zamawiają %d wywołań, bezpiecznik globalny to %d — "
-            "agent będzie musiał priorytetyzować (3.11)",
+            "hipotezy (przed sufitem na klasę) zamawiają %d wywołań, bezpiecznik "
+            "globalny starej ścieżki to %d — tam agent będzie musiał priorytetyzować (3.11)",
             budzet_zamowiony,
             rubryka.maks_wywolan_na_run,
         )
