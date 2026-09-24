@@ -1,144 +1,182 @@
-# Makieta frontu: audyt monday.com w portalu
+# Handoff dla frontu: audyt monday.com w portalu
 
-**Dla kogo:** osoba, która buduje front w portalu.
-**Stan na:** 2026-09-17.
-**Po co:** żeby dało się postawić szkielet ekranów, zanim domkniemy kształt
-agenta i backendu.
+**Dla kogo:** osoba, która buduje front modułu audytu w portalu.
+**Stan na:** 2026-09-24 (faza 6, wariant A: pakiet dla portalu).
+**Zastępuje:** wersję z 2026-09-17. Tamta opisywała wybór zakresu, zgodę na
+widełki, wagi i kwoty w PLN. Nic z tego już nie istnieje (decyzje z 21.09
+i 23.09 w `docs/plan.md`).
 
-**Świadomie nie ma tu kontraktu API** — ścieżek, ciał żądań ani kodów błędów.
-Backend będzie jeszcze przerabiany, więc front zbudowany pod dzisiejsze endpointy
-trzeba by poprawiać dwa razy. Buduj na **atrapie danych**, a podpięcie pod
-prawdziwe wywołania zrobimy my.
-
-Typy do TypeScriptu dostaniecie **wygenerowane z backendu** — nie piszcie ich
-ręcznie, bo ręczne rozjeżdżają się po cichu.
-
-Decyzje architektoniczne (magazyn klucza, harmonogram, baza, kształt agenta) są
-w `docs/NOTATKA_PORTAL_DECYZJE.md`, po stronie Kuby, i **nie blokują budowy
-szkieletu**.
+Opisuję, **co dziś jest i czego brakuje**, a nie wygląd. Wygląd jest sprawą
+portalu. Decyzje architektoniczne (magazyn klucza, kolejka, baza) są
+w `docs/NOTATKA_PORTAL_DECYZJE.md`, po stronie Kuby.
 
 ---
 
-## 1. Ekrany
+## 1. Jak audyt wchodzi do portalu
 
-Spis funkcji, nie układu graficznego — wygląd jest sprawą portalu.
+Kod audytu to **importowany pakiet Pythona**. Portal woła wyłącznie
+`monday_audit.usluga`, a ekrany, sesje i magazyn klucza pisze sam. Użytkownik
+jest zalogowany w portalu, a klucz monday leży w bazie portalu, więc **nigdzie
+go nie wpisuje**.
 
-| ekran | po co istnieje | co pokazuje | dane |
+Przepływ ma **dwa kroki i jedno kliknięcie między nimi**:
+
+| krok | funkcja pakietu | ile trwa | co kosztuje |
 |---|---|---|---|
-| Logowanie | wejście, dwie role: klient i zespół | formularz | **są** |
-| Lista klientów | zespół przełącza kontekst; klient tego ekranu nie ma w ogóle | klient, liczba audytów, data ostatniego, suma kwot | **są** |
-| Start audytu | podanie klucza monday i wskazanie zakresu | workspace'y i tablice do wyboru | **są** |
-| Wybór zakresu i zgoda na koszt | **jedyna decyzja użytkownika w całym przepływie** | co można zawęzić + widełki kosztu | **są** |
-| Postęp | dwa długie oczekiwania | etap, procent, co się teraz dzieje | **są** |
-| Wynik audytu | to, po co cały produkt istnieje | findingi, metryki, kwoty | **są** |
-| Historia audytów | powrót do starszej wersji | lista audytów z datami | **są** |
-| Ludzie | kto pracuje na koncie, ludzie vs agenty AI | profile osób i tablic | **są** |
-| Ustawienia konta klienta | zapisany klucz, zapisany zakres, harmonogram | — | **do dorobienia** |
-| Czat | rozmowa z agentem | — | **do dorobienia** |
+| 1. „Analizuj moje środowisko” | `przeglad_konta(klucz)` | kilka sekund | ok. 36 wywołań z dziennego limitu klienta, 0 USD |
+| — szacunek kroku 2 | `szacuj_analize(przeglad)` | natychmiast | nic, liczy z wyniku kroku 1 |
+| 2. „Chcę wykonać analizę” | `analiza_konta(klucz, …)` | kilkanaście–kilkadziesiąt minut | kilkaset wywołań i model AI (pełne CXLABS: 342 wywołania, 2,34 USD) |
 
-Osiem pierwszych ekranów ma już czym się zasilić. Dwa ostatnie czekają na
-backend, więc na razie tylko szkielet.
+Obie funkcje działają **w trybie pamięci** (faza 5c). Dane o osobach żyją tylko
+w trakcie wywołania. Na dysk portalu trafia wyłącznie zapis minimalny,
+czyli zamaskowane uwagi i liczby.
+
+**Wyboru zakresu nie ma.** Skanujemy zawsze całe konto (decyzja 2026-09-21).
 
 ---
 
-## 2. Przepływ audytu jako stany interfejsu
+## 2. Co oddaje każda funkcja
 
-Pięć stanów. **Dwa z nich to długie czekanie, a jeden w środku to decyzja
-o pieniądzach** — i to jest cała trudność tego ekranu.
+Każdy wynik ma `do_json()` z kształtem pokazanym niżej. **Typy TypeScript
+jeszcze nie istnieją** (krok 6-4). Nie pisz ich ręcznie, bo ręczne typy
+rozjeżdżają się z backendem po cichu. Do tego czasu atrapa danych.
 
-| stan | ile trwa | co widzi użytkownik |
-|---|---|---|
-| **Podgląd konta** | kilka sekund | lista workspace'ów, potem tablic w wybranym workspace. Nic jeszcze nie kosztuje |
-| **Zbieranie** | minuty | pasek postępu z etapem. Nie da się w tym czasie zrobić nic innego z tym kontem |
-| **Wybór zakresu i zgoda** | czeka na człowieka | co obejmie audyt, ile hipotez, **widełki kosztu w USD**. Tu klient zatwierdza albo rezygnuje |
-| **Analiza** | kilkanaście minut | znowu pasek postępu, inny etap |
-| **Wynik** | — | panel z findingami |
+### Krok 1: `PrzegladKonta`
 
-Co musi obsłużyć interfejs, bo inaczej się zablokuje:
+- `konto_nazwa`,
+- `kafelki`: **sześć, w stałej kolejności**: `workspace`, `tablice`,
+  `uzytkownicy`, `goscie`, `agenci_ai`, `licencja`. Każdy ma `klucz`,
+  `etykieta`, `wartosc` i `szczegoly`. Przykłady szczegółów: podział
+  workspace'ów na produkty, tablice w koszu i archiwum, rodzaje kont, okres
+  licencji,
+- `wywolan`: ile wywołań z limitu zużył ten krok,
+- `zastrzezenia`: czego liczby nie obejmują.
 
-- **Po zbieraniu ekran NIE jest skończony — on czeka na decyzję.** To dwa różne
-  stany, które z zewnątrz wyglądają tak samo („nic się nie dzieje"), a mylenie
-  ich daje ekran zatrzymany w połowie bez komunikatu. To najczęstszy błąd przy
-  tym przepływie.
-- **Odświeżenie strony nie może gubić audytu.** Zebranie danych zużywa dzienny
-  limit klienta w monday, więc powrót do formularza po F5 znaczy „zapłać drugi
-  raz". Backend umie powiedzieć, że jest zadanie czekające na decyzję — front ma
-  do niego wrócić.
-- **Zgoda na koszt ma termin ważności** (dziś 12 h). Po nim widełki przestają
-  być obietnicą i trzeba zbierać od nowa. Ekran musi umieć to powiedzieć.
-- **Jeden audyt naraz na konto.** Drugi start w trakcie ma być odbity
-  komunikatem, nie drugim paskiem postępu.
-- **Rezygnacja jest potrzebna.** Ktoś zobaczy kwotę i nie zechce — musi mieć
-  wyjście inne niż zamknięcie karty.
+Nazw workspace'ów w kafelkach świadomie **nie ma**, bo potrafią nieść nazwisko
+(O50).
 
----
+### Szacunek kroku 2: `SzacunekAnalizy`
 
-## 3. Co zawiera wynik audytu
+- `wywolan_typowo`, `wywolan_maks`, `limit_dzienny`, `udzial_maks`,
+- `przekracza_prog`: najgorszy przypadek zjada ponad **50% dziennego limitu**
+  konta klienta,
+- `usd_od`: **dolna granica** kosztu modelu. Dokładna kwota jest znana
+  dopiero po zebraniu danych,
+- `zastrzezenia`: m.in. „nieznany plan” zamiast procentu.
 
-Panel dostaje **wszystko jednym kawałkiem** — nie ma doładowywania sekcji po
-kolei, więc ekran nie musi obsługiwać częściowych danych.
+### Krok 2: `WynikAnalizy`
 
-| co | z czego się składa |
+`analiza_konta` przyjmuje `przed_sesja` (funkcja zwrotna). Wywołuje ją **po
+zebraniu danych, a przed modelem**, z dokładnym szacunkiem: ile hipotez,
+ile idzie do modelu, ile z szablonu, szacowany koszt, które klasy przyciął
+sufit. Dziś to jedyny sygnał pośredni. Pełnego raportowania postępu z pakietu
+nie ma (§6).
+
+`do_json()` zawiera:
+
+| pole | co znaczy |
 |---|---|
-| **Findingi** | nazwa, waga, wysiłek wdrożenia, pewność, kwota w PLN (nie zawsze), opis, rekomendacja i **dowód** |
-| **Metryki** | pogrupowane w sekcje; każda ma wartość, odniesienie („12 z 40"), udział procentowy i flagę „to wymaga uwagi" |
-| **Zastrzeżenia** | czego ten audyt NIE obejmuje — ma być widoczne, nie schowane pod „więcej" |
-| **Ludzie** | osoby i konta na koncie klienta, z podziałem na ludzi, agenty AI i konta nieznane, plus aktywność per tablica |
-| **Historia** | lista poprzednich audytów i porównanie z poprzednim |
-| **Nagłówek** | nazwa konta, zakres audytu, plan monday, data runu |
+| `uwagi` | uwagi krytyczne w postaci **zamaskowanej**: osoba → `[OSOBA]`, daty → dni przed analizą. Każda ma `klasa_id`, `opis`, `rekomendacja`, `dowod` i `zrodlo` (`model` albo `szablon`) |
+| `hipotez`, `do_modelu`, `z_szablonu` | ile sygnałów wzbudziły detektory i jak je rozdzielono |
+| `poza_sufitem` | klasy przycięte limitem 20 na klasę: `{klasa: {zbadanych, wszystkich}}` |
+| `pominietych`, `odrzuconych` | hipotezy odrzucone przez model / uwagi odrzucone przez walidację |
+| `szacunek_usd`, `koszt_usd` | szacunek i faktyczny koszt modelu |
+| `wywolan_monday` | wywołania z limitu klienta: collector plus narzędzia AI na żywo |
+| `sekund`, `run_id` | czas i identyfikator analizy |
+| `ma_raport` | czy powstał raport z nazwiskami |
+| `blad_zapisu` | zapis minimalny padł, ale wynik jest (napis zamiast wyjątku) |
 
-**Dowód przy findingu jest obowiązkowy** — znalezisko bez niego nie przechodzi
-walidacji na backendzie. Interfejs, który go nie pokazuje, wyrzuca najmocniejszą
-część raportu: to jest różnica między „macie bałagan w automatyzacjach" a „te
-trzy automatyzacje nie odpaliły ani razu od kwietnia".
+**Raport z nazwiskami (`raport_html`) NIE wchodzi do `do_json`.** Jest polem
+obiektu w pamięci. Powstaje raz, w chwili zakończenia analizy, bo potem
+mapowanie osób znika i złożyć go ponownie się nie da. Portal ma go oddać
+człowiekowi, a nie przepuścić przez swoje API i logi.
+
+### Błędy
+
+- `UslugaError` ma komunikat dla człowieka, bez treści odpowiedzi API.
+  Dziś są trzy: brak uprawnień admina, wyczerpany limit dzienny, klucz
+  nie działa.
+- `AnalizaError` znaczy, że odpowiedź modelu nie miała struktury. Sesja
+  jest już opłacona. Surowa odpowiedź jest w pamięci obiektu błędu,
+  pakiet nigdzie jej nie zapisuje.
 
 ---
 
-## 4. Czat
+## 3. Co dziś zawiera raport
 
-**Nie ma jeszcze nic** — ani kontraktu, ani historii rozmów. Kształt agenta jest
-do przemyślenia, więc czat powstanie później.
+**Raport z nazwiskami** (`raport_uwag.html.j2`) jest pogrupowany **po klasie
+problemu**: sekcja na klasę, w niej tabela uwag z opisem, rekomendacją
+i dowodem, a na górze zastrzeżenia. To **stan przejściowy**.
 
-**Co można zbudować teraz, nie tracąc pracy:** powłokę — lista wiadomości, pole
-wejścia, stan „agent pracuje", przycisk przerwania — za modułem-atrapą z jedną
-funkcją `wyslij(wiadomosc)`. Gdy kontrakt powstanie, podmienia się jeden plik.
+Docelowy kształt należy do fazy 7 i **nie jest zbudowany**. Ustalony z Kubą
+2026-09-23 wygląda tak:
 
-Dwie rzeczy do uwzględnienia w tym szkielecie:
+1. **Raport główny = cztery kategorie jako kafelki:** Workspace, Tablice,
+   Użytkownicy, Agenci. Na kafelku liczba uwag i jedno zdanie o największym
+   problemie.
+2. **Kliknięcie kafelka PRZENOSI do osobnego raportu pogłębionego** tej
+   kategorii, a nie rozwija treść na tej samej stronie.
+3. **Przypisanie klas do kategorii jest propozycją do potwierdzenia**
+   (`docs/plan.md`, faza 7):
+   - Tablice ← `AUTOMATION_*`, `BOARD_*`, `DUPLICATE_STRUCTURE`, `PROCESS_BYPASS`,
+   - Użytkownicy ← `ZOMBIE_ACCOUNT`, `GUEST_SPRAWL`, `PLAN_MISMATCH`,
+     `UZYTKOWNIK_WYGASZONY`, `ENGAGEMENT_DROP`,
+   - Agenci ← na razie żadna klasa, bo API nie oddaje danych (O20),
+   - Workspace ← rollupy CRM/Service, bez klasy uwag.
 
-- **Nie wiadomo, czy odpowiedzi będą wracać strumieniowo, czy w całości.** To
-  jedyna otwarta rzecz, która realnie zmienia kształt komponentu — zostawcie na
-  nią miejsce.
-- **Agent nie może niczego zmienić na koncie klienta** i to się nie zmieni.
-  Klient GraphQL odrzuca zapisy na poziomie kodu, więc czat opowiada o koncie,
-  ale go nie dotyka. Interfejs może to obiecać użytkownikowi wprost.
+Czego w raporcie **nie ma** i nie będzie: kwot, wag, wysiłku, pewności
+(decyzja 2026-09-23). Jest jedna kategoria: „uwaga krytyczna”.
+
+**PDF-a nie ma.** Wybór narzędzia (headless Chrome albo WeasyPrint) jest
+decyzją przed fazą 7.
+
+---
+
+## 4. Rzeczy w danych, które front musi umieć pokazać
+
+- **Dowód przy każdej uwadze.** Uwaga bez dowodu nie przechodzi walidacji na
+  backendzie. Dowód to fakty z konta: identyfikatory tablic, liczby, daty,
+  nakładanie kolumn, błędy automatyzacji.
+- **Wartość `{"nie_zmierzone": "<powód>"}` w dowodzie** znaczy, że API tego
+  nie oddaje. To nie jest zero ani puste pole. Dziś występuje w
+  `GUEST_SPRAWL.tablice_dostepne` (zmiana O31 z 2026-09-24).
+- **Zastrzeżenia** przychodzą w trzech miejscach: przegląd, szacunek i raport.
+  Mówią, czego liczby nie obejmują, np. „AI zbadało 20 z 401 — reszta NIE
+  jest w porządku, tylko niezbadana”.
+- **Grupy duplikatów.** `DUPLICATE_STRUCTURE` to grupa tablic, nie para.
+  Na pełnym CXLABS największa ma 91 tablic, więc listy w dowodzie bywają długie.
+- **Dwie wersje uwagi:** z nazwiskami (tylko świeży `raport_html`)
+  i zamaskowana (`uwagi` w `do_json`, zapis w bazie).
 
 ---
 
 ## 5. Reguły, które przetrwają zmiany backendu
 
-Te rzeczy nie zależą od tego, jak przerobimy API:
-
-- **Dwie role.** Klient widzi wyłącznie swoje konto. Zespół przełącza się między
-  klientami. To nie jest przełącznik w widoku — to dwa różne zestawy danych.
-- **Klient nie dostaje danych wewnętrznych.** Odrzucone hipotezy, koszt runu
-  i rozliczenie są z jego wersji **usuwane**, a nie ukrywane w widoku. Payload
-  w przeglądarce widać, więc „wyślij i schowaj" znaczyłoby „wyślij". Front ma
-  działać przy braku tych pól, nie przy ich zerze.
-- **Nie licz sam tego, co backend już policzył.** Liczniki w nagłówkach
-  („3 osoby, 3 agenty AI") przychodzą gotowe po to, żeby nagłówek i lista pod nim
-  nie mogły pokazać dwóch różnych liczb.
-- **Klucz API nigdy do `localStorage`.** Tylko pamięć komponentu. Dziś klucz
-  podaje się dwa razy w trakcie przepływu — jeśli to zostanie, ekran musi to
-  obsłużyć bez proszenia użytkownika o przeklejanie.
-- **Słownik wag, wysiłku i pewności żyje w rubryce po stronie backendu**, nie
-  w kodzie frontu. Nie zaszywajcie listy wartości na sztywno — rubryka się
-  zmienia i to jest jej zadanie.
+- **Klucz API nigdy w przeglądarce** i nigdy w `localStorage`. W tym modelu
+  front w ogóle go nie dotyka, bo leży w portalu.
+- **AI nie może niczego zmienić na koncie klienta.** Klient GraphQL odrzuca
+  zapisy w kodzie. Interfejs może to obiecać wprost.
+- **Nie licz sam tego, co backend policzył.** Liczby w kafelkach, szacunku
+  i nagłówkach przychodzą gotowe.
+- **Jedna analiza naraz na konto** i **odświeżenie strony nie może jej
+  zgubić**. Zbieranie zużywa limit klienta. Pakiet nie ma kolejki ani stanu
+  zadania, więc to należy do portalu (§6).
 
 ---
 
-## 6. Do potwierdzenia przed pierwszym commitem
+## 6. Czego brakuje
 
-1. Czy jednorazowy zrzut konta kończy się bez agenta? To decyduje, czy ekran
-   startu w ogóle pyta o drugi klucz (Anthropic).
-2. Czy panel klienta pokazuje zakładkę „Ludzie"? Niesie imiona i nazwiska
-   pracowników klienta, więc to decyzja Kuby, nie domyślna.
+| brak | gdzie jest rozstrzygnięcie |
+|---|---|
+| typy TypeScript z kontraktu i dokument wejścia dla zespołu portalu | krok 6-4, niezaczęty |
+| raport w czterech kategoriach z przejściem do raportu pogłębionego | faza 7 |
+| PDF | faza 7, decyzja o narzędziu przed fazą |
+| raportowanie postępu z pakietu (etap, procent) w trakcie kroku 2 | brak; dziś jest tylko `przed_sesja`. Do rozstrzygnięcia |
+| kolejka, stan zadania, „jedna analiza naraz”, powrót po odświeżeniu | po stronie portalu (`NOTATKA_PORTAL_DECYZJE.md`) |
+| co widzi klient, a co zespół CXLABS (koszt, odrzucone hipotezy) | do rozstrzygnięcia. Pakiet oddaje wszystko w `do_json`, filtrowania ról nie ma |
+| historia i porównanie analiz | dziś tylko zapis minimalny w bazie, bez funkcji pakietu do odczytu |
+| czat z agentem | poza zakresem planu |
+
+Panel na Mikrusie (`web/`) istnieje, ale **audyty są w nim wstrzymane**
+(`AUDYTY_WSTRZYMANE`), a jego przepływ (wybór zakresu, zgoda na widełki)
+jest starszy niż ten dokument. Nie jest wzorem dla portalu.

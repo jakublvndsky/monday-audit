@@ -89,7 +89,7 @@ nie przypadek.
 | `docs/OTWARTE.md` | założenia niepotwierdzone — nie traktuj ich jako faktów |
 | `rubryka_znalezisk.yaml` | definicje klas znalezisk |
 | `docs/PROMPT_AGENTA.md` | prompt agenta produkcyjnego (runtime, nie build) |
-| `docs/HANDOFF_PORTAL.md` | makieta frontu portalu: ekrany, stany interfejsu, zawartość wyniku. **Świadomie bez kontraktu API** |
+| `docs/HANDOFF_PORTAL.md` | handoff dla frontu portalu: dwa kroki, co oddaje `monday_audit.usluga`, co front musi umieć pokazać, czego brakuje |
 | `docs/NOTATKA_PORTAL_DECYZJE.md` | decyzje do podjęcia przy wpinaniu audytu w portal — magazyn klucza, harmonogram, kolejka, baza. Należą do Kuby |
 
 Skille (`.claude/skills/`) wczytują się same, gdy zadanie do nich pasuje.
