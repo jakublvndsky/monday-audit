@@ -136,6 +136,7 @@ class WynikHipotezy:
     finding: dict[str, Any] | None = None
     odrzucona: dict[str, Any] | None = None
     wywolania_narzedzi: list[str] = field(default_factory=list)
+    przebieg_narzedzi: list[dict[str, Any]] = field(default_factory=list)
     zuzycie: dict[str, float] = field(default_factory=dict)
     blad: str | None = None
     # ── ROZBICIE WYJŚCIA (etap 4, instrumentacja) ─────────────────────────
@@ -288,6 +289,38 @@ def _opis_klasy(klasa: Klasa) -> str:
     )
 
 
+async def wykonaj_narzedzie(
+    zestaw: NarzedziaHipotezy,
+    nazwa: str,
+    args: dict[str, Any],
+    wywolanie: Callable[[NarzedziaHipotezy], Any],
+) -> dict[str, Any]:
+    """Wywołanie narzędzia z zapisem przebiegu — JEDNO miejsce dla wszystkich.
+
+    Trace w Langfuse pokazywał same nazwy narzędzi, bez argumentów i wyników
+    (zgłoszone 2026-09-24): nie dało się ocenić, czy model zapytał o właściwą
+    rzecz i co dostał. Wynik zapisujemy w postaci `do_modelu()`, czyli
+    dokładnie to, co widział model — nie więcej.
+    """
+    start = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    zaczeto = time.monotonic()
+    wpis: dict[str, Any] = {"narzedzie": nazwa, "argumenty": dict(args), "start": start}
+    try:
+        wynik = wywolanie(zestaw)
+        if hasattr(wynik, "__await__"):
+            wynik = await wynik
+        dane = wynik.do_modelu()
+    except Exception as blad:
+        wpis["blad"] = f"{type(blad).__name__}: {blad}"[:500]
+        raise
+    else:
+        wpis["wynik"] = dane
+    finally:
+        wpis["ms"] = round((time.monotonic() - zaczeto) * 1000)
+        zestaw.przebieg.append(wpis)
+    return {"content": [{"type": "text", "text": json.dumps(dane, ensure_ascii=False)}]}
+
+
 def _zbuduj_narzedzia(biezace: dict[str, NarzedziaHipotezy]) -> Any:
     """Narzędzia w procesie. `biezace` wskazuje zestaw aktywnej hipotezy.
 
@@ -302,6 +335,11 @@ def _zbuduj_narzedzia(biezace: dict[str, NarzedziaHipotezy]) -> Any:
             raise NarzedzieError("brak aktywnej hipotezy")
         return zestaw
 
+    async def wykonaj(
+        nazwa: str, args: dict[str, Any], wywolanie: Callable[[NarzedziaHipotezy], Any]
+    ) -> dict[str, Any]:
+        return await wykonaj_narzedzie(teraz(), nazwa, args, wywolanie)
+
     @tool(
         "pobierz_inwentarz",
         "Podsumowanie sekcji snapshotu. Zakres: konto, uzytkownicy, tablice, "
@@ -310,10 +348,9 @@ def _zbuduj_narzedzia(biezace: dict[str, NarzedziaHipotezy]) -> Any:
         {"zakres": str},
     )
     async def _inwentarz_narzedzie(args: dict[str, Any]) -> dict[str, Any]:
-        wynik = teraz().pobierz_inwentarz(str(args["zakres"]))
-        return {
-            "content": [{"type": "text", "text": json.dumps(wynik.do_modelu(), ensure_ascii=False)}]
-        }
+        return await wykonaj(
+            "pobierz_inwentarz", args, lambda z: z.pobierz_inwentarz(str(args["zakres"]))
+        )
 
     @tool(
         "zapytaj_snapshot",
@@ -323,12 +360,13 @@ def _zbuduj_narzedzia(biezace: dict[str, NarzedziaHipotezy]) -> Any:
         {"pytanie": str, "obiekt_id": str},
     )
     async def _snapshot_narzedzie(args: dict[str, Any]) -> dict[str, Any]:
-        wynik = teraz().zapytaj_snapshot(
-            str(args["pytanie"]), str(args.get("obiekt_id") or "") or None
+        return await wykonaj(
+            "zapytaj_snapshot",
+            args,
+            lambda z: z.zapytaj_snapshot(
+                str(args["pytanie"]), str(args.get("obiekt_id") or "") or None
+            ),
         )
-        return {
-            "content": [{"type": "text", "text": json.dumps(wynik.do_modelu(), ensure_ascii=False)}]
-        }
 
     @tool(
         "probka_kolumn",
@@ -337,10 +375,9 @@ def _zbuduj_narzedzia(biezace: dict[str, NarzedziaHipotezy]) -> Any:
         {"board_id": str},
     )
     async def _probka_narzedzie(args: dict[str, Any]) -> dict[str, Any]:
-        wynik = await teraz().probka_kolumn(str(args["board_id"]))
-        return {
-            "content": [{"type": "text", "text": json.dumps(wynik.do_modelu(), ensure_ascii=False)}]
-        }
+        return await wykonaj(
+            "probka_kolumn", args, lambda z: z.probka_kolumn(str(args["board_id"]))
+        )
 
     @tool(
         "log_tablicy",
@@ -349,10 +386,11 @@ def _zbuduj_narzedzia(biezace: dict[str, NarzedziaHipotezy]) -> Any:
         {"board_id": str, "od": str, "do": str},
     )
     async def _log_narzedzie(args: dict[str, Any]) -> dict[str, Any]:
-        wynik = await teraz().log_tablicy(str(args["board_id"]), str(args["od"]), str(args["do"]))
-        return {
-            "content": [{"type": "text", "text": json.dumps(wynik.do_modelu(), ensure_ascii=False)}]
-        }
+        return await wykonaj(
+            "log_tablicy",
+            args,
+            lambda z: z.log_tablicy(str(args["board_id"]), str(args["od"]), str(args["do"])),
+        )
 
     return create_sdk_mcp_server(
         name=SERWER,
@@ -616,6 +654,7 @@ async def zbadaj_hipoteze(
         return wynik
     finally:
         wynik.wywolania_narzedzi = list(narzedzia_hipotezy.wywolania)
+        wynik.przebieg_narzedzi = list(narzedzia_hipotezy.przebieg)
         biezace.pop("aktywne", None)
         # W `finally`, bo pomiar ma przeżyć także padniętą hipotezę — sesja
         # zerwana po trzech blokach rozumowania zapłaciła za te bloki tak samo.

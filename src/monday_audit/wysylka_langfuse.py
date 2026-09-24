@@ -121,6 +121,8 @@ class WysylkaLangfuse:
                             input=obserwacja.wejscie,
                             output=obserwacja.wyjscie,
                             metadata=obserwacja.metadane or None,
+                            level=obserwacja.poziom,
+                            status_message=obserwacja.komunikat,
                         ).end()
             finally:
                 korzen.end()

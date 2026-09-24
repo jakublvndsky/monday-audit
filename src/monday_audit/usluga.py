@@ -48,6 +48,7 @@ from monday_audit.analiza import (
     przytnij_do_sufitu,
     rozdziel_hipotezy,
     zbadaj_konto,
+    zbuduj_zadanie,
 )
 from monday_audit.baza import MapowanieOsob, polacz, zastosuj_migracje
 from monday_audit.detektory import uruchom_detektory
@@ -537,6 +538,16 @@ async def analizuj_snapshot(
         "model": MODEL,
         "prompt_hash": prompt_hash,
         "obraz_hash": hasz_obrazu(wejscie),
+        # Zadanie w postaci, którą dostał model, z obrazem konta jako haszem —
+        # żeby trace dało się przeczytać i odtworzyć (zgłoszone 2026-09-24).
+        "zadanie": zbuduj_zadanie(
+            do_modelu,
+            wejscie,
+            rubryka,
+            obraz_zastepczy=f"[obraz konta — tylko hasz {hasz_obrazu(wejscie)}]",
+        )
+        if do_modelu
+        else None,
         "hipotezy": [h.do_zapisu() for h in do_modelu],
         "z_szablonu": len(z_szablonow),
         "szacunek_usd": szacunek.koszt_usd,

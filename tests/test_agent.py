@@ -11,6 +11,7 @@ którego zakaz twardy zabrania wprost.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, cast
 
@@ -371,3 +372,34 @@ def test_tryb_subskrypcyjny_nie_wysyla_klucza() -> None:
 def test_tryb_kluczowy_nadal_wysyla_klucz() -> None:
     """Druga strona przełącznika — bez tego „działa" znaczyłoby „nic nie wysyła"."""
     assert _opcje("sk-ant-konkretny").env["ANTHROPIC_API_KEY"] == "sk-ant-konkretny"
+
+
+# ── przebieg narzędzi dla trace'u (zgłoszone 2026-09-24) ─────────────────
+
+
+async def test_narzedzie_zapisuje_argumenty_wynik_i_blad() -> None:
+    """Trace pokazywał same nazwy. Opakowanie zapisuje to, co widział model."""
+    from types import SimpleNamespace
+
+    from monday_audit.agent import wykonaj_narzedzie
+
+    zestaw = cast(Any, SimpleNamespace(przebieg=[]))
+    wynik = SimpleNamespace(do_modelu=lambda: {"liczba": 3})
+
+    odpowiedz = await wykonaj_narzedzie(
+        zestaw, "zapytaj_snapshot", {"pytanie": "osoba"}, lambda _: wynik
+    )
+
+    assert json.loads(odpowiedz["content"][0]["text"]) == {"liczba": 3}
+    [wpis] = zestaw.przebieg
+    assert wpis["argumenty"] == {"pytanie": "osoba"}
+    assert wpis["wynik"] == {"liczba": 3}
+    assert isinstance(wpis["ms"], int)
+
+    async def padnij(_: Any) -> Any:
+        raise RuntimeError("monday nie odpowiada")
+
+    with pytest.raises(RuntimeError):
+        await wykonaj_narzedzie(zestaw, "probka_kolumn", {"board_id": "1"}, padnij)
+    assert zestaw.przebieg[1]["blad"] == "RuntimeError: monday nie odpowiada"
+    assert "wynik" not in zestaw.przebieg[1]

@@ -197,6 +197,11 @@ class NarzedziaHipotezy:
     hipoteza: Hipoteza
     budzet: Budzet
     wywolania: list[str] = field(default_factory=list)
+    # Pełny przebieg dla trace'u: narzędzie, argumenty, wynik DOKŁADNIE w postaci,
+    # którą dostał model, czas. Wypełnia go opakowanie w `agent._zbuduj_narzedzia`,
+    # więc jedno miejsce obejmuje wszystkie narzędzia. Tylko w pamięci — do trace'u
+    # idzie przez `obserwowalnosc`, czyli przez maskowanie.
+    przebieg: list[dict[str, Any]] = field(default_factory=list)
 
     # ── snapshot: darmowe, ale przycinane ────────────────────────────────
 

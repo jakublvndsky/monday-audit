@@ -545,3 +545,72 @@ def test_sciezki_trafien_tez_bez_pseudonimu() -> None:
     assert trace.metadane["pola_z_trafieniami"] == [
         "wejscie.hipotezy[0].fakty.tablice_dostepne.[OSOBA][0]"
     ]
+
+
+# ── narzędzia i zadanie w trace (zgłoszone przez Kubę 2026-09-24) ─────────
+
+
+def _odpowiedz_z_przebiegiem(przebieg: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "uwagi": [],
+        "pominiete": [],
+        "zuzycie": {},
+        "wywolania_narzedzi": [f"{w['narzedzie']}:x" for w in przebieg],
+        "przebieg_narzedzi": przebieg,
+    }
+
+
+def test_narzedzie_niesie_argumenty_i_wynik_po_maskowaniu() -> None:
+    """Trace pokazywał same nazwy narzędzi. Teraz wejście i wyjście — ale przez
+    tę samą bramkę: pseudonim → [OSOBA], e-mail → [E-MAIL]."""
+    przebieg = [
+        {
+            "narzedzie": "zapytaj_snapshot",
+            "argumenty": {"pytanie": "osoba", "obiekt_id": "a1b2c3d4e5f60718"},
+            "wynik": {"user_hash": "a1b2c3d4e5f60718", "notatka": "pisz do jan@firma.test"},
+            "start": "2026-09-24T09:00:00Z",
+            "ms": 3,
+        }
+    ]
+
+    trace = _trace_analizy(odpowiedz=_odpowiedz_z_przebiegiem(przebieg))
+
+    [narzedzie] = [o for o in trace.obserwacje if o.nazwa.startswith("narzedzie:")]
+    assert narzedzie.nazwa == "narzedzie:zapytaj_snapshot:osoba"
+    assert narzedzie.wejscie == {"pytanie": "osoba", "obiekt_id": "[OSOBA]"}
+    assert narzedzie.wyjscie == {"user_hash": "[OSOBA]", "notatka": "pisz do [E-MAIL]"}
+    assert narzedzie.metadane == {"kolejnosc": 1, "start": "2026-09-24T09:00:00Z", "ms": 3}
+    assert "a1b2c3d4e5f60718" not in str(trace)
+    assert trace.metadane["trafien_maskowania"] == 1
+
+
+def test_narzedzie_ktore_padlo_jest_bledem_w_trace() -> None:
+    przebieg = [
+        {"narzedzie": "probka_kolumn", "argumenty": {"board_id": "7"}, "blad": "NarzedzieError: x"}
+    ]
+
+    trace = _trace_analizy(odpowiedz=_odpowiedz_z_przebiegiem(przebieg))
+
+    [narzedzie] = [o for o in trace.obserwacje if o.nazwa.startswith("narzedzie:")]
+    assert (narzedzie.poziom, narzedzie.komunikat) == ("ERROR", "NarzedzieError: x")
+
+
+def test_wejscie_generacji_jest_rozmowa_z_haszami() -> None:
+    """Langfuse odtwarza generację z listy wiadomości. Prompt systemowy i obraz
+    konta zostają haszami — to samo zadanie, co dostał model, bez obrazu."""
+    from monday_audit.analiza import zbuduj_zadanie
+    from monday_audit.detektory import Hipoteza
+
+    hipotezy = [Hipoteza(klasa_id="BOARD_GHOST", obiekt_id="b1", fakty={"nazwa": "x"})]
+    wejscie = {"konto": {"tajne": "Obraz"}, "zastrzezenia": ["[tablice] cos"]}
+    zadanie = zbuduj_zadanie(hipotezy, wejscie, obraz_zastepczy="[obraz konta — tylko hasz o456]")
+
+    trace = _trace_analizy(zadanie=zadanie)
+
+    [generacja] = [o for o in trace.obserwacje if o.rodzaj == "generation"]
+    system, user = generacja.wejscie
+    assert system == {"role": "system", "content": "[prompt systemowy — tylko hasz p123]"}
+    assert user["role"] == "user"
+    assert "[obraz konta — tylko hasz o456]" in user["content"]
+    assert "## HIPOTEZY DO ROZSTRZYGNIĘCIA (1)" in user["content"]
+    assert "tajne" not in user["content"] and "[tablice] cos" not in user["content"]

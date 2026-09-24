@@ -240,6 +240,8 @@ def zbuduj_zadanie(
     hipotezy: list[Hipoteza],
     wejscie: dict[str, Any],
     rubryka: Rubryka | None = None,
+    *,
+    obraz_zastepczy: str | None = None,
 ) -> str:
     """Treść zadania: obraz konta plus wszystkie hipotezy naraz.
 
@@ -262,6 +264,14 @@ def zbuduj_zadanie(
     Definicje klas idą PRZED hipotezami, z tego samego powodu co zastrzeżenia
     przed liczbami: model ma wiedzieć, co znaczy klasa, zanim zacznie czytać
     jej fakty — a nie zgadywać to z nazwy (`definicje_klas`).
+
+    ## `obraz_zastepczy` — ta sama treść dla trace'u
+
+    Trace generacji ma pokazywać zadanie takie, jakie dostał model, żeby dało
+    się je odtworzyć. Obraz konta (i jego zastrzeżenia) wychodzi jednak tylko
+    jako hasz (`obserwowalnosc.hasz_obrazu`), więc przy budowie dla trace'u obie
+    sekcje zastępuje jeden napis. Reszta — definicje, hipotezy, polecenie — jest
+    identyczna, bo powstaje tą samą funkcją, a nie kopią.
     """
     rubryka = rubryka or wczytaj_rubryke()
     zastrzezenia = wejscie.get("zastrzezenia") or []
@@ -275,15 +285,22 @@ def zbuduj_zadanie(
         zapis["dowod_wymagany"] = [p.rstrip("[]") for p in klasa.dowod] if klasa else []
         opisane.append(zapis)
 
+    naglowek = (
+        ["## CZEGO TE LICZBY NIE OBEJMUJĄ / OBRAZ KONTA", "", obraz_zastepczy, ""]
+        if obraz_zastepczy is not None
+        else [
+            "## CZEGO TE LICZBY NIE OBEJMUJĄ",
+            "",
+            *(f"- {u}" for u in zastrzezenia),
+            "",
+            "## OBRAZ KONTA",
+            "",
+            json.dumps(obraz, ensure_ascii=False, indent=1),
+            "",
+        ]
+    )
     czesci = [
-        "## CZEGO TE LICZBY NIE OBEJMUJĄ",
-        "",
-        *(f"- {u}" for u in zastrzezenia),
-        "",
-        "## OBRAZ KONTA",
-        "",
-        json.dumps(obraz, ensure_ascii=False, indent=1),
-        "",
+        *naglowek,
         f"## DEFINICJE KLAS ({len(definicje)})",
         "",
         json.dumps(definicje, ensure_ascii=False, indent=1),
@@ -389,6 +406,7 @@ async def zbadaj_konto(
     odpowiedz = _wyluskaj_json(bloki[-1] if bloki else "")
     odpowiedz["zuzycie"] = zuzycie
     odpowiedz["wywolania_narzedzi"] = list(narzedzia_sesji.wywolania)
+    odpowiedz["przebieg_narzedzi"] = list(narzedzia_sesji.przebieg)
 
     ile_uwag = len(odpowiedz.get("uwagi") or [])
     ile_pominietych = len(odpowiedz.get("pominiete") or [])

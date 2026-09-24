@@ -38,7 +38,7 @@ import logging
 from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from monday_audit.maskowanie import MaskowanieError, bez_tozsamosci, zamaskuj
 from monday_audit.osoby import MaPII
@@ -64,6 +64,9 @@ class Obserwacja:
     # `usage_details` Langfuse'a: tokeny wejścia, wyjścia i cache'u.
     zuzycie: dict[str, int] = field(default_factory=dict)
     koszt_usd: float | None = None
+    # `ERROR` dla narzędzia, które rzuciło — Langfuse podświetla takie węzły.
+    poziom: Literal["ERROR"] | None = None
+    komunikat: str | None = None
 
 
 @dataclass(frozen=True)
@@ -160,6 +163,7 @@ def zbuduj_trace(
         "wejscie": hipoteza.do_zapisu(),
         "wyjscie": wyjscie,
         "narzedzia": list(getattr(wynik, "wywolania_narzedzi", []) or []),
+        "przebieg_narzedzi": list(getattr(wynik, "przebieg_narzedzi", []) or []),
     }
 
     zamaskowane = zamaskuj(surowe, wpisy, nie_ludzie=nie_ludzie)
@@ -196,9 +200,7 @@ def zbuduj_trace(
     ]
     # Narzędzia jako osobne węzły, bo to one pokazują, CZYM agent się posłużył —
     # a przy budżetach z rubryki to najczęstsze pytanie do trace'u.
-    obserwacje += [
-        Obserwacja(nazwa=f"narzedzie:{nazwa}", rodzaj=RODZAJ_SPAN) for nazwa in czyste["narzedzia"]
-    ]
+    obserwacje += _obserwacje_narzedzi(czyste["narzedzia"], czyste["przebieg_narzedzi"])
 
     return Trace(
         nazwa=f"hipoteza:{hipoteza.klasa_id}",
@@ -206,6 +208,40 @@ def zbuduj_trace(
         obserwacje=tuple(obserwacje),
         trafienia_maskowania=zamaskowane.trafienia,
     )
+
+
+def _obserwacje_narzedzi(nazwy: list[Any], przebieg: list[Any]) -> list[Obserwacja]:
+    """Węzły narzędzi: z pełnym przebiegiem, a gdy go nie ma — same nazwy.
+
+    ## Dlaczego pełny przebieg (zgłoszone przez Kubę 2026-09-24)
+
+    Trace pokazywał `narzedzie:zapytaj_snapshot:aktywnosc_tablicy` bez wejścia
+    i wyjścia, więc nie dało się ocenić, czy model zapytał o właściwą rzecz i co
+    dostał. Teraz węzeł niesie argumenty i wynik w postaci, którą widział model
+    — już po `zamaskuj` i `bez_tozsamosci`, bo przebieg jest częścią `surowe`.
+
+    Czas: SDK Langfuse nie przyjmuje czasu STARTU obserwacji, a trace powstaje
+    po sesji, więc oś czasu w Langfuse jest płaska. Faktyczny start i czas
+    trwania idą do metadanych węzła.
+    """
+    if not przebieg:
+        return [Obserwacja(nazwa=f"narzedzie:{nazwa}", rodzaj=RODZAJ_SPAN) for nazwa in nazwy]
+    obserwacje = []
+    for numer, wpis in enumerate(przebieg, start=1):
+        argumenty = wpis.get("argumenty") or {}
+        cel = argumenty.get("pytanie") or argumenty.get("zakres") or argumenty.get("board_id")
+        obserwacje.append(
+            Obserwacja(
+                nazwa=f"narzedzie:{wpis.get('narzedzie')}" + (f":{cel}" if cel else ""),
+                rodzaj=RODZAJ_SPAN,
+                wejscie=argumenty,
+                wyjscie=wpis.get("wynik"),
+                metadane={"kolejnosc": numer, "start": wpis.get("start"), "ms": wpis.get("ms")},
+                poziom="ERROR" if wpis.get("blad") else None,
+                komunikat=wpis.get("blad"),
+            )
+        )
+    return obserwacje
 
 
 class Wysylka(Protocol):
@@ -249,6 +285,7 @@ def zbuduj_trace_analizy(
     odrzucone_reguly: Sequence[str] = (),
     szacunek_usd: float | None = None,
     blad: str | None = None,
+    zadanie: str | None = None,
     wpisy: Sequence[MaPII] = (),
     nie_ludzie: frozenset[str] = frozenset(),
 ) -> Trace:
@@ -302,9 +339,20 @@ def zbuduj_trace_analizy(
             "odrzucone_reguly": dict(Counter(odrzucone_reguly)),
             "szacunek_usd": szacunek_usd,
         },
-        "wejscie": {"hipotezy": hipotezy},
+        # Wejście jako ROZMOWA, gdy znamy treść zadania — Langfuse umie wtedy
+        # pokazać i odtworzyć wywołanie. Prompt systemowy i obraz konta tylko
+        # jako hasze (reguła z `CLAUDE.md`), więc odtworzenie nie jest 1:1.
+        "wejscie": (
+            [
+                {"role": "system", "content": f"[prompt systemowy — tylko hasz {prompt_hash}]"},
+                {"role": "user", "content": zadanie},
+            ]
+            if zadanie is not None
+            else {"hipotezy": hipotezy}
+        ),
         "wyjscie": wyjscie,
         "narzedzia": list(odpowiedz.get("wywolania_narzedzi") or []),
+        "przebieg_narzedzi": list(odpowiedz.get("przebieg_narzedzi") or []),
     }
 
     zamaskowane = zamaskuj(surowe, wpisy, nie_ludzie=nie_ludzie)
@@ -336,9 +384,7 @@ def zbuduj_trace_analizy(
             koszt_usd=float(zuzycie.get("koszt_usd", 0.0)) or None,
         )
     ]
-    obserwacje += [
-        Obserwacja(nazwa=f"narzedzie:{nazwa}", rodzaj=RODZAJ_SPAN) for nazwa in czyste["narzedzia"]
-    ]
+    obserwacje += _obserwacje_narzedzi(czyste["narzedzia"], czyste["przebieg_narzedzi"])
     return Trace(
         nazwa="analiza:konto",
         metadane=metadane,
