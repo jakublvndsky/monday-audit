@@ -210,7 +210,13 @@ def zamaskuj_tekst(tekst: str) -> tuple[str, Counter[str]]:
     return wynik, trafienia
 
 
-def zamaskuj(dane: Any, wpisy: Sequence[MaPII] = (), *, sciezka: str = "") -> Zamaskowane:
+def zamaskuj(
+    dane: Any,
+    wpisy: Sequence[MaPII] = (),
+    *,
+    sciezka: str = "",
+    nie_ludzie: frozenset[str] = frozenset(),
+) -> Zamaskowane:
     """Wszystko, co wychodzi poza serwer, przechodzi tędy. Bez wyjątków.
 
     Dwa przebiegi, w tej kolejności:
@@ -237,7 +243,7 @@ def zamaskuj(dane: Any, wpisy: Sequence[MaPII] = (), *, sciezka: str = "") -> Za
     w `sciezki` jest składana z klucza JUŻ zamaskowanego — inaczej raport
     o wycieku sam by go wypisywał.
     """
-    zredagowane, _ = zredaguj_pii(dane, wpisy, sciezka=sciezka)
+    zredagowane, _ = zredaguj_pii(dane, wpisy, sciezka=sciezka, nie_ludzie=nie_ludzie)
 
     trafienia: Counter[str] = Counter()
     sciezki: list[str] = []

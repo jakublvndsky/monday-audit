@@ -42,7 +42,7 @@ from monday_audit.baza import MapowanieOsob, RejestrWywolan
 from monday_audit.klient import WERSJA_API, MondayClient, Postep
 from monday_audit.konto import Zakres, rozpoznaj_konto
 from monday_audit.logi import MAKS_STRON_LOGOW, TOP_PO_ITEMACH, Z_OGONA, zbierz_logi
-from monday_audit.osoby import waliduj_brak_pii, zbierz_osoby, zredaguj_pii
+from monday_audit.osoby import RODZAJE_AGENTOW, waliduj_brak_pii, zbierz_osoby, zredaguj_pii
 from monday_audit.tablice import zbierz_tablice
 
 logger = logging.getLogger(__name__)
@@ -453,7 +453,9 @@ async def _zbierz_i_zapisz(
     # Podmieniamy na pseudonim tej samej osoby, zamiast wycinać nazwę —
     # fakt, że obiekt jest nazwany po kimś, jest sygnałem audytowym.
     wpisy_pii = mapowanie.wczytaj()
-    payload, zredagowane = zredaguj_pii(payload, wpisy_pii)
+    # Agenci AI poza redakcją członów: ich nazwy to słowa produktu, nie osoba.
+    nie_ludzie = frozenset(o.user_hash for o in osoby.osoby if o.kind in RODZAJE_AGENTOW)
+    payload, zredagowane = zredaguj_pii(payload, wpisy_pii, nie_ludzie=nie_ludzie)
     payload["meta"]["zredagowanych_pii"] = len(zredagowane)
     if zredagowane:
         logger.warning(

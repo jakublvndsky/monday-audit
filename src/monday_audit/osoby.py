@@ -289,6 +289,64 @@ def _pary_do_redakcji(wpisy: Sequence[MaPII]) -> tuple[tuple[str, str], ...]:
     return tuple(sorted(pary, key=lambda para: -len(para[0])))
 
 
+# Człon imienia albo nazwiska krótszy od tego nie jest redagowany sam: „Al",
+# „Ed" to częściej skrót niż osoba. Trzy litery łapią „Jan" i „Ola", a granice
+# słów i wielka litera chronią „Solaris" i „jana" (słowo, nie imię).
+MIN_CZLONU_IMIENIA = 3
+
+
+def _czlony_do_redakcji(
+    wpisy: Sequence[MaPII], nie_ludzie: frozenset[str]
+) -> tuple[tuple[re.Pattern[str], str], ...]:
+    """Pojedyncze człony imion i nazwisk LUDZI → (wzorzec, zamiennik).
+
+    ## ZMIERZONE 2026-09-24 na pełnym koncie CXLABS
+
+    Klient nazywa tablice „Zadania Jacek" i workspace'y „Radek Leady", czyli
+    samym imieniem. Redakcja po pełnym „Imię Nazwisko" tego nie widziała, więc
+    trzy imiona użytkowników konta doszły do modelu i do trace'u w Langfuse.
+
+    Dlaczego to nie powtarza porażki skanu tokenowego z 3.8 (54 fałszywe
+    trafienia): tamte tokeny pochodziły z kont SERWISOWYCH i agentów — „CXLABS",
+    „AI Agent" — a te słowa naturalnie żyją w nazwach produktów. Tu biorą udział
+    wyłącznie osoby o nazwie co najmniej dwuczłonowej, spoza `nie_ludzie`
+    (agenci AI), a człon, który występuje też w nazwie agenta, odpada. Do tego
+    wielka litera i granice słów: „Jacek" tak, „jacek" w zdaniu i „Jackson" nie.
+
+    Zamiennik: pseudonim osoby, gdy człon jest jej JEDYNY na koncie (raport
+    z nazwiskami umie go rozwinąć), `[OSOBA]`, gdy dzieli go kilka osób — wtedy
+    wybranie jednej byłoby zgadywaniem, a zgadnięta tożsamość jest gorsza niż
+    żadna.
+    """
+    wlasciciele: dict[str, set[str]] = {}
+    zakazane: set[str] = set()
+    for wpis in wpisy:
+        haszyk = getattr(wpis, "user_hash", "") or "?"
+        czlony = [c.strip(".,;:()'\"") for c in (wpis.imie_nazwisko or "").split()]
+        if haszyk in nie_ludzie:
+            zakazane.update(c[:1].upper() + c[1:] for c in czlony)
+            continue
+        if len(czlony) < 2:
+            continue
+        for czlon in czlony:
+            if len(czlon) >= MIN_CZLONU_IMIENIA and czlon.isalpha():
+                # Postać kanoniczna z wielką literą — `name` bywa wpisane małymi.
+                kanon = czlon[0].upper() + czlon[1:]
+                wlasciciele.setdefault(kanon, set()).add(haszyk)
+    wynik: list[tuple[re.Pattern[str], str]] = []
+    for czlon in sorted(wlasciciele, key=lambda c: (-len(c), c)):
+        if czlon in zakazane:
+            continue
+        hasze = wlasciciele[czlon]
+        zamiennik = f"[OSOBA:{next(iter(hasze))}]" if len(hasze) == 1 else "[OSOBA]"
+        warianty = {czlon, czlon.upper()}
+        wzorzec = re.compile(
+            rf"\b(?:{'|'.join(re.escape(w) for w in sorted(warianty, key=len, reverse=True))})\b"
+        )
+        wynik.append((wzorzec, zamiennik))
+    return tuple(wynik)
+
+
 def unikalny_klucz(klucz: Any, zajete: dict[Any, Any]) -> Any:
     """Klucz po redakcji, który nie nadpisze sąsiada w tym samym słowniku.
 
@@ -304,7 +362,13 @@ def unikalny_klucz(klucz: Any, zajete: dict[Any, Any]) -> Any:
     return f"{klucz} ({numer})"
 
 
-def zredaguj_pii(dane: Any, wpisy: Sequence[MaPII], *, sciezka: str = "") -> tuple[Any, list[str]]:
+def zredaguj_pii(
+    dane: Any,
+    wpisy: Sequence[MaPII],
+    *,
+    sciezka: str = "",
+    nie_ludzie: frozenset[str] = frozenset(),
+) -> tuple[Any, list[str]]:
     """Podmienia znane imiona i adresy w treści klienta na pseudonimy.
 
     Klient potrafi nazwać tablicę, kolumnę albo zespół imieniem osoby — i wtedy
@@ -321,8 +385,13 @@ def zredaguj_pii(dane: Any, wpisy: Sequence[MaPII], *, sciezka: str = "") -> tup
     Zwraca strukturę po redakcji i listę ŚCIEŻEK, w których coś podmieniono —
     ścieżki, nie wartości, bo raport z runu nie może być wyciekiem. Dlatego
     ścieżka składa się z klucza JUŻ zredagowanego.
+
+    Po pełnych nazwach idą POJEDYNCZE człony imion i nazwisk ludzi
+    (`_czlony_do_redakcji`) — `nie_ludzie` to pseudonimy agentów AI, których
+    nazwy są słowami produktu, a nie osobą.
     """
     pary = _pary_do_redakcji(wpisy)
+    czlony = _czlony_do_redakcji(wpisy, nie_ludzie)
 
     def redaguj_tekst(tekst: str) -> str:
         for szukane, pseudonim in pary:
@@ -331,6 +400,10 @@ def zredaguj_pii(dane: Any, wpisy: Sequence[MaPII], *, sciezka: str = "") -> tup
             # i redakcja psuje 105 rekordów, zamieniając je na
             # „monday [OSOBA:...]s" (zmierzone na CXLABS przy 3.8).
             tekst = re.sub(rf"\b{re.escape(szukane)}\b", pseudonim, tekst, flags=re.IGNORECASE)
+        # Człony PO pełnych nazwach: „Jan Kowalski" ma zostać jednym
+        # pseudonimem, a nie dwoma sklejonymi.
+        for wzorzec, zamiennik in czlony:
+            tekst = wzorzec.sub(zamiennik, tekst)
         return tekst
 
     def redaguj(wartosc: Any, gdzie: str) -> tuple[Any, list[str]]:
@@ -359,7 +432,7 @@ def zredaguj_pii(dane: Any, wpisy: Sequence[MaPII], *, sciezka: str = "") -> tup
             return nowa_lista, trafienia
         return wartosc, []
 
-    if not pary:
+    if not pary and not czlony:
         return dane, []
     return redaguj(dane, sciezka)
 

@@ -310,6 +310,24 @@ async def test_tylko_szacunek_nie_woła_modelu_i_nie_zaklada_runu(
     assert trwala.execute("SELECT COUNT(*) FROM runy").fetchone()[0] == 0
 
 
+async def test_obraz_konta_traci_imiona_przed_modelem(
+    trwala: sqlite3.Connection, swiat: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ZMIERZONE 2026-09-24: workspace „Radek Leady…" z obrazu konta doszedł do
+    modelu, bo bramka `wejscie_analizy` nie zna nazwisk (faza 2a)."""
+    dostal: dict[str, Any] = {}
+
+    async def model(_: list[Hipoteza], *, wejscie: dict[str, Any], **__: Any) -> dict[str, Any]:
+        dostal.update(wejscie)
+        return {"uwagi": [], "pominiete": [], "zuzycie": {}, "wywolania_narzedzi": []}
+
+    monkeypatch.setattr(usluga, "zbadaj_konto", model)
+
+    await _analiza(trwala, wejscie={"tablice": {"workspace": ["Zdzisława Leady e-commerce"]}})
+
+    assert dostal["tablice"]["workspace"] == [f"[OSOBA:{PSEUDONIM}] Leady e-commerce"]
+
+
 async def test_sufit_przycina_klase_i_mowi_o_tym_w_raporcie(
     trwala: sqlite3.Connection, swiat: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:

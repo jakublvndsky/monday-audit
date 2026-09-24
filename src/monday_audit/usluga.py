@@ -35,7 +35,7 @@ import dataclasses
 import logging
 import sqlite3
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -63,6 +63,7 @@ from monday_audit.obserwowalnosc import (
     wyslij_bezpiecznie,
     zbuduj_trace_analizy,
 )
+from monday_audit.osoby import RODZAJE_AGENTOW, MaPII, zredaguj_pii
 from monday_audit.podglad_zakresu import RejestrPodgladu
 from monday_audit.przebieg import wykonaj_run, zapisz_zuzycie
 from monday_audit.przechowanie import (
@@ -478,9 +479,13 @@ async def analizuj_snapshot(
     Wydzielone z `analiza_konta`, bo CLI umie też analizować snapshot zebrany
     przed fazą 5c (`--snapshot N`) — wtedy `zrodlo` jest bazą trwałą.
     """
-    wejscie = wejscie or {}
     w_pamieci = zrodlo is not trwala
     rubryka = rubryka or wczytaj_rubryke()
+    # Znane osoby — z `zrodlo`, bo tam jest tabela mapowania; w trybie pamięci
+    # znika razem z nim. Służą redakcji obrazu konta i drugiej siatce trace'u.
+    wpisy = tuple(MapowanieOsob(zrodlo, client_id).wczytaj())
+    nie_ludzie = _nie_ludzie(zrodlo, snapshot_id)
+    wejscie = _zredagowane_wejscie(wejscie or {}, wpisy, nie_ludzie)
     hipotezy, _ = uruchom_detektory(zrodlo, snapshot_id, rubryka)
     # Szablony PRZED modelem — wiedza starej ścieżki (`analiza.rozdziel_hipotezy`).
     do_modelu, z_szablonow = rozdziel_hipotezy(hipotezy, rubryka)
@@ -525,9 +530,8 @@ async def analizuj_snapshot(
     trwala.commit()
 
     wspolne: dict[str, Any] = {
-        # Znane osoby dla drugiej siatki maskowania — z `zrodlo`, bo tam jest
-        # tabela mapowania; w trybie pamięci znika razem z nim.
-        "wpisy": tuple(MapowanieOsob(zrodlo, client_id).wczytaj()) if slad is not None else (),
+        "wpisy": wpisy if slad is not None else (),
+        "nie_ludzie": nie_ludzie,
         "run_id": run_id,
         "snapshot_id": snapshot_id,
         "model": MODEL,
@@ -645,6 +649,42 @@ async def analizuj_snapshot(
         odpowiedz_modelu=odpowiedz_modelu,
         walidacja=walidacja,
     )
+
+
+def _nie_ludzie(con: sqlite3.Connection, snapshot_id: int) -> frozenset[str]:
+    """Pseudonimy agentów AI ze snapshotu — ich nazwy nie są osobą."""
+    wiersze = con.execute(
+        "SELECT json_extract(o.value, '$.user_hash') AS h, json_extract(o.value, '$.kind') AS k "
+        "FROM snapshots, json_each(snapshots.payload, '$.uzytkownicy.uzytkownicy') AS o "
+        "WHERE snapshots.id = ?",
+        (snapshot_id,),
+    )
+    return frozenset(w["h"] for w in wiersze if w["k"] in RODZAJE_AGENTOW and w["h"])
+
+
+def _zredagowane_wejscie(
+    wejscie: dict[str, Any], wpisy: Sequence[MaPII], nie_ludzie: frozenset[str]
+) -> dict[str, Any]:
+    """Obraz konta po redakcji osób — PRZED modelem.
+
+    ## ZMIERZONE 2026-09-24: bramka `wejscie_analizy` nie zna nazwisk
+
+    Obraz konta składa `cli_inwentarz` (albo portal), który świadomie nie
+    pobiera `name` (faza 2a), więc jego bramka maskuje tylko wzorcem. Nazwa
+    workspace'u „Radek Leady…" przeszła do modelu. Tutaj, w kroku 2, mapowanie
+    osób JEST — collector właśnie je zebrał do pamięci — więc to jest miejsce,
+    w którym obraz dostaje tę samą redakcję co snapshot.
+    """
+    if not wejscie:
+        return {}
+    zredagowane, sciezki = zredaguj_pii(wejscie, wpisy, nie_ludzie=nie_ludzie)
+    if sciezki:
+        logger.warning(
+            "obraz konta: zredagowano osoby w %d miejscach przed modelem: %s",
+            len(sciezki),
+            ", ".join(sorted(sciezki)[:10]),
+        )
+    return dict(zredagowane)
 
 
 def _sprawdz_strukture(odpowiedz_modelu: dict[str, Any]) -> None:

@@ -559,3 +559,60 @@ def test_redakcja_klucza_nie_nadpisuje_sasiada() -> None:
     wynik, _ = zredaguj_pii(dane, [WpisPII("h", "Bonifacy Krzeptowski", None)])
 
     assert wynik == {"[OSOBA:h]": 1, "[OSOBA:h] (2)": 2}
+
+
+# ── redakcja członów imion (zmierzone 2026-09-24) ────────────────────────
+
+
+def test_samo_imie_w_nazwie_tablicy_idzie_na_pseudonim() -> None:
+    """ZMIERZONE: „Zadania Jacek" i workspace „Radek Leady" przeszły do modelu
+    i do trace'u, bo redakcja znała tylko pełne „Imię Nazwisko"."""
+    wpisy = [WpisPII("h1", "Bonifacy Krzeptowski", None), WpisPII("h2", "Zdzisława Wąchocka", None)]
+
+    wynik, sciezki = zredaguj_pii(
+        {"tablice": ["Zadania Bonifacy", "KRZEPTOWSKI raport", "Leady Zdzisława"]}, wpisy
+    )
+
+    assert wynik == {"tablice": ["Zadania [OSOBA:h1]", "[OSOBA:h1] raport", "Leady [OSOBA:h2]"]}
+    assert len(sciezki) == 3
+
+
+def test_pelna_nazwa_zostaje_jednym_pseudonimem() -> None:
+    wpisy = [WpisPII("h1", "Bonifacy Krzeptowski", None)]
+
+    wynik, _ = zredaguj_pii("Bonifacy Krzeptowski — projekty", wpisy)
+
+    assert wynik == "[OSOBA:h1] — projekty"
+
+
+def test_imie_dzielone_przez_dwie_osoby_nie_zgaduje_kto() -> None:
+    wpisy = [WpisPII("h1", "Jan Krzeptowski", None), WpisPII("h2", "Jan Wąchocki", None)]
+
+    wynik, _ = zredaguj_pii("Zadania Jan", wpisy)
+
+    assert wynik == "Zadania [OSOBA]"
+
+
+def test_czlony_nie_ruszaja_slow_ani_agentow() -> None:
+    """Porażka skanu tokenowego z 3.8: słowa z nazw agentów i kont serwisowych
+    żyją w nazwach produktów. Człon agenta odpada, nazwa jednowyrazowa też,
+    a małe litery i dłuższe słowo nie są imieniem."""
+    wpisy = [
+        WpisPII("h1", "Anna Sales", None),
+        WpisPII("agent", "Sales Agent", None),
+        WpisPII("serwis", "CXLABS", None),
+    ]
+
+    wynik, _ = zredaguj_pii(
+        ["Sales pipeline", "CXLABS Main", "anna mówi", "Annabelle", "Anna"],
+        wpisy,
+        nie_ludzie=frozenset({"agent"}),
+    )
+
+    assert wynik == ["Sales pipeline", "CXLABS Main", "anna mówi", "Annabelle", "[OSOBA:h1]"]
+
+
+def test_krotki_czlon_nie_jest_redagowany() -> None:
+    wynik, _ = zredaguj_pii("Al Capone Ed", [WpisPII("h1", "Al Ed", None)])
+
+    assert wynik == "Al Capone Ed"

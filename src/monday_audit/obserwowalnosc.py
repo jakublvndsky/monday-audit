@@ -108,6 +108,7 @@ def zbuduj_trace(
     model: str,
     prompt_hash: str,
     wpisy: Sequence[MaPII] = (),
+    nie_ludzie: frozenset[str] = frozenset(),
 ) -> Trace:
     """`WynikHipotezy` → zamaskowany trace. Jedyna droga danych na zewnątrz.
 
@@ -161,7 +162,7 @@ def zbuduj_trace(
         "narzedzia": list(getattr(wynik, "wywolania_narzedzi", []) or []),
     }
 
-    zamaskowane = zamaskuj(surowe, wpisy)
+    zamaskowane = zamaskuj(surowe, wpisy, nie_ludzie=nie_ludzie)
     if not zamaskowane.czyste:
         # OSTRZEŻENIE, nie informacja. Trafienie znaczy, że pierwsza linia
         # obrony puściła — maskowanie tylko zdążyło przed wysyłką.
@@ -249,6 +250,7 @@ def zbuduj_trace_analizy(
     szacunek_usd: float | None = None,
     blad: str | None = None,
     wpisy: Sequence[MaPII] = (),
+    nie_ludzie: frozenset[str] = frozenset(),
 ) -> Trace:
     """Sesja analizy → zamaskowany trace. Druga droga na zewnątrz, tą samą bramką.
 
@@ -305,7 +307,7 @@ def zbuduj_trace_analizy(
         "narzedzia": list(odpowiedz.get("wywolania_narzedzi") or []),
     }
 
-    zamaskowane = zamaskuj(surowe, wpisy)
+    zamaskowane = zamaskuj(surowe, wpisy, nie_ludzie=nie_ludzie)
     if not zamaskowane.czyste:
         logger.warning(
             "trace analizy %s: %s — PIERWSZA linia (brak PII w kontekście modelu) "
