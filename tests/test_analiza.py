@@ -326,3 +326,48 @@ def test_prompt_kaze_czytac_definicje_a_nie_nazwe() -> None:
     assert "Warunki odrzucenia są jedynymi powodami" in tresc
     # Rola z katalogu potrafi mówić o wadze (GUEST_SPRAWL) — zakazy wygrywają.
     assert "pierwszeństwo przed rolą" in tresc
+
+
+# ── sufit na klasę (zmierzone 2026-09-24) ────────────────────────────────
+
+
+def test_sufit_nie_rusza_klas_ponizej_i_zachowuje_kolejnosc() -> None:
+    from monday_audit.analiza import przytnij_do_sufitu
+
+    hipotezy = _hipotezy(3)
+
+    wynik, przyciete = przytnij_do_sufitu(hipotezy, sufit=3)
+
+    assert wynik == hipotezy
+    assert przyciete == []
+
+
+def test_sufit_bierze_najsilniejsze_a_remis_rozstrzyga_obiekt() -> None:
+    """Ranking decyduje, CO przechodzi, nie o kolejności — i jest powtarzalny."""
+    from monday_audit.analiza import przytnij_do_sufitu
+
+    kolumn = {"a": 20, "b": 30, "c": 20, "d": 16}
+    hipotezy = [
+        Hipoteza(klasa_id="BOARD_OVERCOMPLEX", obiekt_id=o, fakty={"liczba_kolumn": n})
+        for o, n in kolumn.items()
+    ]
+
+    wynik, [przyciete] = przytnij_do_sufitu([*hipotezy, *_hipotezy(1)], sufit=2)
+
+    assert [h.obiekt_id for h in wynik] == ["a", "b", "b0"]
+    assert (przyciete.klasa_id, przyciete.zbadanych, przyciete.wszystkich) == (
+        "BOARD_OVERCOMPLEX",
+        2,
+        4,
+    )
+    assert przyciete.kryterium == "najwięcej kolumn"
+
+
+def test_remis_bez_faktu_rankingu_bierze_kolejnosc_detektora() -> None:
+    from monday_audit.analiza import przytnij_do_sufitu
+
+    wynik, [przyciete] = przytnij_do_sufitu(_hipotezy(5), sufit=2)
+
+    # BOARD_GHOST ma ranking po items_count; bez tego faktu remis → kolejność.
+    assert [h.obiekt_id for h in wynik] == ["b0", "b1"]
+    assert przyciete.pominietych == 3

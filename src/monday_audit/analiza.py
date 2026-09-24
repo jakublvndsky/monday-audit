@@ -33,6 +33,8 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -100,6 +102,91 @@ def rozdziel_hipotezy(
         uwaga["zrodlo"] = "szablon"
         z_szablonow.append(uwaga)
     return do_modelu, z_szablonow
+
+
+# ── Sufit na klasę — ZMIERZONE 2026-09-24 na pełnym koncie CXLABS ────────
+#
+# Po zgrupowaniu DUPLICATE_STRUCTURE zostaje ~520 hipotez, z czego 400 to
+# BOARD_OVERCOMPLEX. Jedna sesja na całe konto (5b) tego nie uniesie, a model
+# nie mówi nic nowego o 400. tablicy z nadmiarem kolumn, czego nie powiedział
+# o 20 najcięższych. Sufit bierze N NAJSILNIEJSZYCH z każdej klasy; reszta
+# idzie do zastrzeżeń raportu z liczbą — nic nie znika po cichu.
+SUFIT_NA_KLASE = 20
+
+# Klasa → klucz siły (większy = silniejszy sygnał). Klasa bez wpisu zachowuje
+# kolejność detektorów (po `obiekt_id`) — deterministyczną, choć bez rankingu.
+_SILA: dict[str, tuple[str, Callable[[dict[str, Any]], tuple[Any, ...]]]] = {
+    "BOARD_OVERCOMPLEX": (
+        "najwięcej kolumn",
+        lambda f: (f.get("liczba_kolumn") or 0, f.get("items_count") or 0),
+    ),
+    "DUPLICATE_STRUCTURE": (
+        "największe grupy",
+        lambda f: (f.get("tablic") or 0, f.get("aktywnych") or 0),
+    ),
+    "BOARD_NO_OWNER": (
+        "tablice, na których ktoś pracuje",
+        lambda f: (f.get("top_kontrybutor_hash") is not None,),
+    ),
+    "BOARD_GHOST": (
+        "najwięcej itemów",
+        lambda f: (f.get("items_count") or 0,),
+    ),
+    "AUTOMATION_DEAD": (
+        "najwięcej błędów",
+        lambda f: (f.get("failure") or 0, f.get("exhausted") or 0),
+    ),
+}
+
+
+@dataclass(frozen=True)
+class PozaSufitem:
+    """Klasa przycięta sufitem: ile zbadano, ile spełnia sygnał, po czym wybrano."""
+
+    klasa_id: str
+    zbadanych: int
+    wszystkich: int
+    kryterium: str
+
+    @property
+    def pominietych(self) -> int:
+        return self.wszystkich - self.zbadanych
+
+    def zastrzezenie(self, rubryka: Rubryka) -> str:
+        klasa = rubryka.po_id.get(self.klasa_id)
+        nazwa = klasa.nazwa if klasa is not None else self.klasa_id
+        return (
+            f"{nazwa}: model zbadał {self.zbadanych} z {self.wszystkich} przypadków "
+            f"spełniających sygnał ({self.kryterium}). Pozostałych {self.pominietych} "
+            "nie oceniał — ich brak w raporcie NIE znaczy, że są w porządku."
+        )
+
+
+def przytnij_do_sufitu(
+    hipotezy: list[Hipoteza], *, sufit: int = SUFIT_NA_KLASE
+) -> tuple[list[Hipoteza], list[PozaSufitem]]:
+    """Najsilniejsze `sufit` hipotez z każdej klasy → (do modelu, przycięte klasy).
+
+    Wynik zachowuje kolejność wejścia (klasa, obiekt) — ranking decyduje tylko
+    o tym, CO przechodzi, nie o kolejności w prompcie.
+    """
+    po_klasie: dict[str, list[Hipoteza]] = {}
+    for h in hipotezy:
+        po_klasie.setdefault(h.klasa_id, []).append(h)
+
+    przechodza: set[int] = set()
+    przyciete: list[PozaSufitem] = []
+    for klasa_id, grupa in sorted(po_klasie.items()):
+        if len(grupa) <= sufit:
+            przechodza.update(id(h) for h in grupa)
+            continue
+        kryterium, sila = _SILA.get(klasa_id, ("kolejność detektora", lambda f: ()))
+        # Sortowanie stabilne: remis rozstrzyga kolejność wejścia, czyli obiekt_id.
+        ranking = sorted(grupa, key=lambda h: sila(h.fakty), reverse=True)
+        wybrane = ranking[:sufit]
+        przechodza.update(id(h) for h in wybrane)
+        przyciete.append(PozaSufitem(klasa_id, len(wybrane), len(grupa), kryterium))
+    return [h for h in hipotezy if id(h) in przechodza], przyciete
 
 
 def definicje_klas(hipotezy: list[Hipoteza], rubryka: Rubryka) -> list[dict[str, Any]]:

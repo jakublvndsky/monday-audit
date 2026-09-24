@@ -354,8 +354,20 @@ na nich napisał.
     walidacją maskowały odpowiedź modelu bez struktury jako „zero uwag".
     Na żywo `--tylko-szacunek` przez pakiet: 24 hipotezy, 0 runów, 0 snapshotów,
     0 mapowań w bazie.
-  - [ ] **6-3** — szacunek przed krokiem 2 (wywołania monday i USD) liczony
-    z danych kroku 1 — zamiast progu „pięciu workspace'ów".
+  - [x] **6-3** — szacunek przed krokiem 2 (wywołania monday i USD) liczony
+    z danych kroku 1 — zamiast progu „pięciu workspace'ów". `szacuj_analize`:
+    na pełnym koncie CXLABS 332 wywołania wobec zmierzonych 334. Pomiar
+    ujawnił dwie rzeczy: detektory stały godzinami na pełnym koncie (naprawione,
+    0,2 s) i 6224 hipotezy, z czego 5707 par DUPLICATE_STRUCTURE (~245 USD) —
+    założenie 5b „jedna sesja na całe konto" nie trzymało się. Stąd 6-3b.
+  - [ ] **6-3b** — hipotez tyle, ile jedna sesja uniesie (decyzja Kuby
+    2026-09-24). DUPLICATE_STRUCTURE: grupa zamiast pary (spójna składowa,
+    rubryka 0.5). Sufit 20 najsilniejszych na klasę przed modelem, reszta
+    w zastrzeżeniach raportu z liczbą i w `poza_sufitem`. Pełne konto po
+    zmianie: 615 hipotez (96 grup zamiast 5707 par; największa ma 91 tablic),
+    do modelu 99, z szablonu 8, szacunek 3,91 USD. Sufit przyciął BOARD_OVERCOMPLEX
+    (20 z 401), DUPLICATE_STRUCTURE (20 z 96), BOARD_NO_OWNER (20 z 65),
+    BOARD_GHOST (20 z 26). Do zrobienia: sesja modelu na pełnym koncie.
   - [ ] **6-4** — typy dla portalu generowane z kontraktu i dokument
     wejścia dla zespołu portalu (co funkcje przyjmują, co oddają, czego nie).
 

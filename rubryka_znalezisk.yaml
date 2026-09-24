@@ -33,7 +33,7 @@
 # To są decyzje biznesowe z etapu 1 i pomiary techniczne nie mają do nich nic
 # do powiedzenia.
 
-wersja: "0.4"
+wersja: "0.5"
 odbiorca_domyslny: wewnetrzny
 
 # ──────────────────────────────────────────────────────────────
@@ -369,7 +369,13 @@ klasy:
     sygnal: |
       >= 2 tablice w tym samym workspace o nakładaniu zestawu
       typów i nazw kolumn >= 70%
+    # 0.5 — 2026-09-24: hipoteza to GRUPA tablic (spójna składowa par powyżej
+    # progu), nie para. Pełne konto CXLABS dawało 5707 hipotez-par z 6224, bo
+    # 20 kopii jednego szablonu to 190 par. Pola dowodu bez zmian nazw;
+    # `nakladanie_kolumn` to teraz minimum po parach grupy, `aktywnosc_stron`
+    # ma wpis dla każdej tablicy grupy.
     rola_agenta: |
+      Hipoteza dotyczy GRUPY tablic, nie pary — orzekasz o całej grupie.
       Odróżnij podział celowy od rozjazdu. Celowy: podział po kliencie,
       regionie, roku — wtedy nazwy tworzą serię i wszystkie są aktywne.
       Rozjazd: te same kolumny, ci sami subskrybenci, jedna aktywna
@@ -387,15 +393,15 @@ klasy:
       #
       # UWAGA na granicę: nazwa workspace to HEURYSTYKA. Klient może trzymać
       # produkcję w workspace nazwanym „Demo" po nieudanym pilocie — dlatego
-      # warunek wymaga DRUGIEGO sygnału (obie strony pary martwe), nie samej nazwy.
+      # warunek wymaga DRUGIEGO sygnału (cała grupa martwa), nie samej nazwy.
       - >-
-        workspace nazwany jako demo, sandbox, test albo szkolenie ORAZ obie
-        tablice pary bez aktywności w oknie — wtedy to szablon rozstawiony raz,
+        workspace nazwany jako demo, sandbox, test albo szkolenie ORAZ wszystkie
+        tablice grupy bez aktywności w oknie — wtedy to szablon rozstawiony raz,
         nie rozjazd procesu. Sama nazwa nie wystarcza: produkcja po nieudanym
         pilocie też bywa w workspace „Demo"
       # Bez tego warunku klasa mówi „duplikat" o parze, która nigdy nie żyła —
       # a rubryka opisuje rozjazd jako „jedna aktywna, reszta cichnie".
-      - obie tablice pary mają zero wpisów w logu od chwili utworzenia
+      - wszystkie tablice grupy mają zero wpisów w logu od chwili utworzenia
     waga: wysoka
     wysilek_naprawy: wysoki
     typ_wyceny: ryzyko

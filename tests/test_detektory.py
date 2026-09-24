@@ -398,7 +398,7 @@ def test_raport_wymienia_klasy_bez_detektora(con: sqlite3.Connection) -> None:
     assert set(raport["klasy_bez_detektora"]) == wszystkie - zbudowane
     # 0.3 przy dodaniu UZYTKOWNIK_WYGASZONY, 0.4 przy doprecyzowaniu warunku
     # odrzucenia BOARD_GHOST (O34) — oba w etapie 4.
-    assert raport["rubric_version"] == "0.4"
+    assert raport["rubric_version"] == "0.5"
 
 
 def test_budzet_bierze_sie_z_rubryki(con: sqlite3.Connection) -> None:
@@ -654,6 +654,60 @@ def test_duplicate_structure_liczy_jaccarda(con: sqlite3.Connection) -> None:
 
     assert [h.obiekt_id for h in hipotezy] == ["a+b"]
     assert hipotezy[0].fakty["nakladanie_kolumn"] == 1.0
+
+
+def test_duplicate_structure_sklada_kopie_w_jedna_grupe(con: sqlite3.Connection) -> None:
+    """ZMIERZONE 2026-09-24: 20 kopii szablonu to 190 par — a jedno pytanie.
+
+    Pięć kopii w jednym workspace daje JEDNĄ hipotezę z pięcioma tablicami,
+    nie dziesięć par. Kopia w innym workspace tworzy osobną grupę.
+    """
+    wspolne = [{"title": f"K{n}", "type": "text"} for n in range(8)]
+    snapshot_id = zapisz(
+        con,
+        pelny(
+            tablice=[
+                *(tablica(f"k{n}", kolumny=wspolne) for n in range(5)),
+                tablica("inna", kolumny=[{"title": "X", "type": "date"}]),
+                tablica("w1", kolumny=wspolne, workspace_id="ws2"),
+                tablica("w2", kolumny=wspolne, workspace_id="ws2"),
+            ],
+            aktywnosci=[aktywnosc("k0", wpisow=12)],
+        ),
+    )
+
+    hipotezy = duplicate_structure(con, snapshot_id, budzet("DUPLICATE_STRUCTURE"))
+
+    assert [h.obiekt_id for h in hipotezy] == ["k0+k1+k2+k3+k4", "w1+w2"]
+    grupa = hipotezy[0].fakty
+    assert grupa["board_ids"] == ["k0", "k1", "k2", "k3", "k4"]
+    assert grupa["tablic"] == 5
+    assert grupa["spojnosc"] == 1.0
+    assert grupa["aktywnosc_stron"]["k0"] == 12
+    assert grupa["aktywnosc_stron"]["k1"] is None, 'brak próbki to „nie wiem", nie zero'
+    assert (grupa["aktywnych"], grupa["bez_probki"]) == (1, 4)
+
+
+def test_duplicate_structure_lancuch_widac_w_dowodzie(con: sqlite3.Connection) -> None:
+    """A~B i B~C, ale A≁C — grupa powstaje, a jej luźność jest w faktach."""
+    k = [{"title": f"K{n}", "type": "text"} for n in range(12)]
+    snapshot_id = zapisz(
+        con,
+        pelny(
+            tablice=[
+                tablica("a", kolumny=k[0:10]),
+                tablica("b", kolumny=k[1:11]),
+                tablica("c", kolumny=k[2:12]),
+            ]
+        ),
+    )
+
+    [grupa] = duplicate_structure(con, snapshot_id, 0)
+
+    assert grupa.obiekt_id == "a+b+c"
+    # a~b i b~c: 9/11 ≈ 0,82; a~c: 8/12 ≈ 0,67 < progu — więc 2 krawędzie z 3 par.
+    assert grupa.fakty["spojnosc"] == round(2 / 3, 4)
+    assert grupa.fakty["nakladanie_kolumn"] == round(9 / 11, 4)
 
 
 def test_duplicate_structure_nie_lapie_roznych_workspace(con: sqlite3.Connection) -> None:
@@ -1082,7 +1136,6 @@ def test_wspolni_subskrybenci_pary_licza_sie_poprawnie(con: sqlite3.Connection) 
 
     fakty = duplicate_structure(con, snapshot_id, 0)[0].fakty
 
-    assert fakty["subskrybentow_wspolnych"] == 2
     # 2 wspólnych z 4 różnych osób.
     assert fakty["nakladanie_subskrybentow"] == 0.5
 

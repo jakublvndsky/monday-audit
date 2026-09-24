@@ -42,7 +42,13 @@ from typing import Any
 import httpx
 
 from monday_audit.agent import MODEL, hash_promptu
-from monday_audit.analiza import SCIEZKA_PROMPTU_ANALIZY, rozdziel_hipotezy, zbadaj_konto
+from monday_audit.analiza import (
+    SCIEZKA_PROMPTU_ANALIZY,
+    PozaSufitem,
+    przytnij_do_sufitu,
+    rozdziel_hipotezy,
+    zbadaj_konto,
+)
 from monday_audit.baza import MapowanieOsob, polacz, zastosuj_migracje
 from monday_audit.detektory import uruchom_detektory
 from monday_audit.inwentarz import Inwentarz, zbuduj_inwentarz
@@ -365,6 +371,8 @@ class WynikAnalizy:
     # pseudonimy, więc NIE wchodzi do `do_json`.
     odpowiedz_modelu: dict[str, Any] | None = None
     walidacja: WynikUwag | None = None
+    # Klasy przycięte sufitem (`analiza.SUFIT_NA_KLASE`) — liczby, bez obiektów.
+    poza_sufitem: tuple[PozaSufitem, ...] = ()
 
     def do_json(self) -> dict[str, Any]:
         return {
@@ -383,6 +391,10 @@ class WynikAnalizy:
             "zapisanych_uwag": self.zapisanych_uwag,
             "blad_zapisu": self.blad_zapisu,
             "ma_raport": self.raport_html is not None,
+            "poza_sufitem": {
+                p.klasa_id: {"zbadanych": p.zbadanych, "wszystkich": p.wszystkich}
+                for p in self.poza_sufitem
+            },
         }
 
 
@@ -472,6 +484,8 @@ async def analizuj_snapshot(
     hipotezy, _ = uruchom_detektory(zrodlo, snapshot_id, rubryka)
     # Szablony PRZED modelem — wiedza starej ścieżki (`analiza.rozdziel_hipotezy`).
     do_modelu, z_szablonow = rozdziel_hipotezy(hipotezy, rubryka)
+    # Sufit PO szablonach: szablon kosztuje zero, więc nie ma powodu go przycinać.
+    do_modelu, poza_sufitem = przytnij_do_sufitu(do_modelu)
     # Szacunek WYŁĄCZNIE dla tego, co pójdzie do modelu; szablon kosztuje zero.
     szacunek = oszacuj(len(do_modelu), historia_analiz(trwala))
     podstawa = WynikAnalizy(
@@ -482,6 +496,7 @@ async def analizuj_snapshot(
         szacunek=szacunek,
         wywolan_monday=wywolan_monday,
         bez_obrazu_konta=not wejscie,
+        poza_sufitem=tuple(poza_sufitem),
     )
     if przed_sesja is not None:
         # Szacunek PRZED wydaniem pieniędzy — CLI wypisuje go, zanim ruszy model.
@@ -564,7 +579,10 @@ async def analizuj_snapshot(
             client_id=client_id,
             run_id=run_id,
             rubryka=rubryka,
-            wejscie=wejscie,
+            zastrzezenia=(
+                *(wejscie.get("zastrzezenia") or ()),
+                *(p.zastrzezenie(rubryka) for p in poza_sufitem),
+            ),
         )
 
         zapisanych, blad_zapisu = _zapis_minimalny(
@@ -656,7 +674,7 @@ def _raport_z_nazwiskami(
     client_id: str,
     run_id: str,
     rubryka: Rubryka,
-    wejscie: dict[str, Any],
+    zastrzezenia: tuple[str, ...],
 ) -> str | None:
     """HTML z nazwiskami albo `None` — awaria renderowania nie zabiera wyniku."""
     try:
@@ -668,7 +686,7 @@ def _raport_z_nazwiskami(
             run_at=_teraz(),
             rubryka=rubryka,
             pominietych=len(walidacja.pominiete),
-            zastrzezenia=tuple(wejscie.get("zastrzezenia") or ()),
+            zastrzezenia=zastrzezenia,
         )
         return wyrenderuj_uwagi(raport)
     except Exception:  # raport nie jest wynikiem — wynik zostaje

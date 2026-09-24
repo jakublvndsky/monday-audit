@@ -310,6 +310,41 @@ async def test_tylko_szacunek_nie_woła_modelu_i_nie_zaklada_runu(
     assert trwala.execute("SELECT COUNT(*) FROM runy").fetchone()[0] == 0
 
 
+async def test_sufit_przycina_klase_i_mowi_o_tym_w_raporcie(
+    trwala: sqlite3.Connection, swiat: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ZMIERZONE 2026-09-24: 400 × BOARD_OVERCOMPLEX na pełnym koncie. Model
+    dostaje najcięższe, reszta idzie do zastrzeżeń z liczbą — nie znika."""
+    tablice = [
+        Hipoteza(
+            klasa_id="BOARD_OVERCOMPLEX",
+            obiekt_id=f"b{n:03d}",
+            fakty={"board_id": f"b{n:03d}", "liczba_kolumn": 16 + n},
+            budzet_wywolan=8,
+        )
+        for n in range(25)
+    ]
+    monkeypatch.setattr(usluga, "uruchom_detektory", lambda *_: ([ZOMBIE, *tablice], {}))
+    do_modelu: list[Hipoteza] = []
+
+    async def model(hipotezy: list[Hipoteza], **_: Any) -> dict[str, Any]:
+        do_modelu.extend(hipotezy)
+        return {"uwagi": [], "pominiete": [], "zuzycie": {}, "wywolania_narzedzi": []}
+
+    monkeypatch.setattr(usluga, "zbadaj_konto", model)
+
+    wynik = await _analiza(trwala)
+
+    assert len(do_modelu) == 20
+    assert {h.obiekt_id for h in do_modelu} == {f"b{n:03d}" for n in range(5, 25)}
+    assert wynik.do_modelu == 20
+    assert wynik.do_json()["poza_sufitem"] == {
+        "BOARD_OVERCOMPLEX": {"zbadanych": 20, "wszystkich": 25}
+    }
+    assert "20 z 25" in (wynik.raport_html or "")
+    assert "NIE znaczy, że są w porządku" in (wynik.raport_html or "")
+
+
 async def test_odpowiedz_bez_struktury_wraca_w_bledzie_a_run_jest_przerwany(
     trwala: sqlite3.Connection, swiat: dict[str, Any]
 ) -> None:

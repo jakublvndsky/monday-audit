@@ -1054,7 +1054,8 @@ def engagement_drop(con: sqlite3.Connection, snapshot_id: int, budzet: int) -> l
 
 # ── DUPLICATE_STRUCTURE i PROCESS_BYPASS ─────────────────────────────────
 #
-# Obie klasy porównują tablice PARAMI, w obrębie jednego workspace. Wspólny
+# Obie klasy porównują tablice PARAMI, w obrębie jednego workspace
+# (DUPLICATE_STRUCTURE składa potem pary w grupy). Wspólny
 # fundament: zbiór kolumn tablicy jako `tytuł:typ` i miara nakładania.
 #
 # Nakładanie liczymy jako Jaccard, czyli część wspólna przez sumę. Alternatywą
@@ -1143,49 +1144,114 @@ def _nakladanie(wspolnych: int, a: int, b: int) -> float:
     return round(wspolnych / suma, 4) if suma else 0.0
 
 
+def _grupy(krawedzie: list[tuple[str, str]]) -> list[list[str]]:
+    """Spójne składowe grafu par — każda posortowana, lista po najmniejszym id.
+
+    Union-find z kompresją ścieżki. Deterministyczne: korzeń to zawsze
+    mniejszy identyfikator, a wynik jest sortowany na końcu.
+    """
+    rodzic: dict[str, str] = {}
+
+    def korzen(x: str) -> str:
+        rodzic.setdefault(x, x)
+        while rodzic[x] != x:
+            rodzic[x] = rodzic[rodzic[x]]
+            x = rodzic[x]
+        return x
+
+    for a, b in krawedzie:
+        ka, kb = korzen(a), korzen(b)
+        if ka != kb:
+            rodzic[max(ka, kb)] = min(ka, kb)
+    skladowe: dict[str, list[str]] = {}
+    for x in rodzic:
+        skladowe.setdefault(korzen(x), []).append(x)
+    return sorted((sorted(s) for s in skladowe.values()), key=lambda s: s[0])
+
+
 def duplicate_structure(con: sqlite3.Connection, snapshot_id: int, budzet: int) -> list[Hipoteza]:
-    """Dwie tablice w tym samym workspace o niemal identycznym zestawie kolumn."""
-    hipotezy: list[Hipoteza] = []
+    """Grupa ≥ 2 tablic w jednym workspace o niemal identycznym zestawie kolumn.
+
+    ## Grupa, nie para — ZMIERZONE 2026-09-24 na pełnym koncie CXLABS
+
+    Do 0.4 detektor wystawiał hipotezę na każdą PARĘ powyżej progu. Na pełnym
+    koncie dało to 5707 hipotez z 6224 — bo 20 kopii jednego szablonu to 190
+    par, a wzrost jest kwadratowy. Model dostawał wtedy 190 pytań o to samo
+    („czy te kopie są celowe?"), a sesja na całe konto kosztowałaby ~245 USD.
+
+    Teraz pary powyżej progu są krawędziami grafu, a hipoteza to jego spójna
+    składowa. Rubryka od początku mówi „>= 2 tablice", więc to jest wierniejsze
+    sygnałowi, nie luźniejsze.
+
+    Cena, zapisana jawnie: składowa łączy się ŁAŃCUCHEM — A~B i B~C nie znaczy
+    A~C. Dlatego fakty niosą `nakladanie_kolumn` jako MINIMUM po krawędziach
+    i `spojnosc` (krawędzie / wszystkie pary grupy): grupa „luźna" jest widoczna
+    w dowodzie, nie schowana za średnią.
+    """
+    krawedzie: list[tuple[str, str]] = []
+    nakladania: dict[tuple[str, str], float] = {}
+    sub_nakladania: dict[tuple[str, str], float] = {}
+    tablica: dict[str, dict[str, Any]] = {}
     for w in con.execute(_PARY_TABLIC, {"snapshot_id": snapshot_id}):
         nakladanie = _nakladanie(w["wspolnych"], w["a_kolumn"], w["b_kolumn"])
         if nakladanie < PROG_NAKLADANIA_DUPLIKATU:
             continue
+        a, b = str(w["a_id"]), str(w["b_id"])
+        krawedzie.append((a, b))
+        nakladania[(a, b)] = nakladanie
+        sub_nakladania[(a, b)] = (
+            round(w["wspolnych_subskrybentow"] / w["subskrybentow_razem"], 4)
+            if w["subskrybentow_razem"]
+            else 0.0
+        )
+        for strona, bid in (("a", a), ("b", b)):
+            tablica[bid] = {
+                "nazwa": w[f"{strona}_nazwa"],
+                "kolumn": w[f"{strona}_kolumn"],
+                "created": w[f"{strona}_created"],
+                "wpisow": w[f"{strona}_wpisow"],
+                "workspace_id": w["workspace_id"],
+            }
+
+    hipotezy: list[Hipoteza] = []
+    for grupa in _grupy(krawedzie):
+        w_grupie = set(grupa)
+        wlasne = [k for k in krawedzie if k[0] in w_grupie]
+        par = len(grupa) * (len(grupa) - 1) // 2
+        wpisy = {bid: tablica[bid]["wpisow"] for bid in grupa}
         hipotezy.append(
             Hipoteza(
                 klasa_id="DUPLICATE_STRUCTURE",
-                obiekt_id=f"{w['a_id']}+{w['b_id']}",
+                # Rozdzielnik `+` jak w parze: `wybor_zakresu` i miernik evali
+                # składają obiekt z posortowanych `board_ids` tym samym znakiem.
+                obiekt_id="+".join(grupa),
                 fakty={
-                    "board_ids": [str(w["a_id"]), str(w["b_id"])],
-                    "nazwy": [w["a_nazwa"], w["b_nazwa"]],
-                    "nakladanie_kolumn": nakladanie,
+                    "board_ids": grupa,
+                    "tablic": len(grupa),
+                    "nazwy": {bid: tablica[bid]["nazwa"] for bid in grupa},
+                    # Minimum po krawędziach: najsłabsze ogniwo grupy, nie średnia.
+                    "nakladanie_kolumn": min(nakladania[k] for k in wlasne),
                     "prog": PROG_NAKLADANIA_DUPLIKATU,
-                    "kolumn": {str(w["a_id"]): w["a_kolumn"], str(w["b_id"]): w["b_kolumn"]},
-                    "kolumn_wspolnych": w["wspolnych"],
-                    "nakladanie_subskrybentow": _nakladanie(
-                        w["wspolnych_subskrybentow"],
-                        w["subskrybentow_razem"],
-                        w["wspolnych_subskrybentow"],
-                    )
-                    if w["subskrybentow_razem"]
-                    else 0.0,
-                    "subskrybentow_wspolnych": w["wspolnych_subskrybentow"],
-                    # Aktywność KAŻDEJ ze stron osobno — to ona rozstrzyga, czy
+                    "spojnosc": round(len(wlasne) / par, 4),
+                    "kolumn": {bid: tablica[bid]["kolumn"] for bid in grupa},
+                    # Średnia po krawędziach — „ci sami subskrybenci" z rubryki
+                    # to cecha grupy, a minimum zerowałoby ją jedną nową kopią.
+                    "nakladanie_subskrybentow": round(
+                        sum(sub_nakladania[k] for k in wlasne) / len(wlasne), 4
+                    ),
+                    # Aktywność KAŻDEJ tablicy osobno — to ona rozstrzyga, czy
                     # to rozjazd („jedna aktywna, reszta cichnie", jak mówi
-                    # rubryka), czy obie tablice są martwe od powstania.
+                    # rubryka), czy cała grupa jest martwa od powstania.
                     #
                     # `None` zamiast zera, gdy tablica nie weszła do próbki logów:
                     # „nie wiem" i „zero wpisów" to dwie różne rzeczy, a agent ma
                     # prawo je odróżnić. Kontrakt dopuszcza `None` w tym polu
                     # przez ten sam wyjątek, co `kubelki_dni` (POLA_ROZKLADU).
-                    "aktywnosc_stron": {
-                        str(w["a_id"]): w["a_wpisow"],
-                        str(w["b_id"]): w["b_wpisow"],
-                    },
-                    "daty_utworzenia": {
-                        str(w["a_id"]): w["a_created"],
-                        str(w["b_id"]): w["b_created"],
-                    },
-                    "workspace_id": w["workspace_id"],
+                    "aktywnosc_stron": wpisy,
+                    "aktywnych": sum(1 for n in wpisy.values() if n),
+                    "bez_probki": sum(1 for n in wpisy.values() if n is None),
+                    "daty_utworzenia": {bid: tablica[bid]["created"] for bid in grupa},
+                    "workspace_id": tablica[grupa[0]]["workspace_id"],
                 },
                 budzet_wywolan=budzet,
             )

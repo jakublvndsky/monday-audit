@@ -194,6 +194,8 @@ def _wypisz_szacunek(podstawa: WynikAnalizy) -> None:
         f"\n  hipotez: {podstawa.hipotez} — do modelu {podstawa.do_modelu}, "
         f"z szablonu {podstawa.z_szablonu} (bez kosztu)"
     )
+    for p in podstawa.poza_sufitem:
+        print(f"  sufit {p.klasa_id}: {p.zbadanych} z {p.wszystkich} ({p.kryterium})")
     print(f"  {podstawa.szacunek.opis()}")
 
 
