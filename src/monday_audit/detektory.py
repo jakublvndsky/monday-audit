@@ -315,8 +315,13 @@ def automation_dead(con: sqlite3.Connection, snapshot_id: int, budzet: int) -> l
 # document 5, sub_items_board 3. Dokument nie ma itemów ani kolumn w sensie
 # tablicy, więc w BOARD_GHOST wyglądałby na porzucony, a w BOARD_OVERCOMPLEX
 # na pusty. Filtrowanie po NAZWIE byłoby błędem: nazwa jest lokalizowana.
+# `MATERIALIZED` w CTE, które czytają `json_each` po payloadzie — ZMIERZONE
+# 2026-09-23: bez tego SQLite traktował CTE jak widok i odtwarzał go przy
+# każdym użyciu, czyli parsował cały payload od nowa. `DUPLICATE_STRUCTURE`
+# (samozłączenie kolumn + dwa podzapytania na każdą parę) szedł 90 s przy
+# 200 tablicach, a pełne konto CXLABS (2064 tablice) stało godzinę.
 _TABLICE = """
-tablice AS (
+tablice AS MATERIALIZED (
     SELECT
         json_extract(t.value, '$.board_id')        AS board_id,
         json_extract(t.value, '$.nazwa')           AS nazwa,
@@ -345,7 +350,7 @@ tablice AS (
 # próbkowana". Zlanie tych dwóch przypadków dałoby BOARD_GHOST na tablicach,
 # których nikt nie sprawdził.
 _AKTYWNOSC = """
-aktywnosc AS (
+aktywnosc AS MATERIALIZED (
     SELECT
         json_extract(a.value, '$.board_id')       AS board_id,
         json_extract(a.value, '$.wpisow')         AS wpisow,
@@ -1061,18 +1066,18 @@ _PARY_TABLIC = f"""
 WITH snap AS (SELECT payload FROM snapshots WHERE id = :snapshot_id),
 {_TABLICE},
 {_AKTYWNOSC},
-kolumny AS (
+kolumny AS MATERIALIZED (
     SELECT tablice.board_id, tablice.workspace_id,
            json_extract(k.value, '$.title') || ':' || json_extract(k.value, '$.type') AS kol
     FROM tablice, json_each(json_extract(tablice.surowa, '$.kolumny')) AS k
     WHERE tablice.typ = 'board'
 ),
-rozmiary AS (SELECT board_id, COUNT(DISTINCT kol) AS n FROM kolumny GROUP BY board_id),
-subskrypcje AS (
+rozmiary AS MATERIALIZED (SELECT board_id, COUNT(DISTINCT kol) AS n FROM kolumny GROUP BY board_id),
+subskrypcje AS MATERIALIZED (
     SELECT tablice.board_id, sub.value AS user_hash
     FROM tablice, json_each(json_extract(tablice.surowa, '$.subscribers')) AS sub
 ),
-pary AS (
+pary AS MATERIALIZED (
     SELECT
         a.board_id AS a_id, b.board_id AS b_id, a.workspace_id AS workspace_id,
         COUNT(DISTINCT a.kol) AS wspolnych
@@ -1082,6 +1087,19 @@ pary AS (
      AND a.kol = b.kol
      AND a.board_id < b.board_id           -- każda para raz, deterministycznie
     GROUP BY a.board_id, b.board_id
+),
+-- Subskrybenci liczeni RAZ dla wszystkich par, a nie dwoma podzapytaniami
+-- skorelowanymi na każdą parę — tamte szły po całych `subskrypcjach` przy
+-- każdym wierszu. ZMIERZONE 2026-09-23 na 2064 tablicach: 16,5 s → 0,2 s.
+sub_n AS MATERIALIZED (
+    SELECT board_id, COUNT(DISTINCT user_hash) AS n FROM subskrypcje GROUP BY board_id
+),
+sub_wspolni AS MATERIALIZED (
+    SELECT pary.a_id, pary.b_id, COUNT(*) AS n
+    FROM pary
+    JOIN subskrypcje sa ON sa.board_id = pary.a_id
+    JOIN subskrypcje sb ON sb.board_id = pary.b_id AND sb.user_hash = sa.user_hash
+    GROUP BY pary.a_id, pary.b_id
 )
 SELECT
     pary.a_id, pary.b_id, pary.workspace_id, pary.wspolnych,
@@ -1089,11 +1107,9 @@ SELECT
     ta.nazwa AS a_nazwa, tb.nazwa AS b_nazwa,
     ta.created_at AS a_created, tb.created_at AS b_created,
     ta.state AS a_state, tb.state AS b_state,
-    (SELECT COUNT(*) FROM subskrypcje sa
-      JOIN subskrypcje sb ON sa.user_hash = sb.user_hash
-     WHERE sa.board_id = pary.a_id AND sb.board_id = pary.b_id) AS wspolnych_subskrybentow,
-    (SELECT COUNT(DISTINCT user_hash) FROM subskrypcje
-      WHERE board_id IN (pary.a_id, pary.b_id)) AS subskrybentow_razem,
+    COALESCE(sw.n, 0) AS wspolnych_subskrybentow,
+    -- |A ∪ B| = |A| + |B| − |A ∩ B|; to samo, co COUNT(DISTINCT) po obu naraz.
+    COALESCE(sna.n, 0) + COALESCE(snb.n, 0) - COALESCE(sw.n, 0) AS subskrybentow_razem,
     -- AKTYWNOŚĆ OBU STRON PARY. `LEFT JOIN`, nie `JOIN`: tablica bez próbki logu
     -- ma `NULL`, a to znaczy „nie wiem", nie „zero wpisów". Zlanie tych dwóch
     -- dałoby fakt „obie martwe" dla pary, której w ogóle nie próbkowaliśmy.
@@ -1112,6 +1128,9 @@ JOIN tablice   ta ON ta.board_id = pary.a_id
 JOIN tablice   tb ON tb.board_id = pary.b_id
 LEFT JOIN aktywnosc aa ON aa.board_id = pary.a_id
 LEFT JOIN aktywnosc ab ON ab.board_id = pary.b_id
+LEFT JOIN sub_wspolni sw ON sw.a_id = pary.a_id AND sw.b_id = pary.b_id
+LEFT JOIN sub_n sna ON sna.board_id = pary.a_id
+LEFT JOIN sub_n snb ON snb.board_id = pary.b_id
 ORDER BY pary.a_id, pary.b_id
 """
 

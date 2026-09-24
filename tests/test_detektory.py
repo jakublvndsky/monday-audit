@@ -1060,3 +1060,60 @@ def test_nazwa_workspace_jest_w_faktach_hipotezy(con: sqlite3.Connection) -> Non
 
     fakty = board_ghost(con, snapshot_id, 4)[0].fakty
     assert fakty["workspace_nazwa"] == "Operacje"
+
+
+# ── skala pełnego konta (zmierzone 2026-09-23) ───────────────────────────
+
+
+def test_wspolni_subskrybenci_pary_licza_sie_poprawnie(con: sqlite3.Connection) -> None:
+    """Liczenie subskrybentów przepisane z podzapytań skorelowanych na złączenie
+    liczone raz — wynik ma zostać ten sam: |A ∩ B| i |A ∪ B|."""
+
+    kolumny = [{"title": f"k{i}", "type": "status"} for i in range(5)]
+    snapshot_id = zapisz(
+        con,
+        pelny(
+            tablice=[
+                tablica("a", subscribers=["u1", "u2", "u3"], kolumny=kolumny),
+                tablica("b", subscribers=["u2", "u3", "u4"], kolumny=kolumny),
+            ]
+        ),
+    )
+
+    fakty = duplicate_structure(con, snapshot_id, 0)[0].fakty
+
+    assert fakty["subskrybentow_wspolnych"] == 2
+    # 2 wspólnych z 4 różnych osób.
+    assert fakty["nakladanie_subskrybentow"] == 0.5
+
+
+def test_detektory_na_duzym_koncie_nie_staja(con: sqlite3.Connection) -> None:
+    """ZMIERZONE 2026-09-23: pełne konto CXLABS (2064 tablice) stało godzinę
+    w `DUPLICATE_STRUCTURE` — CTE bez `MATERIALIZED` parsowały cały payload przy
+    każdym użyciu, a podzapytania skorelowane szły na każdą parę tablic.
+    Wcześniej nie wyszło, bo detektory chodziły tylko po jednym workspace."""
+    import random
+    import time
+
+    los = random.Random(1)  # noqa: S311 — deterministyczne dane testowe, nie kryptografia
+    osoby = [osoba(f"{i:016x}") for i in range(100)]
+    tytuly = [f"kol{j}" for j in range(40)]
+    tablice = [
+        tablica(
+            str(5_000_000_000 + i),
+            workspace_id=f"ws{los.randrange(40)}",
+            subscribers=los.sample([o["user_hash"] for o in osoby], 5),
+            kolumny=[{"title": t, "type": "status"} for t in los.sample(tytuly, 12)],
+        )
+        for i in range(600)
+    ]
+    snapshot_id = zapisz(con, pelny(uzytkownicy=osoby, tablice=tablice))
+
+    zaczeto = time.perf_counter()
+    for nazwa, detektor in DETEKTORY.items():
+        detektor(con, snapshot_id, 0 if nazwa == "AI_UNUSED" else budzet(nazwa))
+    trwalo = time.perf_counter() - zaczeto
+
+    # Przed poprawką: minuty przy 600 tablicach. Po: ułamek sekundy. Próg
+    # z dużym zapasem, żeby wolna maszyna CI nie dawała fałszywych alarmów.
+    assert trwalo < 5, f"detektory na 600 tablicach: {trwalo:.1f} s"

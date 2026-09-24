@@ -341,3 +341,65 @@ async def test_padniety_zapis_nie_zabiera_wyniku(
     assert wynik.blad_zapisu == "zapis minimalny padł: OperationalError"
     assert len(wynik.uwagi) == 1
     assert wynik.raport_html is not None
+
+
+# ── szacunek kroku 2 z danych kroku 1 (6-3) ──────────────────────────────
+
+from monday_audit.usluga import PrzegladKonta, szacuj_analize  # noqa: E402
+
+
+def _przeglad(*, obiektow: int, aktywnych: int, kont: int, tier: str | None) -> PrzegladKonta:
+    inw = _inwentarz()
+    kafelki = tuple(
+        {
+            "tablice": usluga.Kafelek(
+                "tablice", "Tablice", aktywnych, {"razem_obiektow": obiektow}
+            ),
+            "uzytkownicy": usluga.Kafelek(
+                "uzytkownicy", "Użytkownicy", kont, {"po_rodzajach": {"member": kont}}
+            ),
+            "licencja": usluga.Kafelek("licencja", "Licencja", tier),
+        }.get(k.klucz, k)
+        for k in kafelki_z_inwentarza(inw)
+    )
+    return PrzegladKonta(konto_nazwa="X", kafelki=kafelki, wywolan=36)
+
+
+def test_koszt_rosnie_z_liczba_obiektow_a_nie_workspaceow() -> None:
+    """Faza 3: konto z tysiącem małych tablic kosztuje więcej niż konto z jedną
+    wielką. Próg „pięciu workspace'ów" tego nie widział."""
+    male = szacuj_analize(_przeglad(obiektow=50, aktywnych=40, kont=10, tier="enterprise"))
+    duze = szacuj_analize(_przeglad(obiektow=3268, aktywnych=1316, kont=100, tier="enterprise"))
+
+    assert duze.wywolan_typowo - male.wywolan_typowo >= 3268 // 25 - 2
+    assert male.wywolan_typowo <= male.wywolan_maks
+
+
+def test_plan_free_przekracza_polowe_dnia() -> None:
+    """Skill monday-graphql: przerwij przy 50% dziennego limitu. Portal ma to
+    wiedzieć PRZED kliknięciem, nie po."""
+    szacunek = szacuj_analize(_przeglad(obiektow=3268, aktywnych=1316, kont=100, tier="free"))
+
+    assert szacunek.limit_dzienny == 1_000
+    assert szacunek.przekracza_prog is True
+    assert (
+        szacuj_analize(
+            _przeglad(obiektow=3268, aktywnych=1316, kont=100, tier="enterprise")
+        ).przekracza_prog
+        is False
+    )
+
+
+def test_usd_to_dolna_granica_i_mowi_o_tym() -> None:
+    szacunek = szacuj_analize(_przeglad(obiektow=10, aktywnych=5, kont=3, tier="pro"))
+
+    assert szacunek.usd_od > 0
+    assert any("dolna granica" in z for z in szacunek.zastrzezenia)
+
+
+def test_nieznany_plan_nie_udaje_udzialu() -> None:
+    szacunek = szacuj_analize(_przeglad(obiektow=10, aktywnych=5, kont=3, tier=None))
+
+    assert szacunek.limit_dzienny is None
+    assert szacunek.udzial_maks is None
+    assert szacunek.przekracza_prog is False

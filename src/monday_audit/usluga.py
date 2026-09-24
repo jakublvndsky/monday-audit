@@ -47,7 +47,7 @@ from monday_audit.baza import MapowanieOsob, polacz, zastosuj_migracje
 from monday_audit.detektory import uruchom_detektory
 from monday_audit.inwentarz import Inwentarz, zbuduj_inwentarz
 from monday_audit.klient import LimitDziennyError, MondayClient, MondayError
-from monday_audit.konto import Zakres, ZakresError, rozpoznaj_konto
+from monday_audit.konto import LIMITY_DZIENNE, Zakres, ZakresError, rozpoznaj_konto
 from monday_audit.kontrakt import KontraktError
 from monday_audit.koszt import Szacunek, historia_analiz, oszacuj, zapisz_zuzycie_analizy
 from monday_audit.narzedzia import Narzedzia
@@ -215,6 +215,115 @@ async def przeglad_konta(klucz_monday: str) -> PrzegladKonta:
         kafelki=kafelki_z_inwentarza(inwentarz),
         wywolan=inwentarz.wywolan,
         zastrzezenia=inwentarz.zastrzezenia,
+    )
+
+
+# ── szacunek kroku 2 z danych kroku 1 (6-3) ──────────────────────────────
+#
+# Zamiast progu „pięciu workspace'ów" z user story: koszt kroku 2 nie zależy od
+# liczby workspace'ów, tylko od liczby OBIEKTÓW i próbki logów (faza 3: konto
+# z tysiącem małych tablic kosztuje więcej niż konto z jedną wielką). Każda
+# część collectora ma policzalny koszt — stałe niżej są jego stronicowaniem.
+
+STRONA_UZYTKOWNIKOW = 500  # `osoby.zbierz_osoby(limit=500)`
+STRONA_TABLIC = 25  # `tablice.LIMIT_STRONY`, stany: wszystkie (także kosz)
+PROBKA_LOGOW = 100  # `logi.TOP_PO_ITEMACH` + `logi.Z_OGONA`
+MAKS_STRON_LOGOW = 10  # `logi.MAKS_STRON_LOGOW`
+# Średnio stron logu na tablicę próbki. ZMIERZONE 2026-09-23 na pełnym CXLABS:
+# szacunek z jedną stroną dał 283, collector zużył 334 — stąd 1,5.
+STRON_LOGOW_TYPOWO = 1.5
+STALE_WYWOLANIA = 1 + 4 + 5  # konto + statystyki automatyzacji + sonda agentów
+SOND_TABLIC = 10  # `automatyzacje.MAKS_SOND`
+MAKS_PRZEBIEGOW_WYWOLAN = 60  # `automatyzacje.MAKS_PRZEBIEGOW` × 2
+# Przerwanie przy połowie dziennego limitu konta klienta (skill monday-graphql).
+PROG_LIMITU = 0.5
+
+
+@dataclass(frozen=True, slots=True)
+class SzacunekAnalizy:
+    """Ile kosztuje krok 2 — do pokazania OBOK przycisku, przed kliknięciem.
+
+    Wywołania monday liczone są z danych kroku 1, więc da się je podać przed
+    zebraniem czegokolwiek. Koszt modelu — już nie: zależy od liczby hipotez,
+    a te powstają dopiero z zebranego snapshotu. Dlatego `usd_od` to dolna
+    granica, a dokładna kwota przychodzi przez `analiza_konta(przed_sesja=…)`,
+    zanim ruszy model.
+    """
+
+    wywolan_typowo: int
+    wywolan_maks: int
+    limit_dzienny: int | None
+    usd_od: float
+    zastrzezenia: tuple[str, ...] = ()
+
+    @property
+    def udzial_maks(self) -> float | None:
+        return round(self.wywolan_maks / self.limit_dzienny, 4) if self.limit_dzienny else None
+
+    @property
+    def przekracza_prog(self) -> bool:
+        """Najgorszy przypadek zjada ponad połowę dnia konta klienta."""
+        return bool(self.udzial_maks is not None and self.udzial_maks > PROG_LIMITU)
+
+    def do_json(self) -> dict[str, Any]:
+        return {
+            "wywolan_typowo": self.wywolan_typowo,
+            "wywolan_maks": self.wywolan_maks,
+            "limit_dzienny": self.limit_dzienny,
+            "udzial_maks": self.udzial_maks,
+            "przekracza_prog": self.przekracza_prog,
+            "usd_od": self.usd_od,
+            "zastrzezenia": list(self.zastrzezenia),
+        }
+
+
+def _kafelek(przeglad: PrzegladKonta, klucz: str) -> Kafelek:
+    return next(k for k in przeglad.kafelki if k.klucz == klucz)
+
+
+def szacuj_analize(
+    przeglad: PrzegladKonta, *, trwala: sqlite3.Connection | None = None
+) -> SzacunekAnalizy:
+    """Koszt kroku 2 z kafelków kroku 1. Zero wywołań, zero modelu.
+
+    `trwala` opcjonalnie — z historią analiz dolna granica USD liczy się z niej
+    (`koszt.oszacuj`), bez niej z pomiaru startowego.
+    """
+    tablice = _kafelek(przeglad, "tablice")
+    obiektow = int(tablice.szczegoly.get("razem_obiektow") or tablice.wartosc or 0)
+    aktywnych = int(tablice.wartosc or 0)
+    kont = sum(
+        int(v)
+        for v in (_kafelek(przeglad, "uzytkownicy").szczegoly.get("po_rodzajach") or {}).values()
+    )
+    tier = _kafelek(przeglad, "licencja").wartosc
+
+    probka = min(aktywnych, PROBKA_LOGOW)
+    stale = (
+        STALE_WYWOLANIA
+        + -(-max(kont, 1) // STRONA_UZYTKOWNIKOW)
+        + -(-max(obiektow, 1) // STRONA_TABLIC)
+        + min(aktywnych, SOND_TABLIC)
+    )
+    typowo = stale + round(probka * STRON_LOGOW_TYPOWO) + MAKS_PRZEBIEGOW_WYWOLAN // 2
+    maks = stale + probka * MAKS_STRON_LOGOW + MAKS_PRZEBIEGOW_WYWOLAN
+
+    historia = historia_analiz(trwala) if trwala is not None else None
+    usd_od = oszacuj(1, historia).koszt_usd
+
+    zastrzezenia = [
+        "koszt modelu to dolna granica — dokładna kwota jest znana dopiero po zebraniu "
+        "danych, przed uruchomieniem modelu",
+    ]
+    limit = LIMITY_DZIENNE.get(str(tier)) if tier else None
+    if limit is None:
+        zastrzezenia.append(f"nieznany plan `{tier}` — nie da się podać udziału w limicie dziennym")
+    return SzacunekAnalizy(
+        wywolan_typowo=typowo,
+        wywolan_maks=maks,
+        limit_dzienny=limit,
+        usd_od=usd_od,
+        zastrzezenia=tuple(zastrzezenia),
     )
 
 
@@ -636,9 +745,11 @@ __all__ = [
     "AnalizaError",
     "Kafelek",
     "PrzegladKonta",
+    "SzacunekAnalizy",
     "UslugaError",
     "WynikAnalizy",
     "analiza_konta",
     "analizuj_snapshot",
     "przeglad_konta",
+    "szacuj_analize",
 ]
