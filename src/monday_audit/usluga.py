@@ -43,6 +43,7 @@ import httpx
 
 from monday_audit.agent import MODEL, hash_promptu
 from monday_audit.analiza import (
+    BUDZET_NARZEDZI,
     SCIEZKA_PROMPTU_ANALIZY,
     OdpowiedzBezJsonaError,
     PozaSufitem,
@@ -247,6 +248,7 @@ STRON_LOGOW_TYPOWO = 1.5
 STALE_WYWOLANIA = 1 + 4 + 5  # konto + statystyki automatyzacji + sonda agentów
 SOND_TABLIC = 10  # `automatyzacje.MAKS_SOND`
 MAKS_PRZEBIEGOW_WYWOLAN = 60  # `automatyzacje.MAKS_PRZEBIEGOW` × 2
+NARZEDZI_TYPOWO = 30  # wywołania narzędzi na żywo w sesji — zmierzone 2026-09-24
 # Przerwanie przy połowie dziennego limitu konta klienta (skill monday-graphql).
 PROG_LIMITU = 0.5
 
@@ -317,8 +319,13 @@ def szacuj_analize(
         + -(-max(obiektow, 1) // STRONA_TABLIC)
         + min(aktywnych, SOND_TABLIC)
     )
-    typowo = stale + round(probka * STRON_LOGOW_TYPOWO) + MAKS_PRZEBIEGOW_WYWOLAN // 2
-    maks = stale + probka * MAKS_STRON_LOGOW + MAKS_PRZEBIEGOW_WYWOLAN
+    # Narzędzia AI na żywo (próbka kolumn, log tablicy) też idą z limitu klienta:
+    # maks = cały budżet sesji, typowo = tyle, ile zużyła sesja na pełnym CXLABS
+    # 2026-09-24 (29 przy budżecie 30).
+    typowo = (
+        stale + round(probka * STRON_LOGOW_TYPOWO) + MAKS_PRZEBIEGOW_WYWOLAN // 2 + NARZEDZI_TYPOWO
+    )
+    maks = stale + probka * MAKS_STRON_LOGOW + MAKS_PRZEBIEGOW_WYWOLAN + BUDZET_NARZEDZI
 
     historia = historia_analiz(trwala) if trwala is not None else None
     usd_od = oszacuj(1, historia).koszt_usd

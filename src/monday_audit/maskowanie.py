@@ -91,7 +91,27 @@ WZORZEC_TELEFONU = re.compile(
 
 # IBAN: dwie litery kraju, dwie cyfry kontrolne, potem 11-30 znaków
 # alfanumerycznych, opcjonalnie w grupach po cztery.
-WZORZEC_IBANU = re.compile(r"\b[A-Z]{2}\d{2}(?:[  ]?[A-Z0-9]{4}){2,8}[  ]?[A-Z0-9]{0,4}\b")
+# Ogon `(?:sep?[A-Z0-9]{1,4})?`, nie `sep?[A-Z0-9]{0,4}`: stara postać pasowała
+# do samej spacji ZA numerem i zjadała ją („[IBAN]jutro", review 2026-09-24).
+WZORZEC_IBANU = re.compile(r"\b[A-Z]{2}\d{2}(?:[  ]?[A-Z0-9]{4}){2,8}(?:[  ]?[A-Z0-9]{1,4})?\b")
+
+# Długość IBAN-u bez separatorów wg ISO 13616: od 15 (Norwegia) do 34 znaków.
+# ZMIERZONE 2026-09-24: numery zamówień w nazwach tablic klienta
+# („ZO12345678901-…", 13 znaków) dawały alarm maskowania w KAŻDYM runie
+# (16–20 trafień), a fałszywy alarm powtarzany co run uczy go ignorować.
+# Sumy kontrolnej celowo NIE sprawdzamy: IBAN z literówką to wciąż numer
+# konta, a nadmiar maskowania kosztuje mniej niż przepuszczony numer.
+DLUGOSC_IBANU = range(15, 35)
+_SEPARATOR_IBANU = re.compile("[ \u00a0]")
+
+
+def _to_iban(trafienie: str) -> bool:
+    return len(_SEPARATOR_IBANU.sub("", trafienie)) in DLUGOSC_IBANU
+
+
+def _zamiennik_ibanu(trafienie: re.Match[str]) -> str:
+    return ZAMIENNIK_IBANU if _to_iban(trafienie.group(0)) else trafienie.group(0)
+
 
 # Kolejność ma znaczenie: IBAN przed telefonem, bo `PL61 1090 1014 0000` to
 # także cyfry w grupach i telefon zjadłby jego ogon. E-mail przed oboma, bo
@@ -204,7 +224,13 @@ def zamaskuj_tekst(tekst: str) -> tuple[str, Counter[str]]:
     trafienia: Counter[str] = Counter()
     wynik = tekst
     for nazwa, wzorzec, zamiennik in WZORCE:
-        wynik, ile = wzorzec.subn(zamiennik, wynik)
+        if nazwa == "iban":
+            # Liczymy tylko to, co faktycznie podmieniono — ciąg krótszy od
+            # IBAN-u zostaje i nie jest trafieniem.
+            ile = sum(1 for m in wzorzec.finditer(wynik) if _to_iban(m.group(0)))
+            wynik = wzorzec.sub(_zamiennik_ibanu, wynik)
+        else:
+            wynik, ile = wzorzec.subn(zamiennik, wynik)
         if ile:
             trafienia[nazwa] += ile
     return wynik, trafienia

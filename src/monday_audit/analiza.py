@@ -59,7 +59,12 @@ SCIEZKA_PROMPTU_ANALIZY = Path("docs/PROMPT_ANALIZY.md")
 # Sufit wywołań narzędzi na CAŁĄ sesję. Zastępuje sumę budżetów per hipoteza
 # z rubryki. Liczba jest zachowawcza: przy jednej sesji model nie musi
 # dopytywać o każdą hipotezę osobno, bo obraz konta ma już w kontekście.
-BUDZET_NARZEDZI = 30
+#
+# 30 → 50 (2026-09-24): pełne konto CXLABS wyczerpało 30 na 20 logów tablic
+# i 9 próbek kolumn — 10 z 20 BOARD_OVERCOMPLEX poszło do pominiętych
+# z powodem „budżet wyczerpany". Każde wywołanie idzie z limitu dziennego
+# klienta, ale 20 więcej to ~0,1% limitu Enterprise i ~2% Free.
+BUDZET_NARZEDZI = 50
 
 # Więcej obrotów niż w sesji per hipoteza (12), bo tu jest do rozstrzygnięcia
 # kilkadziesiąt hipotez, a nie jedna. 40 → 80 (2026-09-24): pełne konto CXLABS

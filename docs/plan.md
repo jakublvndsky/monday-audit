@@ -360,7 +360,7 @@ na nich napisał.
     ujawnił dwie rzeczy: detektory stały godzinami na pełnym koncie (naprawione,
     0,2 s) i 6224 hipotezy, z czego 5707 par DUPLICATE_STRUCTURE (~245 USD) —
     założenie 5b „jedna sesja na całe konto" nie trzymało się. Stąd 6-3b.
-  - [ ] **6-3b** — hipotez tyle, ile jedna sesja uniesie (decyzja Kuby
+  - [x] **6-3b** — hipotez tyle, ile jedna sesja uniesie (decyzja Kuby
     2026-09-24). DUPLICATE_STRUCTURE: grupa zamiast pary (spójna składowa,
     rubryka 0.5). Sufit 20 najsilniejszych na klasę przed modelem, reszta
     w zastrzeżeniach raportu z liczbą i w `poza_sufitem`. Pełne konto po
@@ -374,7 +374,10 @@ na nich napisał.
     brak klienta monday w narzędziach pakietu (20/20 BOARD_OVERCOMPLEX),
     tablice bez właściciela poza próbką logów (20/20 BOARD_NO_OWNER),
     GUEST_SPRAWL z jawnym „nie zmierzone" (zmiana O31). Rubryka 0.6.
-    Do zrobienia: druga sesja na pełnym koncie po poprawkach.
+    Druga sesja padła na parsowaniu odpowiedzi w kilku blokach (`f428bad`).
+    Trzecia (`analiza-20260924T114549Z`): 89 uwag, 2,88 USD, 17 min,
+    369 wywołań monday. Po niej budżet narzędzi 30 → 50 i IBAN tylko od
+    15 znaków (koniec fałszywego alarmu co run).
   - [ ] **6-4** — typy dla portalu generowane z kontraktu i dokument
     wejścia dla zespołu portalu (co funkcje przyjmują, co oddają, czego nie).
 
@@ -419,6 +422,35 @@ na nich napisał.
 
 <!-- Uzupełniany przy zamykaniu faz: data, faza, link do dokumentu
      w `docs/features/`, odchylenia od planu. -->
+
+**2026-09-24 — krok 6-3b zamknięty** (faza 6 trwa, zostaje 6-4). Pełne konto
+CXLABS jedną sesją: `analiza-20260924T114549Z` — 629 hipotez, 99 do modelu,
+**89 uwag przyjętych, 1 odrzucona walidacją**, 17 odrzuconych przez model
+z uzasadnieniem, 2,88 USD przy szacunku 3,91 USD, 17 min, 369 wywołań monday.
+
+Co poszło inaczej, niż zakładał plan:
+
+- **Założenie 5b „jedna sesja na całe konto" padło na pierwszym pełnym
+  koncie** — 6224 hipotezy, w tym 5707 par jednej klasy. Uratowały je dwie
+  zmiany deterministyczne (grupa zamiast pary, sufit na klasę), nie model.
+  Sufit zmienia pokrycie: model nie orzeka o każdej tablicy, a raport musi to
+  mówić liczbą — i mówi.
+- **Detektory stały godzinami** na pełnym koncie (JSON SQLite bez
+  `MATERIALIZED`). Na małych snapshotach tego nie było widać.
+- **Pierwsza sesja na pełnym koncie ujawniła lukę PII**: samo imię
+  w nazwie tablicy przechodziło do modelu i do Langfuse (`7d687ec`).
+  Redakcja po imionach była też O(osób × napisów) — >10 min przy 1000 osobach.
+- **Cztery klasy nie domykały się wcale** (BOARD_GHOST, BOARD_OVERCOMPLEX,
+  BOARD_NO_OWNER, GUEST_SPRAWL) z czterech różnych powodów, żaden widoczny
+  na małym koncie. Ta sama lekcja co w 5b: dopiero prawdziwy run mówi prawdę.
+- **O31 zmienione decyzją Kuby**: GUEST_SPRAWL przechodzi z jawnym
+  „nie zmierzone" zamiast być odrzucany.
+- **Tracing narzędzi w Langfuse** (argumenty, wynik, błąd) dołożony w trakcie,
+  na prośbę Kuby. Granica „nic, czego nie mamy u siebie" przestała obowiązywać;
+  zapisane w `obserwowalnosc.py`.
+- **Otwarte na później:** oś czasu w Langfuse jest płaska (SDK nie przyjmuje
+  czasu startu — wysyłka na żywo to przebudowa); BOARD_OVERCOMPLEX to wciąż
+  401 hipotez na koncie — sygnał „> 15 kolumn" mało wybiórczy (faza 7).
 
 **2026-09-23 — faza 5b zamknięta.** `uwagi.py`, `analiza.py`,
 `PROMPT_ANALIZY.md`, `koszt.py`, `cli_analiza.py`, przebieg automatyzacji

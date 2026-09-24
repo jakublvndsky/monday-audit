@@ -270,3 +270,27 @@ def test_klucze_liczbowe_przechodza() -> None:
 def test_nieznany_typ_klucza_przerywa() -> None:
     with pytest.raises(MaskowanieError, match="klucza typu tuple"):
         zamaskuj({"pole": {("a", "b"): 1}})
+
+
+def test_numer_krotszy_od_ibanu_nie_jest_ibanem() -> None:
+    """ZMIERZONE 2026-09-24: „ZO12345678901-…" z nazw tablic dawało 16–20
+    fałszywych alarmów w każdym runie. IBAN ma co najmniej 15 znaków."""
+    from monday_audit.maskowanie import zamaskuj_tekst
+
+    tekst, trafienia = zamaskuj_tekst("ZO12345678901-CXLABS Drzewce")
+
+    assert tekst == "ZO12345678901-CXLABS Drzewce"
+    assert not trafienia
+
+
+@pytest.mark.parametrize(
+    "iban",
+    ["NO9386011117947", "PL61 1090 1014 0000 0712 1981 2874", "PL61109010140000071219812875"],
+)
+def test_iban_od_15_znakow_zostaje_zamaskowany_nawet_z_literowka(iban: str) -> None:
+    from monday_audit.maskowanie import zamaskuj_tekst
+
+    tekst, trafienia = zamaskuj_tekst(f"przelew na {iban} jutro")
+
+    assert tekst == "przelew na [IBAN] jutro"
+    assert trafienia["iban"] == 1
