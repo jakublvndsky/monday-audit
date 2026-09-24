@@ -55,7 +55,12 @@ def srodowisko(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any
         fakty={"wpisow": 0, "nazwa": "tablica 1"},
         budzet_wywolan=2,
     )
-    monkeypatch.setattr(cli_analiza, "wczytaj", lambda: SimpleNamespace(monday_audit_db=baza))
+    # Token potrzebny od 2026-09-24: `--snapshot` otwiera klienta monday dla
+    # narzędzi na żywo. Otwarcie nie wysyła żadnego zapytania.
+    ustawienia = SimpleNamespace(
+        monday_audit_db=baza, monday_token=SimpleNamespace(get_secret_value=lambda: "t")
+    )
+    monkeypatch.setattr(cli_analiza, "wczytaj", lambda: ustawienia)
     monkeypatch.setattr(cli_analiza, "sol_z_ustawien", lambda _: b"s" * 16)
     monkeypatch.setattr(cli_analiza, "klucz_anthropic", lambda _: "klucz-testowy")
     monkeypatch.setattr(usluga, "uruchom_detektory", lambda *_: ([hipoteza], {}))

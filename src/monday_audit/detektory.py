@@ -689,6 +689,14 @@ def board_overcomplex(con: sqlite3.Connection, snapshot_id: int, budzet: int) ->
 
 # ── GUEST_SPRAWL ─────────────────────────────────────────────────────────
 
+# Znacznik pola, którego API nie oddaje. Kontrakt przyjmuje go wyłącznie na
+# zamkniętej liście pól (`kontrakt.POLA_NIEZMIERZALNE`).
+NIE_ZMIERZONE = "nie_zmierzone"
+POWOD_DOSTEPU_GOSCI = (
+    "API nie pokazuje gości wśród subskrybentów tablic (O45) — dostęp gości do "
+    "tablic jest NIEZNANY, nie zerowy"
+)
+
 # Rubryka: `liczba_guest > 0.25 * liczba_members OR goście z last_activity > 180 dni`.
 PROG_UDZIALU_GOSCI = 0.25
 DNI_NIEAKTYWNEGO_GOSCIA = 180
@@ -750,6 +758,13 @@ def guest_sprawl(con: sqlite3.Connection, snapshot_id: int, budzet: int) -> list
 
     nieaktywni = [g for g in goscie if g["nieaktywny"]]
     udzial = round(len(goscie) / czlonkowie, 4) if czlonkowie else None
+    # Pole z rubryki na poziomie DOWODU — do 0.5 było tylko wewnątrz
+    # `goscie_nieaktywni`, więc model składał je sam i wpisywał zdanie.
+    dostep = {
+        g["user_hash"]: json.loads(g["tablice_dostepne"])
+        for g in goscie
+        if json.loads(g["tablice_dostepne"])
+    }
     powyzej_progu = udzial is not None and udzial > PROG_UDZIALU_GOSCI
 
     if not goscie or not (powyzej_progu or nieaktywni):
@@ -766,6 +781,10 @@ def guest_sprawl(con: sqlite3.Connection, snapshot_id: int, budzet: int) -> list
                 "prog_udzialu": PROG_UDZIALU_GOSCI,
                 "powyzej_progu_udzialu": powyzej_progu,
                 "guest_hash": [g["user_hash"] for g in goscie],
+                # Decyzja Kuby 2026-09-24 (zmienia O31): brak danych o dostępie
+                # to zastrzeżenie uwagi, nie powód odrzucenia — ale JAWNE,
+                # wystawione tutaj, a nie opisane przez model.
+                "tablice_dostepne": dostep or {NIE_ZMIERZONE: POWOD_DOSTEPU_GOSCI},
                 "goscie_nieaktywni": [
                     {
                         "user_hash": g["user_hash"],

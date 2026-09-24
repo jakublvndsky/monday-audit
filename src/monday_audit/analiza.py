@@ -62,8 +62,11 @@ SCIEZKA_PROMPTU_ANALIZY = Path("docs/PROMPT_ANALIZY.md")
 BUDZET_NARZEDZI = 30
 
 # Więcej obrotów niż w sesji per hipoteza (12), bo tu jest do rozstrzygnięcia
-# kilkadziesiąt hipotez, a nie jedna.
-MAKS_OBROTOW_ANALIZY = 40
+# kilkadziesiąt hipotez, a nie jedna. 40 → 80 (2026-09-24): pełne konto CXLABS
+# zużyło 34 wywołania narzędzi BEZ narzędzi na żywo; z próbką kolumn dla
+# 20 × BOARD_OVERCOMPLEX 40 obrotów ucięłoby sesję przed odpowiedzią. Ucięta
+# sesja nie oddaje JSON-a, więc płacimy za nic — zapas jest tańszy.
+MAKS_OBROTOW_ANALIZY = 80
 
 
 def rozdziel_hipotezy(

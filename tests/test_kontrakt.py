@@ -662,3 +662,64 @@ def test_dodatkowy_kontekst_obok_licznika_nie_psuje_wyjatku() -> None:
     }
 
     assert _cisza_jest_dowodem("kubelki_dni", dowod) is True
+
+
+# ── „nie zmierzone" (decyzja Kuby 2026-09-24, zmienia O31) ───────────────
+
+
+def _dowod_gosci(tablice_dostepne: Any) -> dict[str, Any]:
+    return {
+        "liczba_guest": 13,
+        "liczba_members": 8,
+        "guest_hash": ["a1b2c3d4e5f60718"],
+        "tablice_dostepne": tablice_dostepne,
+    }
+
+
+def test_guest_sprawl_przechodzi_z_jawnym_nie_zmierzone() -> None:
+    from monday_audit.kontrakt import sprawdz_dowod
+
+    klasa = RUBRYKA.po_id["GUEST_SPRAWL"]
+
+    assert sprawdz_dowod(_dowod_gosci({"nie_zmierzone": "API nie oddaje (O45)"}), klasa) is None
+
+
+@pytest.mark.parametrize(
+    "wartosc",
+    [
+        "nie zmierzone — lista pusta w danych",  # zdanie modelu, jak na runie 2026-09-23
+        {"nie_zmierzone": ""},
+        {"nie_zmierzone": "powód", "b1": []},
+    ],
+)
+def test_opis_braku_danych_dalej_nie_jest_dana(wartosc: Any) -> None:
+    from monday_audit.kontrakt import sprawdz_dowod
+
+    assert sprawdz_dowod(_dowod_gosci(wartosc), RUBRYKA.po_id["GUEST_SPRAWL"]) is not None
+
+
+def test_znacznik_poza_zamknieta_lista_nie_przechodzi() -> None:
+    """Znacznik dopuszczony wszędzie pozwoliłby modelowi obejść każde pole listowe."""
+    from monday_audit.kontrakt import sprawdz_dowod
+
+    klasa = RUBRYKA.po_id["DUPLICATE_STRUCTURE"]
+    dowod: dict[str, Any] = {pole.rstrip("[]"): 0.9 for pole in klasa.dowod}
+    dowod["board_ids"] = {"nie_zmierzone": "nie wiem"}
+
+    assert sprawdz_dowod(dowod, klasa) is not None
+
+
+def test_board_ghost_wymaga_licznika_ciszy() -> None:
+    """ZMIERZONE 2026-09-24: 16 z 16 uwag odrzuconych za puste pola rozkładu,
+    bo model nie przepisał `wpisow_w_oknie` — rubryka go nie wymagała."""
+    from monday_audit.kontrakt import sprawdz_dowod
+
+    klasa = RUBRYKA.po_id["BOARD_GHOST"]
+    cisza: dict[str, Any] = {
+        "board_id": "1", "nazwa": "x", "typ": "board", "najnowszy_at": None,
+        "items_count": 87, "po_klasie": {}, "kubelki_dni": {},
+    }  # fmt: skip
+
+    assert "wpisow_w_oknie" in klasa.dowod
+    assert sprawdz_dowod({**cisza, "wpisow_w_oknie": 0}, klasa) is None
+    assert sprawdz_dowod(cisza, klasa) is not None

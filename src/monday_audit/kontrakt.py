@@ -110,6 +110,13 @@ def _liczba(wartosc: Any) -> float | None:
 # furtką: agent mógłby pominąć `items_count` albo `nazwa` i schować się za ciszą.
 POLA_ROZKLADU = frozenset({"kubelki_dni", "po_klasie", "najnowszy_at"})
 
+# (klasa, pole) → pole kolekcji, które wolno oddać jako `{"nie_zmierzone": powód}`.
+# Decyzja Kuby 2026-09-24 (zmienia O31): GUEST_SPRAWL bez danych o dostępie
+# gości przechodzi z JAWNYM „nie zmierzone". Lista ZAMKNIĘTA, jak POLA_ROZKLADU:
+# znacznik dopuszczony wszędzie pozwoliłby modelowi obejść każde pole listowe.
+POLA_NIEZMIERZALNE = frozenset({("GUEST_SPRAWL", "tablice_dostepne")})
+ZNACZNIK_NIE_ZMIERZONE = "nie_zmierzone"
+
 # Nazwy, pod którymi agent podaje licznik wpisów W OKNIE.
 #
 # ZMIERZONE na pełnym runie `pelny-etap4-a` (2026-08-19, 80 hipotez): agent użył
@@ -233,7 +240,8 @@ def sprawdz_dowod(dowod: Any, klasa: Klasa) -> tuple[str, str] | None:
         for pole in klasa.dowod
         if pole.endswith("[]")
         and not _cisza_jest_dowodem(pole.rstrip("[]"), dowod)
-        and not _niepusta_kolekcja(_pole_dowodu(dowod, pole.rstrip("[]")))
+        and not _niezmierzone(klasa.id, pole.rstrip("[]"), _pole_dowodu(dowod, pole.rstrip("[]")))
+        and not _niepusta_kolekcja(_pole_dowodu(dowod, pole.rstrip("[]")), klasa.id)
     )
     if zle_ksztalty:
         return (
@@ -248,10 +256,25 @@ def _pole_dowodu(dowod: dict[str, Any], nazwa: str) -> Any:
     return dowod[nazwa] if nazwa in dowod else dowod.get(f"{nazwa}[]")
 
 
-def _niepusta_kolekcja(wartosc: Any) -> bool:
+def _niezmierzone(klasa_id: str, pole: str, wartosc: Any) -> bool:
+    """`{"nie_zmierzone": "<powód>"}` na polu z zamkniętej listy — i tylko tam."""
+    return (
+        (klasa_id, pole) in POLA_NIEZMIERZALNE
+        and isinstance(wartosc, dict)
+        and set(wartosc) == {ZNACZNIK_NIE_ZMIERZONE}
+        and isinstance(wartosc[ZNACZNIK_NIE_ZMIERZONE], str)
+        and bool(wartosc[ZNACZNIK_NIE_ZMIERZONE].strip())
+    )
+
+
+def _niepusta_kolekcja(wartosc: Any, klasa_id: str = "") -> bool:
     if isinstance(wartosc, list):
         return bool(wartosc)
     if isinstance(wartosc, dict):
+        # Znacznik poza zamkniętą listą NIE jest treścią — inaczej model wpisałby
+        # `{"nie_zmierzone": "…"}` w dowolne pole listowe i przeszedł.
+        if ZNACZNIK_NIE_ZMIERZONE in wartosc:
+            return False
         return any(
             _niepusta_kolekcja(v) if isinstance(v, list | dict) else v not in (None, "")
             for v in wartosc.values()

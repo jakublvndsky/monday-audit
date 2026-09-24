@@ -367,7 +367,14 @@ na nich napisał.
     zmianie: 615 hipotez (96 grup zamiast 5707 par; największa ma 91 tablic),
     do modelu 99, z szablonu 8, szacunek 3,91 USD. Sufit przyciął BOARD_OVERCOMPLEX
     (20 z 401), DUPLICATE_STRUCTURE (20 z 96), BOARD_NO_OWNER (20 z 65),
-    BOARD_GHOST (20 z 26). Do zrobienia: sesja modelu na pełnym koncie.
+    BOARD_GHOST (20 z 26). Sesja na pełnym koncie (2026-09-24): 2,34 USD przy
+    szacunku 3,91, 17 min, 22 uwagi przyjęte. Ujawniła lukę PII (samo imię
+    w nazwie tablicy — `7d687ec`) i cztery usterki, poprawione w jednym
+    commicie: BOARD_GHOST bez `wpisow_w_oknie` w rubryce (16/16 odrzuceń),
+    brak klienta monday w narzędziach pakietu (20/20 BOARD_OVERCOMPLEX),
+    tablice bez właściciela poza próbką logów (20/20 BOARD_NO_OWNER),
+    GUEST_SPRAWL z jawnym „nie zmierzone" (zmiana O31). Rubryka 0.6.
+    Do zrobienia: druga sesja na pełnym koncie po poprawkach.
   - [ ] **6-4** — typy dla portalu generowane z kontraktu i dokument
     wejścia dla zespołu portalu (co funkcje przyjmują, co oddają, czego nie).
 

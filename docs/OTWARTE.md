@@ -1261,6 +1261,15 @@ Warto odnotować napięcie: to najlepszy finding tego runu pod względem rozumow
 odrzucony na formalności. Ale formalność jest dobra — alternatywą jest raport, który
 mówi „11 gości to ryzyko" bez umiejętności powiedzenia, czym to ryzyko jest.
 
+**Zmiana decyzji (Kuba, 2026-09-24): uwaga PRZECHODZI z jawnym „nie zmierzone".**
+Pełne konto CXLABS tokenem admina też nie oddało dostępu gości (O45), więc przy
+odrzucaniu klasa nie przeszłaby nigdy. Teraz detektor wystawia
+`tablice_dostepne: {"nie_zmierzone": "<powód>"}`, kontrakt przyjmuje ten znacznik
+WYŁĄCZNIE dla tego pola tej klasy (`kontrakt.POLA_NIEZMIERZALNE`), a model ma
+w opisie powiedzieć, że ta część nie jest zmierzona. Zdanie napisane przez model
+w miejscu listy nadal odpada — różnica między „nie wiem, i mówię to jawnie"
+a „opisałem brak danych" zostaje w kontrakcie, nie w dobrej woli modelu.
+
 ## O32 — ENGAGEMENT_DROP domknięty danymi, nierozstrzygnięty jakością (2026-08-14)
 
 Klasa była **nierozstrzygalna**: rubryka wymaga `data_zwrotu` i

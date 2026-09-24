@@ -42,7 +42,13 @@ from monday_audit.baza import MapowanieOsob, RejestrWywolan
 from monday_audit.klient import WERSJA_API, MondayClient, Postep
 from monday_audit.konto import Zakres, rozpoznaj_konto
 from monday_audit.logi import MAKS_STRON_LOGOW, TOP_PO_ITEMACH, Z_OGONA, zbierz_logi
-from monday_audit.osoby import RODZAJE_AGENTOW, waliduj_brak_pii, zbierz_osoby, zredaguj_pii
+from monday_audit.osoby import (
+    RODZAJE_AGENTOW,
+    STATUS_AKTYWNY,
+    waliduj_brak_pii,
+    zbierz_osoby,
+    zredaguj_pii,
+)
 from monday_audit.tablice import zbierz_tablice
 
 logger = logging.getLogger(__name__)
@@ -54,6 +60,20 @@ DNI_OKNA = 90
 # Musi wystarczyć na rozpoznanie konta i użytkowników, bo inaczej run przerwałby
 # się przed poznaniem planu, który miał ten limit ustalić.
 BUDZET_STARTOWY = 400
+
+
+def _bez_aktywnego_wlasciciela(tablice: Any, osoby: Any) -> list[str]:
+    """Aktywne tablice bez właściciela ze statusem ACTIVE — jak BOARD_NO_OWNER.
+
+    Kryterium celowo TO SAMO co w detektorze (`detektory._BOARD_NO_OWNER`):
+    dobieramy do próbki logów dokładnie te tablice, o które klasa zapyta.
+    """
+    aktywni = {o.user_hash for o in osoby if o.status == STATUS_AKTYWNY}
+    return [
+        t.board_id
+        for t in tablice
+        if t.typ == "board" and t.state == "active" and not (set(t.owners) & aktywni)
+    ]
 
 
 def _sekcja_agentow(agenci: Any, osoby: Any, automaty: Any) -> dict[str, Any]:
@@ -418,6 +438,7 @@ async def _zbierz_i_zapisz(
             top=top_logow,
             z_ogona=z_ogona,
             maks_stron=maks_stron_logow,
+            dobrane=_bez_aktywnego_wlasciciela(tablice.tablice, osoby.osoby),
         )
         wywolan = klient.liczba_wywolan
         complexity = klient.complexity_suma

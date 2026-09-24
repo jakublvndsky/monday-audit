@@ -398,7 +398,7 @@ def test_raport_wymienia_klasy_bez_detektora(con: sqlite3.Connection) -> None:
     assert set(raport["klasy_bez_detektora"]) == wszystkie - zbudowane
     # 0.3 przy dodaniu UZYTKOWNIK_WYGASZONY, 0.4 przy doprecyzowaniu warunku
     # odrzucenia BOARD_GHOST (O34) — oba w etapie 4.
-    assert raport["rubric_version"] == "0.5"
+    assert raport["rubric_version"] == "0.6"
 
 
 def test_budzet_bierze_sie_z_rubryki(con: sqlite3.Connection) -> None:
@@ -803,6 +803,21 @@ def test_guest_sprawl_jedna_hipoteza_na_konto(con: sqlite3.Connection) -> None:
     assert fakty["liczba_members"] == 1
     assert [g["user_hash"] for g in fakty["goscie_nieaktywni"]] == ["g1"]
     assert fakty["goscie_nieaktywni"][0]["tablice_dostepne"] == ["b1"]
+    assert fakty["tablice_dostepne"] == {"g1": ["b1"]}
+
+
+def test_guest_sprawl_bez_danych_o_dostepie_mowi_nie_zmierzone(
+    con: sqlite3.Connection,
+) -> None:
+    """O45: goście nie występują w `subscribers`. Pusta mapa czytałaby się jak
+    „brak dostępu" — detektor wystawia jawne „nie zmierzone" (decyzja 2026-09-24)."""
+    ludzie = [osoba("g1", kind="guest", last_activity="2025-06-01T00:00:00Z"), osoba("m1")]
+    snapshot_id = zapisz(con, pelny(uzytkownicy=ludzie, tablice=[tablica("b1")]))
+
+    [hipoteza] = guest_sprawl(con, snapshot_id, 0)
+
+    assert list(hipoteza.fakty["tablice_dostepne"]) == ["nie_zmierzone"]
+    assert "O45" in hipoteza.fakty["tablice_dostepne"]["nie_zmierzone"]
 
 
 def test_plan_mismatch_zapisuje_ktore_zrodlo_miejsc(con: sqlite3.Connection) -> None:

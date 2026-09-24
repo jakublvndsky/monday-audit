@@ -719,3 +719,16 @@ async def test_aktywny_ostatnie_7d_odroznia_czynnego_od_milczacego(zbuduj: Any) 
     per_user = {u["user_hash"]: u for u in wynik.per_uzytkownik()}
     assert per_user[policz_hash(KLIENT, "101", SOL)]["aktywny_ostatnie_7d"] is True
     assert per_user[policz_hash(KLIENT, "102", SOL)]["aktywny_ostatnie_7d"] is False
+
+
+def test_probka_dobiera_tablice_bez_wlasciciela() -> None:
+    """ZMIERZONE 2026-09-24: żadna z 65 tablic bez właściciela nie weszła do
+    próbki, więc BOARD_NO_OWNER nie miał kandydata na właściciela."""
+    tablice = [tablica(str(n), items_count=n) for n in range(1, 21)]
+
+    probka, pominietych = wybierz_probke(
+        tablice, top=3, z_ogona=2, dobrane={"9", "10", "11", "20"}, maks_dobranych=2
+    )
+
+    assert [t.items_count for t in probka] == [20, 19, 18, 2, 1, 11, 10]
+    assert pominietych == 13

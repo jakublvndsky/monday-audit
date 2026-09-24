@@ -33,7 +33,7 @@
 # To są decyzje biznesowe z etapu 1 i pomiary techniczne nie mają do nich nic
 # do powiedzenia.
 
-wersja: "0.5"
+wersja: "0.6"
 odbiorca_domyslny: wewnetrzny
 
 # ──────────────────────────────────────────────────────────────
@@ -168,6 +168,9 @@ klasy:
     wysilek_naprawy: niski
     typ_wyceny: ryzyko
     wzor: null
+    # `tablice_dostepne` od 0.6 (decyzja Kuby 2026-09-24, zmienia O31): gdy API
+    # nie oddaje dostępu gości (O45), detektor wpisuje `{"nie_zmierzone": powód}`
+    # i uwaga PRZECHODZI z tym zastrzeżeniem, zamiast być odrzucana.
     dowod: [liczba_guest, liczba_members, "guest_hash[]", "tablice_dostepne[]"]
     widocznosc: klient
     trop_sprzedazowy: uporządkowanie uprawnień i governance
@@ -319,7 +322,12 @@ klasy:
     wzor: null
     # ŚWIADOMIE BEZ `rozklad_statusow` — wymagałby zejścia na poziom itemów,
     # czego zabrania D5. Zastąpione kształtem aktywności z 3.7, który mamy.
-    dowod: [board_id, nazwa, typ, najnowszy_at, items_count, po_klasie, kubelki_dni]
+    # `wpisow_w_oknie` od 0.6 (2026-09-24): kontrakt przyjmuje puste pola
+    # rozkładu tylko przy jawnym `wpisow_w_oknie: 0` (`kontrakt._cisza_jest_dowodem`),
+    # a model przepisuje wyłącznie pola z tej listy. Na pełnym koncie CXLABS
+    # walidacja odrzuciła przez to 16 z 16 uwag tej klasy.
+    dowod: [board_id, nazwa, typ, najnowszy_at, items_count, po_klasie, kubelki_dni,
+            wpisow_w_oknie]
     widocznosc: klient
     trop_sprzedazowy: porządkowanie workspace — wejście do szerszej przebudowy
 

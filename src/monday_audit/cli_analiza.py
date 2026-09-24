@@ -49,9 +49,11 @@ from typing import Any
 from monday_audit.agent import AgentError
 from monday_audit.baza import polacz, zastosuj_migracje
 from monday_audit.cli import zbuduj_zakres
+from monday_audit.klient import MondayClient
 from monday_audit.konfiguracja import KonfiguracjaError, klucz_anthropic, sol_z_ustawien, wczytaj
 from monday_audit.kontrakt import KontraktError
 from monday_audit.koszt import porownaj
+from monday_audit.podglad_zakresu import RejestrPodgladu
 from monday_audit.raport_uwag import zapisz_html
 from monday_audit.usluga import (
     AnalizaError,
@@ -240,9 +242,13 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
         try:
             if argumenty.snapshot is not None:
                 # Snapshot sprzed 5c leży w bazie trwałej — tam go analizujemy.
-                wynik = await analizuj_snapshot(
-                    zrodlo=trwala, snapshot_id=argumenty.snapshot, **wspolne
-                )
+                # Klient na żywo także tu: bez niego próbka kolumn nie działa.
+                async with MondayClient(
+                    ustawienia.monday_token.get_secret_value(), RejestrPodgladu()
+                ) as klient:
+                    wynik = await analizuj_snapshot(
+                        zrodlo=trwala, snapshot_id=argumenty.snapshot, klient=klient, **wspolne
+                    )
             else:
                 wynik = await analiza_konta(
                     ustawienia.monday_token.get_secret_value(),

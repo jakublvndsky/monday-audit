@@ -58,6 +58,10 @@ narzędzie też go nie da, hipoteza idzie do pominiętych z powodem
 false` znaczy „nie pojawia się w logach" — to jest ustalenie, a nie brak
 ustalenia. Przepisz je do dowodu tak samo jak każdą inną wartość.
 
+**`{"nie_zmierzone": "…"}` przepisz BEZ ZMIAN.** Tak fakty oznaczają pole,
+którego API nie oddaje. Nie zamieniaj go na własne zdanie ani pustą listę,
+a w opisie uwagi powiedz wprost, że ta część nie jest zmierzona.
+
 **ZASTRZEŻENIA SĄ CZĘŚCIĄ DANYCH, nie przypisem.** Jeśli zastrzeżenie mówi,
 że liczba jest niepełna, nie wolno budować na niej uwagi tak, jakby była
 pełna. Przykład: „pokrycie 61%" znaczy, że 39% itemów nie weszło do

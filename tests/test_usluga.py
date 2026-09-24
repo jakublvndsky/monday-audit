@@ -456,3 +456,22 @@ def test_nieznany_plan_nie_udaje_udzialu() -> None:
     assert szacunek.limit_dzienny is None
     assert szacunek.udzial_maks is None
     assert szacunek.przekracza_prog is False
+
+
+async def test_narzedzia_dostaja_klienta_monday(
+    trwala: sqlite3.Connection, swiat: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ZMIERZONE 2026-09-24: `klient=None` w pakiecie — model odrzucił 20 z 20
+    BOARD_OVERCOMPLEX, bo `probka_kolumn` była „niedostępna"."""
+    widzial: dict[str, Any] = {}
+
+    async def model(_: list[Hipoteza], *, zestaw: Any, **__: Any) -> dict[str, Any]:
+        widzial["klient"] = zestaw.klient
+        return {"uwagi": [], "pominiete": [], "zuzycie": {}, "wywolania_narzedzi": []}
+
+    monkeypatch.setattr(usluga, "zbadaj_konto", model)
+
+    wynik = await _analiza(trwala)
+
+    assert widzial["klient"] is not None
+    assert wynik.wywolan_monday == 40, "collector 40 + narzędzia 0"

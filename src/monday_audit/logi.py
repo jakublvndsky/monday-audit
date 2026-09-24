@@ -76,6 +76,12 @@ JEDNOSTEK_NA_SEKUNDE = 10_000_000
 # tylko tablic naprawdę aktywnych.
 TOP_PO_ITEMACH = 60
 Z_OGONA = 40
+# Aktywne tablice bez aktywnego właściciela DOBIERANE do próbki (2026-09-24).
+# BOARD_NO_OWNER proponuje właściciela z najaktywniejszego autora logu, a na
+# pełnym koncie CXLABS żadna z 65 takich tablic nie weszła do próbki — model
+# odrzucił 20 z 20 za brak `top_kontrybutor_hash`. 20 = sufit na klasę przed
+# modelem (`analiza.SUFIT_NA_KLASE`), więc więcej i tak nie trafi do sesji.
+DOBRANYCH_BEZ_WLASCICIELA = 20
 LIMIT_WPISOW = 100
 MAKS_STRON_LOGOW = 10
 
@@ -358,8 +364,14 @@ def wybierz_probke(
     *,
     top: int | None = TOP_PO_ITEMACH,
     z_ogona: int | None = Z_OGONA,
+    dobrane: Collection[str] = (),
+    maks_dobranych: int = DOBRANYCH_BEZ_WLASCICIELA,
 ) -> tuple[tuple[Tablica, ...], int]:
     """Top po `items_count` plus ogon. Zwraca próbkę i liczbę pominiętych.
+
+    `dobrane` to identyfikatory, które mają wejść do próbki mimo rozmiaru — do
+    `maks_dobranych`, największe najpierw (tablica, na której ktoś pracuje,
+    częściej ma autora w logu). Dziś: tablice bez aktywnego właściciela.
 
     `top=None` znaczy **bez próbkowania** — wszystkie tablice w zakresie. Wtedy
     liczba pominiętych jest zerem i snapshot nie musi się z niczego tłumaczyć.
@@ -382,6 +394,14 @@ def wybierz_probke(
     ogon = [t for t in reversed(posortowane) if t not in czolo][:z_ogona]
 
     probka = tuple(czolo) + tuple(reversed(ogon))
+    if dobrane:
+        juz = {t.board_id for t in probka}
+        chciane = set(dobrane)
+        probka += tuple(
+            [t for t in posortowane if t.board_id in chciane and t.board_id not in juz][
+                :maks_dobranych
+            ]
+        )
     return probka, max(0, len(tablice) - len(probka))
 
 
@@ -540,6 +560,7 @@ async def zbierz_logi(
     z_ogona: int | None = Z_OGONA,
     maks_stron: int = MAKS_STRON_LOGOW,
     teraz: datetime | None = None,
+    dobrane: Collection[str] = (),
 ) -> WynikLogow:
     """Sampluje activity logs i wyciąga z nich sygnały, nie treść.
 
@@ -547,15 +568,16 @@ async def zbierz_logi(
     `top=None` wyłącza próbkowanie i bierze wszystkie tablice z zakresu.
     """
     teraz = teraz or datetime.now(tz=UTC)
-    probka, pominietych = wybierz_probke(tablice, top=top, z_ogona=z_ogona)
+    probka, pominietych = wybierz_probke(tablice, top=top, z_ogona=z_ogona, dobrane=dobrane)
     if pominietych:
         logger.warning(
-            "sampluję %d z %d tablic (top %d po items_count + %d z ogona); "
-            "%d tablic POMINIĘTYCH i odnotowanych w snapshocie",
+            "sampluję %d z %d tablic (top %d po items_count + %d z ogona + do %d bez "
+            "aktywnego właściciela); %d tablic POMINIĘTYCH i odnotowanych w snapshocie",
             len(probka),
             len(tablice),
             top,
             z_ogona,
+            DOBRANYCH_BEZ_WLASCICIELA if dobrane else 0,
             pominietych,
         )
     else:

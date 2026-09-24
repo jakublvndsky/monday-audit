@@ -57,6 +57,7 @@ from monday_audit.klient import LimitDziennyError, MondayClient, MondayError
 from monday_audit.konto import LIMITY_DZIENNE, Zakres, ZakresError, rozpoznaj_konto
 from monday_audit.kontrakt import KontraktError
 from monday_audit.koszt import Szacunek, historia_analiz, oszacuj, zapisz_zuzycie_analizy
+from monday_audit.logi import DOBRANYCH_BEZ_WLASCICIELA, TOP_PO_ITEMACH, Z_OGONA
 from monday_audit.narzedzia import Narzedzia
 from monday_audit.obserwowalnosc import (
     Wysylka,
@@ -235,7 +236,9 @@ async def przeglad_konta(klucz_monday: str) -> PrzegladKonta:
 
 STRONA_UZYTKOWNIKOW = 500  # `osoby.zbierz_osoby(limit=500)`
 STRONA_TABLIC = 25  # `tablice.LIMIT_STRONY`, stany: wszystkie (także kosz)
-PROBKA_LOGOW = 100  # `logi.TOP_PO_ITEMACH` + `logi.Z_OGONA`
+# `logi.TOP_PO_ITEMACH` + `logi.Z_OGONA` + dobrane bez właściciela (górna granica:
+# ile ich jest, krok 1 nie wie).
+PROBKA_LOGOW = TOP_PO_ITEMACH + Z_OGONA + DOBRANYCH_BEZ_WLASCICIELA
 MAKS_STRON_LOGOW = 10  # `logi.MAKS_STRON_LOGOW`
 # Średnio stron logu na tablicę próbki. ZMIERZONE 2026-09-23 na pełnym CXLABS:
 # szacunek z jedną stroną dał 283, collector zużył 334 — stąd 1,5.
@@ -440,19 +443,32 @@ async def analiza_konta(
             zakres=zakres or Zakres(typ="cale_konto"),
             sol=sol,
         )
-        return await analizuj_snapshot(
-            zrodlo=zrodlo,
-            snapshot_id=raport_runu.snapshot_id,
-            trwala=trwala,
-            klucz_anthropic=klucz_anthropic,
-            client_id=client_id,
-            sol=sol,
-            wejscie=wejscie,
-            slad=slad,
-            run_id=run_id,
-            tylko_szacunek=tylko_szacunek,
-            wywolan_monday=raport_runu.wywolan,
-            przed_sesja=przed_sesja,
+        # Klient monday dla narzędzi NA ŻYWO (`probka_kolumn`, `log_tablicy`).
+        # ZMIERZONE 2026-09-24: bez niego model odrzucił 20 z 20 BOARD_OVERCOMPLEX
+        # („narzędzie niedostępne"), bo martwych kolumn nie da się ustalić bez
+        # próbki itemów. Ten sam `MondayClient` co collector: `przygotuj_zapytanie`
+        # odrzuca `mutation` i `subscription`, więc zapisu nie ma jak wysłać.
+        # Rejestr w pamięci — wiersz `runy` jest w `trwala`, a nie w `zrodlo`.
+        rejestr_narzedzi = RejestrPodgladu()
+        async with MondayClient(klucz_monday.strip(), rejestr_narzedzi) as klient:
+            wynik = await analizuj_snapshot(
+                zrodlo=zrodlo,
+                snapshot_id=raport_runu.snapshot_id,
+                trwala=trwala,
+                klucz_anthropic=klucz_anthropic,
+                client_id=client_id,
+                sol=sol,
+                wejscie=wejscie,
+                slad=slad,
+                run_id=run_id,
+                tylko_szacunek=tylko_szacunek,
+                wywolan_monday=raport_runu.wywolan,
+                przed_sesja=przed_sesja,
+                klient=klient,
+            )
+        # Wywołania narzędzi też idą z limitu dziennego klienta — liczymy je razem.
+        return dataclasses.replace(
+            wynik, wywolan_monday=raport_runu.wywolan + rejestr_narzedzi.wywolan
         )
     finally:
         # Baza w pamięci znika razem z tym zamknięciem — to jest cały mechanizm 5c.
@@ -474,8 +490,12 @@ async def analizuj_snapshot(
     wywolan_monday: int | None = None,
     rubryka: Rubryka | None = None,
     przed_sesja: Callable[[WynikAnalizy], None] | None = None,
+    klient: MondayClient | None = None,
 ) -> WynikAnalizy:
     """Analiza gotowego snapshotu. `zrodlo` to baza, w której on leży.
+
+    `klient` to otwarty `MondayClient` dla narzędzi na żywo; `None` = model
+    widzi sam snapshot (i klasy, które potrzebują próbki itemów, nie domkną się).
 
     Wydzielone z `analiza_konta`, bo CLI umie też analizować snapshot zebrany
     przed fazą 5c (`--snapshot N`) — wtedy `zrodlo` jest bazą trwałą.
@@ -558,7 +578,7 @@ async def analizuj_snapshot(
         zaczeto = time.monotonic()
         if do_modelu:
             zestaw = Narzedzia(
-                con=zrodlo, snapshot_id=snapshot_id, client_id=client_id, sol=sol, klient=None
+                con=zrodlo, snapshot_id=snapshot_id, client_id=client_id, sol=sol, klient=klient
             )
             odpowiedz = await zbadaj_konto(
                 do_modelu,

@@ -534,3 +534,25 @@ def test_obie_sciezki_zapisuja_tyle_samo() -> None:
         # rozjechałyby się przy pierwszej zmianie.
         assert "tokens_in = ?" not in tresc, f"{nazwa} ma własny zapis tokenów"
         assert "koszt_usd = ?" not in tresc, f"{nazwa} ma własny zapis kosztu"
+
+
+def test_do_probki_logow_ida_tablice_bez_aktywnego_wlasciciela() -> None:
+    """Kryterium TO SAMO co w BOARD_NO_OWNER — dobieramy te, o które klasa zapyta."""
+    from types import SimpleNamespace
+
+    from monday_audit.przebieg import _bez_aktywnego_wlasciciela
+
+    def t(bid: str, owners: tuple[str, ...], typ: str = "board", state: str = "active") -> Any:
+        return SimpleNamespace(board_id=bid, owners=owners, typ=typ, state=state)
+
+    osoby = [SimpleNamespace(user_hash="zywy", status="ACTIVE"),
+             SimpleNamespace(user_hash="martwy", status="INACTIVE")]  # fmt: skip
+    tablice = [
+        t("ok", ("zywy",)),
+        t("bez", ()),
+        t("martwy", ("martwy",)),
+        t("archiwum", (), state="archived"),
+        t("dokument", (), typ="document"),
+    ]
+
+    assert _bez_aktywnego_wlasciciela(tablice, osoby) == ["bez", "martwy"]
