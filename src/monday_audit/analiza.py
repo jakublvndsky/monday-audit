@@ -239,6 +239,47 @@ def definicje_klas(hipotezy: list[Hipoteza], rubryka: Rubryka) -> list[dict[str,
     return definicje
 
 
+class OdpowiedzBezJsonaError(AgentError):
+    """Sesja opłacona, ale z tekstu modelu nie da się wyjąć obiektu JSON.
+
+    Niesie SUROWY tekst, zużycie i przebieg narzędzi — W PAMIĘCI. ZMIERZONE
+    2026-09-24 (`analiza-20260924T110941Z`): zwykły `AgentError` gubił wszystko,
+    więc po 24 minutach i opłaconej sesji nie zostało nic do przejrzenia, a koszt
+    nie trafił do bazy.
+    """
+
+    def __init__(self, komunikat: str, *, tekst: str, zuzycie: dict[str, float],
+                 przebieg: list[dict[str, Any]]) -> None:  # fmt: skip
+        super().__init__(komunikat)
+        self.tekst = tekst
+        self.zuzycie = zuzycie
+        self.przebieg = przebieg
+
+
+def odpowiedz_z_blokow(bloki: list[str]) -> dict[str, Any]:
+    """Obiekt JSON z bloków tekstu PO ostatnim wywołaniu narzędzia.
+
+    ## ZMIERZONE 2026-09-24 — ostatni blok to za mało
+
+    Parser brał `bloki[-1]`. Przy 99 hipotezach odpowiedź ma kilkadziesiąt
+    tysięcy tokenów i model oddaje ją w KILKU blokach — ostatni jest ogonem
+    JSON-a, a `json.loads` padał na „Extra data". Kolejność prób: ostatni blok
+    (krótka odpowiedź, zdanie wstępu w osobnym bloku), potem sklejenie bez
+    separatora (JSON pocięty w środku), potem z nową linią.
+    """
+    if not bloki:
+        raise AgentError("odpowiedź agenta nie zawiera obiektu JSON")
+    kandydaci = [bloki[-1], "".join(bloki), "\n".join(bloki)]
+    ostatni: AgentError | None = None
+    for kandydat in kandydaci:
+        try:
+            return _wyluskaj_json(kandydat)
+        except AgentError as blad:
+            ostatni = blad
+    assert ostatni is not None  # noqa: S101
+    raise ostatni
+
+
 def zbuduj_zadanie(
     hipotezy: list[Hipoteza],
     wejscie: dict[str, Any],
@@ -342,7 +383,13 @@ async def zbadaj_konto(
     """
     # Import w środku: `claude_agent_sdk` ciągnie podproces i nie ma powodu,
     # żeby obciążał każdego, kto importuje cokolwiek z pakietu.
-    from claude_agent_sdk import AssistantMessage, ClaudeSDKClient, ResultMessage, TextBlock
+    from claude_agent_sdk import (
+        AssistantMessage,
+        ClaudeSDKClient,
+        ResultMessage,
+        TextBlock,
+        ToolUseBlock,
+    )
 
     from monday_audit.agent import _zbuduj_narzedzia
 
@@ -392,7 +439,10 @@ async def zbadaj_konto(
         async for wiadomosc in klient.receive_response():
             if isinstance(wiadomosc, AssistantMessage):
                 for blok in wiadomosc.content:
-                    if isinstance(blok, TextBlock) and blok.text.strip():
+                    if isinstance(blok, ToolUseBlock):
+                        # Tekst przed narzędziem to rozumowanie, nie odpowiedź.
+                        bloki.clear()
+                    elif isinstance(blok, TextBlock) and blok.text.strip():
                         bloki.append(blok.text)
             elif isinstance(wiadomosc, ResultMessage):
                 zuzycie = _zuzycie(wiadomosc)
@@ -406,7 +456,15 @@ async def zbadaj_konto(
     if blad:
         raise AgentError(f"sesja analizy padła: {blad}")
 
-    odpowiedz = _wyluskaj_json(bloki[-1] if bloki else "")
+    try:
+        odpowiedz = odpowiedz_z_blokow(bloki)
+    except AgentError as blad:
+        raise OdpowiedzBezJsonaError(
+            str(blad),
+            tekst="".join(bloki),
+            zuzycie=zuzycie,
+            przebieg=list(narzedzia_sesji.przebieg),
+        ) from None
     odpowiedz["zuzycie"] = zuzycie
     odpowiedz["wywolania_narzedzi"] = list(narzedzia_sesji.wywolania)
     odpowiedz["przebieg_narzedzi"] = list(narzedzia_sesji.przebieg)

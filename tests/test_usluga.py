@@ -475,3 +475,28 @@ async def test_narzedzia_dostaja_klienta_monday(
 
     assert widzial["klient"] is not None
     assert wynik.wywolan_monday == 40, "collector 40 + narzędzia 0"
+
+
+async def test_odpowiedz_bez_jsona_nie_gubi_oplaconej_sesji(
+    trwala: sqlite3.Connection, swiat: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ZMIERZONE 2026-09-24: po 24 min sesja padła na parsowaniu i nie zostało
+    nic — ani tekst, ani koszt. Teraz tekst wraca w pamięci, koszt idzie do bazy."""
+    from monday_audit.analiza import OdpowiedzBezJsonaError
+
+    async def model(*_: Any, **__: Any) -> dict[str, Any]:
+        raise OdpowiedzBezJsonaError(
+            "nie jest JSON-em",
+            tekst='{"uwagi": [ ... ',
+            zuzycie={"koszt_usd": 1.7, "tokens_out": 90000},
+            przebieg=[{"narzedzie": "probka_kolumn"}],
+        )
+
+    monkeypatch.setattr(usluga, "zbadaj_konto", model)
+
+    with pytest.raises(AnalizaError) as blad:
+        await _analiza(trwala)
+
+    assert blad.value.odpowiedz_modelu["surowy_tekst"] == '{"uwagi": [ ... '
+    wiersz = trwala.execute("SELECT status, koszt_usd FROM runy").fetchone()
+    assert (wiersz["status"], wiersz["koszt_usd"]) == ("przerwany", 1.7)

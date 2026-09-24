@@ -44,6 +44,7 @@ import httpx
 from monday_audit.agent import MODEL, hash_promptu
 from monday_audit.analiza import (
     SCIEZKA_PROMPTU_ANALIZY,
+    OdpowiedzBezJsonaError,
     PozaSufitem,
     przytnij_do_sufitu,
     rozdziel_hipotezy,
@@ -580,13 +581,26 @@ async def analizuj_snapshot(
             zestaw = Narzedzia(
                 con=zrodlo, snapshot_id=snapshot_id, client_id=client_id, sol=sol, klient=klient
             )
-            odpowiedz = await zbadaj_konto(
-                do_modelu,
-                zestaw=zestaw,
-                wejscie=wejscie,
-                klucz_api=klucz_anthropic,
-                rubryka=rubryka,
-            )
+            try:
+                odpowiedz = await zbadaj_konto(
+                    do_modelu,
+                    zestaw=zestaw,
+                    wejscie=wejscie,
+                    klucz_api=klucz_anthropic,
+                    rubryka=rubryka,
+                )
+            except OdpowiedzBezJsonaError as blad:
+                # Sesja opłacona — koszt do bazy, surowy tekst do wołającego
+                # (w pamięci). Bez tego po 24 min nie zostało nic (2026-09-24).
+                zapisz_zuzycie(trwala, run_id, blad.zuzycie)
+                raise AnalizaError(
+                    str(blad),
+                    {
+                        "surowy_tekst": blad.tekst,
+                        "zuzycie": blad.zuzycie,
+                        "przebieg_narzedzi": blad.przebieg,
+                    },
+                ) from None
         else:
             odpowiedz = {"uwagi": [], "pominiete": [], "zuzycie": {}}
         sekund = round(time.monotonic() - zaczeto, 3)
@@ -653,9 +667,13 @@ async def analizuj_snapshot(
             # Tekst liczony TU, nie w lambdzie: nazwa z `except ... as` znika po
             # wyjściu z bloku, a lambda odwołuje się do nazw leniwie.
             opis_awarii = f"{type(awaria).__name__}: {awaria}"[:500]
+            # Przy odpowiedzi bez JSON-a trace niesie surowy tekst i narzędzia —
+            # przez tę samą bramkę maskowania. To jedyne miejsce, w którym
+            # da się potem zobaczyć, co model faktycznie oddał.
+            czesciowa = awaria.odpowiedz_modelu if isinstance(awaria, AnalizaError) else None
             wyslij_bezpiecznie(
                 slad,
-                lambda: zbuduj_trace_analizy(**wspolne, odpowiedz=None, blad=opis_awarii),
+                lambda: zbuduj_trace_analizy(**wspolne, odpowiedz=czesciowa, blad=opis_awarii),
                 opis=f"analiza {run_id} (awaria)",
             )
         # `przerwany`, nie zostawiony w `w_toku` — wiersz wiszący w toku na

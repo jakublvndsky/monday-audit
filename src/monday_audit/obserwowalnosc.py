@@ -333,6 +333,8 @@ def zbuduj_trace_analizy(
     if blad:
         rozstrzygniecie = "blad"
         wyjscie: Any = {"blad": blad}
+        if odpowiedz.get("surowy_tekst"):
+            wyjscie["surowy_tekst"] = odpowiedz["surowy_tekst"]
     else:
         rozstrzygniecie = "zakonczona"
         wyjscie = {

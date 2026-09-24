@@ -614,3 +614,14 @@ def test_wejscie_generacji_jest_rozmowa_z_haszami() -> None:
     assert "[obraz konta — tylko hasz o456]" in user["content"]
     assert "## HIPOTEZY DO ROZSTRZYGNIĘCIA (1)" in user["content"]
     assert "tajne" not in user["content"] and "[tablice] cos" not in user["content"]
+
+
+def test_awaria_parsowania_niesie_surowy_tekst_po_maskowaniu() -> None:
+    """2026-09-24: trace awarii miał sam komunikat — tekstu modelu nie było gdzie obejrzeć."""
+    trace = _trace_analizy(
+        blad="AnalizaError: nie jest JSON-em",
+        odpowiedz={"surowy_tekst": '{"uwagi": [ pisz do jan@firma.test', "przebieg_narzedzi": []},
+    )
+
+    [generacja] = [o for o in trace.obserwacje if o.rodzaj == "generation"]
+    assert generacja.wyjscie["surowy_tekst"] == '{"uwagi": [ pisz do [E-MAIL]'

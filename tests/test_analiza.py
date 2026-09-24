@@ -371,3 +371,34 @@ def test_remis_bez_faktu_rankingu_bierze_kolejnosc_detektora() -> None:
     # BOARD_GHOST ma ranking po items_count; bez tego faktu remis → kolejność.
     assert [h.obiekt_id for h in wynik] == ["b0", "b1"]
     assert przyciete.pominietych == 3
+
+
+# ── odpowiedź w kilku blokach (zmierzone 2026-09-24) ─────────────────────
+
+
+def test_odpowiedz_pocieta_na_bloki_sklada_sie_w_calosc() -> None:
+    """`analiza-20260924T110941Z` padła na „Extra data", bo parser brał tylko
+    ostatni blok, a 99 hipotez to odpowiedź w kilku blokach."""
+    from monday_audit.analiza import odpowiedz_z_blokow
+
+    calosc = json.dumps({"uwagi": [{"a": 1}, {"b": 2}], "pominiete": []})
+    bloki = [calosc[:20], calosc[20:]]
+
+    assert odpowiedz_z_blokow(bloki) == json.loads(calosc)
+
+
+def test_krotka_odpowiedz_nadal_z_ostatniego_bloku() -> None:
+    from monday_audit.analiza import odpowiedz_z_blokow
+
+    assert odpowiedz_z_blokow(["Rozstrzygam.", '{"uwagi": [], "pominiete": []}']) == {
+        "uwagi": [],
+        "pominiete": [],
+    }
+
+
+def test_brak_jsona_to_blad_a_nie_cisza() -> None:
+    from monday_audit.agent import AgentError
+    from monday_audit.analiza import odpowiedz_z_blokow
+
+    with pytest.raises(AgentError):
+        odpowiedz_z_blokow(["nie mam odpowiedzi"])
