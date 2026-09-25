@@ -241,7 +241,7 @@ def sprawdz_dowod(dowod: Any, klasa: Klasa) -> tuple[str, str] | None:
         if pole.endswith("[]")
         and not _cisza_jest_dowodem(pole.rstrip("[]"), dowod)
         and not _niezmierzone(klasa.id, pole.rstrip("[]"), _pole_dowodu(dowod, pole.rstrip("[]")))
-        and not _niepusta_kolekcja(_pole_dowodu(dowod, pole.rstrip("[]")), klasa.id)
+        and not _niepusta_kolekcja(_pole_dowodu(dowod, pole.rstrip("[]")))
     )
     if zle_ksztalty:
         return (
@@ -267,7 +267,7 @@ def _niezmierzone(klasa_id: str, pole: str, wartosc: Any) -> bool:
     )
 
 
-def _niepusta_kolekcja(wartosc: Any, klasa_id: str = "") -> bool:
+def _niepusta_kolekcja(wartosc: Any) -> bool:
     if isinstance(wartosc, list):
         return bool(wartosc)
     if isinstance(wartosc, dict):

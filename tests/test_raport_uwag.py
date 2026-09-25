@@ -302,3 +302,17 @@ def test_plik_to_wersja_klienta_bez_danych_zespolu_i_bez_zasobow(con: sqlite3.Co
     assert 'id="kat-tablice"' in html and 'id="kat-uzytkownicy"' in html
     assert 'id="kat-agenci"' not in html
     assert html.count("jeszcze nie mierzone") == 2
+
+
+def test_mapa_udzialow_to_procent_per_tablica(con: sqlite3.Connection) -> None:
+    """Review 2026-09-25: PROCESS_BYPASS ma nakładanie jako MAPĘ tablica → udział."""
+    obejscie = {
+        "klasa_id": "PROCESS_BYPASS",
+        "opis": "Zespół obchodzi proces.",
+        "rekomendacja": "Wrócić do jednej tablicy.",
+        "dowod": {"nakladanie_kolumn": {"7": 0.82, "8": 0.5}},
+    }
+
+    [chip] = _zbuduj(con, [obejscie]).uwagi[0].chipy
+
+    assert chip.wartosc == "7: 82%, 8: 50%"

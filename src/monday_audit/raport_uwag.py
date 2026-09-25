@@ -87,9 +87,13 @@ def _liczba(wartosc: Any) -> str:
     return str(wartosc)
 
 
-def _procent(wartosc: Any) -> str:
+def _procent(wartosc: Any, nazwy: dict[str, str] | None = None) -> str:
+    """Udział 0–1 jako procent. Mapa (tablica → udział, PROCESS_BYPASS) — per pozycja."""
     if isinstance(wartosc, (int, float)) and not isinstance(wartosc, bool) and 0 <= wartosc <= 1:
         return f"{round(wartosc * 100)}%"
+    if isinstance(wartosc, dict) and wartosc:
+        nazwy = nazwy or {}
+        return _skroc([f"{nazwy.get(str(k), str(k))}: {_procent(v)}" for k, v in wartosc.items()])
     return _auto(wartosc, run_at=None, nazwy={})
 
 
@@ -191,7 +195,7 @@ def chipy_dowodu(
             continue
         formatery = {
             "liczba": lambda v: _liczba(v) if v is not None else "brak",
-            "procent": _procent,
+            "procent": lambda v: _procent(v, nazwy),
             "data": lambda v: _data(v, run_at) if v else "brak",
             "tablice": lambda v: _tablice(v, nazwy),
             "lista": lambda v: (

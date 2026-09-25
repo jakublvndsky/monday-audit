@@ -274,15 +274,13 @@ def odpowiedz_z_blokow(bloki: list[str]) -> dict[str, Any]:
     """
     if not bloki:
         raise AgentError("odpowiedź agenta nie zawiera obiektu JSON")
-    kandydaci = [bloki[-1], "".join(bloki), "\n".join(bloki)]
-    ostatni: AgentError | None = None
-    for kandydat in kandydaci:
+    for kandydat in (bloki[-1], "".join(bloki)):
         try:
             return _wyluskaj_json(kandydat)
-        except AgentError as blad:
-            ostatni = blad
-    assert ostatni is not None  # noqa: S101
-    raise ostatni
+        except AgentError:
+            continue
+    # Ostatnia próba poza pętlą — jej błąd jest tym, który zobaczy wołający.
+    return _wyluskaj_json("\n".join(bloki))
 
 
 def zbuduj_zadanie(
