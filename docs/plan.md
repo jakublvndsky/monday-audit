@@ -310,7 +310,7 @@ na nich napisał.
   stara ścieżka dalej zapisuje snapshoty i mapowanie — a to są dwie pozycje do
   decyzji Kuby, nie do zamknięcia kodem.
 
-- [ ] **6. Przepływ: dwa kroki, jedno kliknięcie między nimi** — user story
+- [x] **6. Przepływ: dwa kroki, jedno kliknięcie między nimi** — user story
   z 2026-09-21. Użytkownik jest już zalogowany w portalu, a klucz monday leży
   w tamtej bazie, więc nigdzie go nie wpisuje.
 
@@ -333,6 +333,13 @@ na nich napisał.
     i raport z nazwiskami zwrócony w pamięci, nie zapisany (krok 2).
 
   Panel na Mikrusie zostaje z wstrzymanymi audytami — portal go zastąpi.
+
+  **Wariant A w tej postaci nie zadziała** (ustalone 2026-09-25 z informacji od
+  zespołu portalu). Portal nie ma backendu, który mógłby zaimportować pakiet:
+  to statyczny JS bez frameworka, nginx serwujący pliki i webhooki Make jako
+  cała logika, a bazą są tablice monday. Nie ma też TypeScriptu, więc typy TS
+  nic nie dają. Pakiet zostaje bez zmian — brakuje PROCESU, który go uruchomi.
+  Drogi i pytania: `docs/NOTATKA_PORTAL_DECYZJE.md` §8.
 
   **Kroki:**
   - [x] **6-1** — `usluga.przeglad_konta`: sześć kafelków (`Kafelek` ze
@@ -378,8 +385,13 @@ na nich napisał.
     Trzecia (`analiza-20260924T114549Z`): 89 uwag, 2,88 USD, 17 min,
     369 wywołań monday. Po niej budżet narzędzi 30 → 50 i IBAN tylko od
     15 znaków (koniec fałszywego alarmu co run).
-  - [ ] **6-4** — typy dla portalu generowane z kontraktu i dokument
-    wejścia dla zespołu portalu (co funkcje przyjmują, co oddają, czego nie).
+  - [~] **6-4** — ~~typy dla portalu generowane z kontraktu i dokument
+    wejścia~~ — **przeniesione do wpinania w portal** (decyzja Kuby
+    2026-09-25). Nic w fazie 7 od tego nie zależy, a kształt zależy od
+    odpowiedzi, których dziś nie ma (gdzie działa usługa, skąd klucz, jak
+    sprawdzić użytkownika). Przy wpinaniu treść kroku to: **cienkie API HTTP
+    nad `usluga`** (start, status, wynik, raport jednorazowo) z zadaniem w tle
+    i odpytywaniem statusu, plus opis kształtu JSON dla frontu w JS.
 
   Rozdzielenie jest tu mechanizmem, nie ozdobą: pierwszy krok kosztuje
   sekundy i nic nie zużywa, drugi kosztuje minuty i budżet wywołań klienta.

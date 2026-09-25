@@ -14,8 +14,14 @@ w `docs/NOTATKA_PORTAL_DECYZJE.md`, po stronie Kuby.
 
 ## 1. Jak audyt wchodzi do portalu
 
-Kod audytu to **importowany pakiet Pythona**. Portal woła wyłącznie
-`monday_audit.usluga`, a ekrany, sesje i magazyn klucza pisze sam. Użytkownik
+Kod audytu to **pakiet Pythona** z funkcjami wejściowymi w
+`monday_audit.usluga`. Ekrany, sesje i magazyn klucza należą do portalu.
+
+**Uwaga (2026-09-25):** portal nie ma backendu, który mógłby ten pakiet
+zaimportować (statyczny JS + Make + nginx). Między frontem a pakietem powstanie
+więc warstwa pośrednia — jaka, to decyzja przy wpinaniu
+(`docs/NOTATKA_PORTAL_DECYZJE.md` §8). Kształt danych opisany niżej się nie
+zmienia: to jest to, co warstwa pośrednia przekaże frontowi. Użytkownik
 jest zalogowany w portalu, a klucz monday leży w bazie portalu, więc **nigdzie
 go nie wpisuje**.
 

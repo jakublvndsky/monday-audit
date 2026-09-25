@@ -162,3 +162,41 @@ Dwie konsekwencje do rozstrzygnięcia później:
 
 **STATUS.md:** projekt jest w etapie 6 (Operate). Ta notatka niczego nie
 przesuwa i nic w kodzie nie zmienia.
+
+---
+
+## 8. Portal nie ma backendu — pakiet nie ma gdzie się zaimportować (2026-09-25)
+
+**Skąd to wiemy:** opis architektury od zespołu portalu (Kuba, 2026-09-25).
+Portal to statyczny JS bez frameworka (jeden `portal_shell.html` + szablony
+widoków), nginx oddaje pliki i pilnuje `/admin/`, **całą logikę robi Make**
+(logowanie hasłem i Google, profil, klucze API, zgłoszenia) wołany z przeglądarki
+webhookami, a **bazą są tablice monday** (Userzy, Klienci, Zgłoszenia). Python
+jest tylko w buildzie i w cronie co 15 minut. Na serwerze `pomoc.cxlabs.digital`
+nie nasłuchuje nic poza nginksem.
+
+**Co z tego wynika:** wariant A z fazy 6 zakładał, że portal zaimportuje
+`monday_audit.usluga`. Nie ma czego, co by importowało. Pakiet jest gotowy
+i niezależny od sposobu wywołania — brakuje procesu, który uruchomi analizę
+(~20 min) po stronie serwera.
+
+**Trzy drogi. Do twojej decyzji, przy wpinaniu — nie wcześniej:**
+
+| droga | jak | co za nią | co przeciw |
+|---|---|---|---|
+| 1. Nasza usługa HTTP obok portalu | cienkie API (FastAPI, już w stacku) nad `usluga`; nginx portalu proxuje np. `/audyt/`, front JS woła jak każdy adres | FastAPI i wdrożenie już są; długie zadanie + status to zwykły wzorzec; raport z nazwiskami idzie wprost do przeglądarki | pierwszy proces serwerowy w ekosystemie portalu; tożsamość i klucz do rozwiązania |
+| 2. Make jako pośrednik | front → Make → nasze API | pasuje do dzisiejszego wzorca portalu | Make odpytuje przez ~20 min; **uwagi i raport z nazwiskami przechodzą przez Make**, który trzyma dane w historii scenariuszy — kolejny podprzetwarzający |
+| 3. Panel osobno, portal linkuje | bez integracji | najmniej pracy | nie spełnia „jestem zalogowany w portalu i nic nie wpisuję" |
+
+**Pytania, na które kod nie odpowie** (dotyczą drogi 1, częściowo 2):
+
+1. **Gdzie działa usługa** — Mikrus (tam stoi panel, audyty wstrzymane), czy
+   serwer portalu (tam według opisu chodzą już inne procesy Pythona)?
+2. **Skąd usługa bierze klucz monday klienta** — portal trzyma klucze w tablicy
+   monday przez Make. Klucz nie może przejść przez przeglądarkę, więc albo
+   usługa czyta go sama po stronie serwera, albo dostaje od Make.
+3. **Jak usługa sprawdza, kim jest użytkownik** — logowanie robi Make; jaki
+   token/sesję wydaje przeglądarce i czy da się go zweryfikować poza Make?
+
+**Czego to NIE blokuje:** fazy 7 (raport w czterech kategoriach, PDF) —
+działa na wyniku analizy, nie na tym, kto ją uruchomił.
