@@ -296,7 +296,9 @@ na nich napisał.
     (`cxlabs`), 3 snapshoty, 101 wierszy mapowania (użytkownicy konta monday
     CXLABS, w tym 13 gości — mogą być spoza firmy), 6 runów, 47 findingów;
     osobno dane logowania do panelu (5 kont). Raportów w plikach brak.
-    Serwer stoi na 12 migracjach — kod sprzed faz 4–5c.
+    Serwer stał wtedy na 12 migracjach. Od 2026-09-25 produkcja stoi na
+    `main` (`296a195`, migracja 14) — wdrożenie samego kodu faz 6–7, panel bez
+    zmian i nadal z wstrzymanymi audytami.
   - [ ] dane na serwerze i w `/var/backups` — **zostają na razie, „w razie w"**
     (decyzja Kuby 2026-09-23). Nowe nie dochodzą, bo audyty z panelu są
     wstrzymane i wdrożone (`decb5ea`); kopie dzienne dalej rotują co 14 dni,
