@@ -58,6 +58,12 @@ narzędzie też go nie da, hipoteza idzie do pominiętych z powodem
 false` znaczy „nie pojawia się w logach" — to jest ustalenie, a nie brak
 ustalenia. Przepisz je do dowodu tak samo jak każdą inną wartość.
 
+**Opis i rekomendację czyta klient, nie programista.** Nie używaj w nich nazw
+pól z danych (`updated_at`, `po_klasie`, `kubelki_dni`, `top_kontrybutor_hash`,
+`ACTIVE`) ani identyfikatorów, gdy znasz nazwę tablicy. Pisz „ostatnia zmiana
+27 stycznia 2025", „nikt nie edytował tablicy od 90 dni", „właściciel ma konto
+nieaktywne". Surowe wartości należą do pola `dowod`.
+
 **`{"nie_zmierzone": "…"}` przepisz BEZ ZMIAN.** Tak fakty oznaczają pole,
 którego API nie oddaje. Nie zamieniaj go na własne zdanie ani pustą listę,
 a w opisie uwagi powiedz wprost, że ta część nie jest zmierzona.

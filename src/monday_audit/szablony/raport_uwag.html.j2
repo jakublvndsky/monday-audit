@@ -1,12 +1,15 @@
-{# Raport uwag krytycznych — układ z fazy 7 (projekt Claude Design „Audyt monday.com",
-   ekrany C i D, wariant „hero"; decyzje Kuby z 2026-09-25).
+{# Raport uwag krytycznych — ekrany C i D z projektu Claude Design (docs/design/
+   AuditModule.dc.html), wariant „hero". Markup i style PRZENIESIONE 1:1 z projektu
+   (2026-09-25, po uwadze Kuby „praktycznie nie pokrywa się z designem"): pętle
+   i warunki `sc-for`/`sc-if` przepisane na Jinja, `cqw` zostaje (kontener = korzeń).
 
-   Dokument niesie NAZWISKA pracowników klienta. Powstaje raz, w trakcie runu,
-   i nie ma kopii na serwerze. Jeden plik, zero zasobów zewnętrznych, zero skryptów:
-   przejście z raportu głównego do kategorii to kotwice i `:target`.
+   Różnice wobec projektu, każda świadoma:
+   - bez baneru „Zapisz ten raport teraz", linku „Historia audytów" i bloku zespołu —
+     to widok portalu, a plik idzie do klienta (decyzja 2026-09-25),
+   - przejście do kategorii to kotwica i `:target` (jeden plik, zero skryptów),
+   - fonty nie są osadzone (D14), animacje pominięte.
 
-   Wersja DLA KLIENTA: bez kosztu, bez odrzuconych hipotez, bez identyfikatorów
-   sygnałów (to widok zespołu w portalu). Fonty nie są osadzone — D14.
+   Dokument niesie NAZWISKA pracowników klienta. Powstaje raz, nie ma kopii na serwerze.
 #}
 <!doctype html>
 <html lang="pl">
@@ -14,260 +17,277 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Raport audytu monday.com — {{ r.konto_nazwa or r.client_id }} — {{ r.run_at[:10] }}</title>
 <style>
-{% include "_marka.css.j2" %}
-  :root { --cx-ink-20: rgb(139, 189, 184); }
-  body { max-width: none; margin: 0; padding: 0; background: var(--cx-mist); }
+  /* Tokeny i klasy z CXLABS Design System (colors_and_type.css) — bez fontów (D14). */
+  :root {
+    --cx-ink: rgb(18, 32, 33); --cx-ink-80: rgb(36, 56, 56); --cx-ink-60: rgb(48, 85, 85);
+    --cx-ink-40: rgb(112, 156, 154); --cx-ink-20: rgb(139, 189, 184); --cx-ink-10: rgb(73, 131, 129);
+    --cx-lime: rgb(173, 247, 99); --cx-lime-soft: rgb(219, 236, 233);
+    --cx-mist: rgb(244, 249, 248); --cx-paper: rgb(246, 247, 248);
+    --cx-cloud: rgb(234, 235, 237); --cx-cloud-2: rgb(220, 222, 225);
+    --cx-gray-1: rgb(50, 51, 56); --cx-gray-2: rgb(97, 98, 107); --cx-gray-3: rgb(146, 150, 159);
+    --shadow-md: 0 8px 16px rgba(0, 0, 0, 0.06);
+    --font-display: "Clash Display", "Avenir Next", "Avenir", Helvetica, sans-serif;
+    --font-body: "Avenir", "Avenir Next", Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  /* BEZ globalnego `border-box`: projekt liczy `max-width: 960px` dla treści, a odstępy
+     dochodzą na zewnątrz. Z `border-box` treść była o 128 px węższa i kolumny się zawijały. */
+  html, body { margin: 0; font-family: var(--font-body); font-size: 16px; line-height: 1.5;
+               color: var(--cx-ink); background: var(--cx-mist); -webkit-font-smoothing: antialiased; }
+  h1, h2, h3 { font-family: var(--font-display); font-weight: 400; line-height: 1.2; letter-spacing: -0.01em; margin: 0; }
+  p { margin: 0; }
   a { color: var(--cx-ink-10); text-decoration: none; }
   a:hover { color: var(--cx-ink); }
-  .pasek { background: var(--cx-ink); color: var(--cx-mist); height: 56px; display: flex;
-           align-items: center; justify-content: space-between; gap: var(--space-4);
-           padding: 0 clamp(16px, 4vw, 40px); }
-  .pasek img { height: 22px; width: auto; display: block; }
-  .pasek span { font-size: var(--fs-small); color: var(--cx-lime-soft); }
-  .tresc { max-width: 1040px; margin: 0 auto; padding: clamp(20px, 4vw, 40px) clamp(16px, 4vw, 40px) var(--space-8);
-           display: flex; flex-direction: column; gap: var(--space-5); }
-  .meta { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center;
-          font-size: var(--fs-small); color: var(--cx-gray-2); }
-  .meta b { color: var(--cx-ink); font-weight: 600; }
-  .stan { background: var(--cx-lime); color: var(--cx-ink); border-radius: var(--radius-sm); padding: 3px 10px; }
+  .cx-eyebrow { font-size: 14px; color: var(--cx-ink-40); display: inline-flex; align-items: center; gap: 12px; }
+  .cx-chev, .cx-eyebrow::before {
+    width: 16px; height: 13px; background: currentColor; display: inline-block;
+    -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 13'><path d='M7 6.5 L0 0 L2.5 0 L9 6.5 L2.5 13 L0 13 Z M14 6.5 L7 0 L9.5 0 L16 6.5 L9.5 13 L7 13 Z'/></svg>") no-repeat center / contain;
+            mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 13'><path d='M7 6.5 L0 0 L2.5 0 L9 6.5 L2.5 13 L0 13 Z M14 6.5 L7 0 L9.5 0 L16 6.5 L9.5 13 L7 13 Z'/></svg>") no-repeat center / contain;
+  }
+  .cx-eyebrow::before { content: ""; }
+  .cx-btn { display: inline-flex; align-items: center; gap: 24px; height: 48px; padding: 4px 4px 4px 24px;
+            border-radius: 12px; border: 1px solid transparent; background: var(--cx-lime); color: var(--cx-ink);
+            font-size: 16px; line-height: 1.5; white-space: nowrap; flex-shrink: 0; }
+  .cx-btn:hover { filter: brightness(0.96); color: var(--cx-ink); }
+  .cx-btn__chev { width: 40px; height: 40px; border-radius: 8px; background: var(--cx-ink); color: var(--cx-lime);
+                  display: inline-flex; align-items: center; justify-content: center; }
+  .cx-bg-hero { background: linear-gradient(180deg, var(--cx-ink-80) 0%, var(--cx-ink) 100%); color: var(--cx-mist); }
 
-  /* ── widoki: główny + kategorie, przełączane kotwicą ──────────────── */
-  .widok { display: none; flex-direction: column; gap: var(--space-5); }
-  .widok:target { display: flex; }
-  #glowny { display: flex; flex-direction: column; gap: var(--space-5); }
+  /* Przełączanie widoków kotwicą: raport główny domyślnie, kategoria po kliknięciu. */
+  .widok { display: none; }
+  .widok:target { display: block; }
   body:has(.widok:target) #glowny { display: none; }
+  #glowny { display: block; }
 
-  /* ── hero ──────────────────────────────────────────────────────────── */
-  .hero { background: linear-gradient(180deg, var(--cx-ink-80) 0%, var(--cx-ink) 100%);
-          color: var(--cx-mist); border-radius: var(--radius-xl);
-          padding: clamp(24px, 4vw, 48px); display: flex; flex-direction: column; gap: 28px; }
-  .hero .eyebrow { color: var(--cx-ink-40); margin: 0; }
-  .wynik { display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap; }
-  .wynik .liczba { font-family: var(--font-display); font-weight: 300; line-height: .9;
-                   font-size: clamp(72px, 11vw, 128px); letter-spacing: -.02em; color: var(--cx-lime);
-                   font-variant-numeric: tabular-nums; }
-  .wynik .podpis { font-family: var(--font-display); font-size: clamp(22px, 2.8vw, 32px);
-                   line-height: 1.15; padding-bottom: 6px; }
-  .hero p { margin: 0; color: var(--cx-lime-soft); max-width: 560px; }
-  .udzialy { display: flex; gap: 3px; height: 14px; border-radius: 7px; overflow: hidden; }
-  .kat { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; padding: 18px 0;
-         border-top: 1px solid var(--cx-ink-60); color: var(--cx-mist); }
-  a.kat:hover { color: var(--cx-lime); }
-  .kat .nazwa { flex: 0 0 170px; display: flex; align-items: center; gap: 12px; font-size: 17px; }
-  .kat .znak { width: 12px; height: 12px; border-radius: 3px; flex: none; }
-  .kat .ile { flex: 0 0 110px; display: flex; align-items: baseline; gap: 8px; }
-  .kat .ile b { font-family: var(--font-display); font-weight: 400; font-size: 40px; line-height: 1; }
-  .kat .ile span, .kat.brak { color: var(--cx-ink-40); }
-  .kat .zdanie { flex: 1 1 280px; min-width: 0; font-size: 15px; line-height: 1.45; color: var(--cx-lime-soft); }
-  .kat .dalej { font-size: var(--fs-small); white-space: nowrap; }
-  .kat.brak { border-top-style: dashed; }
-  .kat.brak .znak { border: 1.5px dashed var(--cx-ink-40); }
-  .kat.brak .ile { font-family: var(--font-display); font-size: 20px; line-height: 1.2; }
-  .kat.brak .zdanie { color: var(--cx-ink-40); }
-
-  /* ── pokrycie ──────────────────────────────────────────────────────── */
-  .pokrycie { background: rgb(255, 247, 219); border: 1px solid rgb(240, 215, 140);
-              border-radius: var(--radius-xl); padding: clamp(20px, 3vw, 32px);
-              display: flex; flex-direction: column; gap: 20px; }
-  .pokrycie h2 { margin: 0; font-size: clamp(22px, 2.6vw, 28px); color: rgb(74, 52, 0); }
-  .pokrycie > p { margin: 0; color: rgb(90, 64, 0); }
-  .siatka { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 12px; }
-  .pole { background: #fff; border: 1px solid rgb(240, 215, 140); border-radius: var(--radius-lg);
-          padding: 18px; display: flex; flex-direction: column; gap: 10px; }
-  .pole b { font-weight: 600; font-size: 15px; }
-  .pole .proc { font-family: var(--font-display); font-size: 36px; line-height: 1; color: rgb(122, 86, 0); }
-  .pole .nm { font-family: var(--font-display); font-size: 24px; line-height: 1.1; color: var(--cx-gray-2); }
-  .pole .belka { height: 8px; border-radius: 4px; background: rgb(250, 234, 188); overflow: hidden; }
-  .pole .belka i { display: block; height: 100%; background: rgb(122, 86, 0); }
-  .pole .belka.nm-b { background: none; border: 1.5px dashed rgb(210, 180, 110); }
-  .pole p { margin: 0; font-size: var(--fs-small); line-height: 1.45; color: var(--cx-gray-2); }
-  .inne { background: #fff; border: 1px solid var(--cx-cloud); border-radius: var(--radius-lg);
-          padding: 20px 24px; }
-  .inne h3 { font-size: var(--fs-body); font-family: var(--font-body); font-weight: 600; margin: 0 0 8px; }
-  .inne ul { margin: 0; padding-left: 18px; color: var(--cx-gray-2); font-size: 15px; }
-
-  /* ── widok kategorii ───────────────────────────────────────────────── */
-  .naglowek-kat { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 32px; align-items: baseline; }
-  .naglowek-kat h1 { font-size: clamp(28px, 4vw, 40px); }
-  .naglowek-kat span { color: var(--cx-gray-2); }
-  .grupa { background: #fff; border: 1px solid var(--cx-cloud-2); border-radius: var(--radius-lg); overflow: hidden;
-           break-inside: avoid-page; }
-  .grupa > header { padding: clamp(18px, 2.6vw, 24px); display: flex; flex-direction: column; gap: 12px; }
-  .grupa h2 { margin: 0; font-size: clamp(20px, 2.2vw, 24px); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-  .grupa h2 span { background: var(--cx-ink); color: var(--cx-mist); border-radius: var(--radius-sm);
-                   padding: 2px 10px; font-size: var(--fs-small); font-family: var(--font-body); }
-  .rek-grupy { background: var(--cx-mist); border-radius: var(--radius-md); padding: 12px 16px; font-size: 15px; }
-  .rek-grupy b { color: var(--cx-ink-10); font-weight: 600; }
-  .kolumny { display: flex; gap: 24px; padding: 10px 24px; background: var(--cx-paper);
-             border-top: 1px solid var(--cx-cloud); font-size: 13px; color: var(--cx-gray-2); }
-  .wiersz { display: flex; flex-wrap: wrap; gap: 14px 24px; padding: 18px 24px; border-top: 1px solid var(--cx-cloud);
-           break-inside: avoid; }
-  .k-opis { flex: 1.1 1 240px; } .k-rek { flex: 1 1 220px; } .k-dowod { flex: 1.4 1 280px; } .k-zrodlo { flex: 0 0 72px; }
-  .k-opis, .k-rek, .k-dowod { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-  .wiersz p { margin: 0; font-size: 15px; line-height: 1.5; }
-  .k-rek p::before { content: "→ "; color: var(--cx-ink-10); }
+  .kat-wiersz { color: var(--cx-mist); transition: color 150ms ease; }
+  .kat-wiersz:hover { color: var(--cx-lime); }
+  .grupa-wiersz-nag { display: flex; }
   .etykieta-m { display: none; font-size: 13px; color: var(--cx-gray-2); }
-  .chipy { display: flex; flex-wrap: wrap; gap: 6px; }
-  .chip { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px 10px; border-radius: var(--radius-sm);
-          background: var(--cx-paper); border: 1px solid var(--cx-cloud); font-size: 13px; line-height: 1.4;
-          max-width: 100%; overflow-wrap: anywhere; }
-  .chip i { font-style: normal; color: var(--cx-gray-2); }
-  .chip b { font-weight: 600; }
-  .chip.nm { flex-direction: column; gap: 2px; background: #fff; border: 1.5px dashed var(--cx-gray-3); }
-  .chip.nm b { color: var(--cx-gray-2); }
-  .zrodlo { border-radius: var(--radius-xs); padding: 2px 8px; font-size: 12px; }
-  .zrodlo.ai { background: var(--cx-ink-80); color: var(--cx-mist); }
-  .zrodlo.szablon { background: #fff; border: 1px solid var(--cx-cloud-2); color: var(--cx-gray-2); }
-  .zastrz-kat { background: #fff; border: 1px solid var(--cx-cloud); border-radius: var(--radius-lg);
-                padding: 20px 24px; display: flex; flex-direction: column; gap: 10px; font-size: 15px; }
-  .zastrz-kat div::before { content: "— "; color: rgb(122, 86, 0); }
-  .brak-uwag { background: #fff; border: 1.5px dashed var(--cx-gray-3); border-radius: var(--radius-xl);
-           padding: 32px; color: var(--cx-gray-2); }
-  .stopka { font-size: 13px; color: var(--cx-gray-3); }
-
-  @media (max-width: 720px) {
-    .kolumny { display: none; }
+  @container (max-width: 720px) {
+    .grupa-wiersz-nag { display: none; }
     .etykieta-m { display: block; }
-    .kat .nazwa, .kat .ile { flex-basis: auto; }
   }
   @media print {
     body { background: #fff; }
-    .widok, #glowny { display: flex !important; }
+    .widok, #glowny { display: block !important; }
     .widok { break-before: page; }
-    .wroc { display: none; }
+    .wroc { display: none !important; }
   }
 </style>
 
 {% set kolory = ["var(--cx-lime)", "var(--cx-ink-20)", "var(--cx-ink-40)", "var(--cx-ink-10)"] %}
-<div class="pasek">
-  {% if logo %}<img src="{{ logo }}" alt="CXLABS">{% else %}<b>CXLABS</b>{% endif %}
-  <span>{{ r.konto_nazwa or r.client_id }}</span>
-</div>
+{% set konto = r.konto_nazwa or r.client_id %}
+{% set naj = r.zmierzone | selectattr("uwag") | list %}
+{# „Zacznij od tablic", nie „od tablice" — dopełniacz per kategoria. #}
+{% set dopelniacz = {"tablice": "tablic", "uzytkownicy": "użytkowników", "workspace": "workspace'ów", "agenci": "agentów AI"} %}
 
-<div class="tresc">
-  <div class="meta">
-    <span class="stan">Zakończona</span>
-    <b>{{ r.konto_nazwa or r.client_id }}</b>
-    {% if r.plan %}<span>Plan {{ r.plan | capitalize }}</span>{% endif %}
-    <span>analiza z {{ r.run_at[:10] }}</span>
+{% macro naglowek(tytul, okruszki) %}
+  <div style="background:#fff;border-bottom:1px solid var(--cx-cloud);">
+    <div style="max-width:960px;margin:0 auto;padding:clamp(20px,3cqw,32px) clamp(20px,5cqw,64px);display:flex;flex-wrap:wrap;gap:16px 32px;align-items:flex-end;justify-content:space-between;">
+      <div style="display:flex;flex-direction:column;gap:10px;min-width:0;">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:14px;color:var(--cx-gray-2);">
+          {% for etykieta, cel in okruszki %}
+          <span style="display:flex;align-items:center;gap:6px;">
+            {% if not loop.first %}<span style="color:var(--cx-gray-3);">/</span>{% endif %}
+            {% if cel %}<a href="{{ cel }}" style="color:var(--cx-ink-10);">{{ etykieta }}</a>{% else %}<span>{{ etykieta }}</span>{% endif %}
+          </span>
+          {% endfor %}
+        </div>
+        <h1 style="font-size:clamp(28px,3.4cqw,40px);">{{ tytul }}</h1>
+        <div style="display:flex;align-items:flex-start;gap:8px;font-size:14px;color:var(--cx-gray-2);">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-top:2px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg>
+          <span>Audyt tylko czyta Twoje konto monday.com. Nie ma technicznej możliwości wprowadzenia na nim zmian.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endmacro %}
+
+{% macro metadane(powrot) %}
+  <div style="display:flex;flex-wrap:wrap;gap:16px 32px;align-items:center;justify-content:space-between;">
+    <div style="display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;font-size:14px;color:var(--cx-gray-2);">
+      <span style="display:inline-flex;align-items:center;gap:6px;background:var(--cx-lime);color:var(--cx-ink);border-radius:8px;padding:3px 10px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>Zakończona</span>
+      <span style="color:var(--cx-ink);font-weight:600;">{{ konto }}</span>
+      {% if r.plan %}<span>Plan {{ r.plan | capitalize }}</span>{% endif %}
+      <span>analiza z {{ r.run_at[8:10] }}.{{ r.run_at[5:7] }}.{{ r.run_at[:4] }}</span>
+    </div>
+    {% if powrot %}<a class="wroc" href="#glowny" style="font-size:14px;display:inline-flex;align-items:center;gap:6px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"></path></svg>Wróć do raportu głównego</a>{% endif %}
+  </div>
+{% endmacro %}
+
+<div style="container-type:inline-size;background:var(--cx-mist);min-height:100vh;">
+  <div style="background:var(--cx-ink);color:var(--cx-mist);display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 clamp(16px,4cqw,40px);height:56px;">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span class="cx-chev" style="color:var(--cx-lime);width:18px;height:15px;"></span>
+      <span style="font-family:var(--font-display);font-size:18px;letter-spacing:0.02em;">CXLABS</span>
+    </div>
+    <div style="font-size:14px;color:var(--cx-lime-soft);">{{ konto }}</div>
   </div>
 
-  {# ═══ RAPORT GŁÓWNY ═══════════════════════════════════════════════ #}
+  {# ═══ C · RAPORT GŁÓWNY ══════════════════════════════════════════════ #}
   <main id="glowny">
-    <section class="hero">
-      <p class="eyebrow">Wynik audytu</p>
-      <div class="wynik">
-        <span class="liczba">{{ r.uwagi | length }}</span>
-        <span class="podpis">{{ odmiana(r.uwagi | length, "uwaga krytyczna", "uwagi krytyczne", "uwag krytycznych") }}<br>na Twoim koncie</span>
-      </div>
-      <p>Każda uwaga ma opis, rekomendację i dowód z konta. Wybierz kategorię, żeby zobaczyć szczegóły.</p>
-      {% if r.uwagi %}
-      <div class="udzialy">
-        {% for k in r.zmierzone if k.uwag %}<span style="flex:{{ k.uwag }} 1 0;background:{{ kolory[loop.index0 % 4] }}"></span>{% endfor %}
-      </div>
-      {% endif %}
-      <div>
-        {% for k in r.kategorie %}
-        {% if k.niezmierzona %}
-        <div class="kat brak">
-          <span class="nazwa"><span class="znak"></span>{{ k.nazwa }}</span>
-          <span class="ile">jeszcze nie mierzone</span>
-          <span class="zdanie">{{ k.niezmierzona }}</span>
+    {{ naglowek("Raport audytu", [("Audyt monday.com", None), ("Raport z " ~ r.run_at[8:10] ~ "." ~ r.run_at[5:7] ~ "." ~ r.run_at[:4], None)]) }}
+    <div style="max-width:960px;margin:0 auto;padding:clamp(24px,4cqw,48px) clamp(20px,5cqw,64px) clamp(48px,6cqw,80px);display:flex;flex-direction:column;gap:clamp(20px,3cqw,32px);">
+      {{ metadane(False) }}
+
+      <div class="cx-bg-hero" style="border-radius:24px;padding:clamp(24px,4cqw,48px);display:flex;flex-direction:column;gap:28px;">
+        <div style="display:flex;flex-wrap:wrap;gap:24px 48px;align-items:flex-end;justify-content:space-between;">
+          <div style="display:flex;flex-direction:column;gap:14px;flex:1 1 320px;min-width:0;">
+            <span class="cx-eyebrow">Wynik audytu</span>
+            <div style="display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap;">
+              <span style="font-family:var(--font-display);font-weight:300;font-size:clamp(88px,11cqw,128px);line-height:0.9;letter-spacing:-0.02em;color:var(--cx-lime);font-variant-numeric:tabular-nums;">{{ r.uwagi | length }}</span>
+              <span style="font-family:var(--font-display);font-size:clamp(24px,2.8cqw,32px);color:var(--cx-mist);line-height:1.15;padding-bottom:6px;display:flex;flex-direction:column;"><span style="white-space:nowrap;">{{ odmiana(r.uwagi | length, "uwaga krytyczna", "uwagi krytyczne", "uwag krytycznych") }}</span><span style="white-space:nowrap;">na Twoim koncie</span></span>
+            </div>
+            <p style="color:var(--cx-lime-soft);max-width:560px;">Każda uwaga ma opis, rekomendację i dowód z konta. Wybierz kategorię, żeby zobaczyć szczegóły.</p>
+          </div>
+          {% if naj %}<a class="cx-btn" href="#kat-{{ naj[0].id }}">Zacznij od {{ dopelniacz.get(naj[0].id, naj[0].nazwa | lower) }}<span class="cx-btn__chev"><span class="cx-chev"></span></span></a>{% endif %}
         </div>
-        {% else %}
-        {% set kolor = kolory[(r.zmierzone | map(attribute="id") | list).index(k.id) % 4] %}
-        <a class="kat" href="#kat-{{ k.id }}">
-          <span class="nazwa"><span class="znak" style="background:{{ kolor }}"></span>{{ k.nazwa }}</span>
-          <span class="ile"><b>{{ k.uwag }}</b><span>{{ k.udzial }}%</span></span>
-          <span class="zdanie">{{ k.zdanie }}</span>
-          <span class="dalej">Zobacz {{ k.uwag }} {{ odmiana(k.uwag, "uwagę", "uwagi", "uwag") }} ›</span>
-        </a>
+        {% if naj %}
+        <div style="display:flex;gap:3px;height:14px;border-radius:7px;overflow:hidden;">
+          {% for k in naj %}<span style="flex:{{ k.uwag }} 1 0;background:{{ kolory[loop.index0 % 4] }};"></span>{% endfor %}
+        </div>
         {% endif %}
-        {% endfor %}
-      </div>
-    </section>
-
-    {% if r.pokrycie %}
-    <section class="pokrycie">
-      <h2>Czego ten raport nie sprawdził</h2>
-      <p><b>Brak uwag w tych obszarach nie znaczy, że są w porządku.</b> Audyt zbadał tylko część przypadków albo API monday nie udostępnia danych.</p>
-      <div class="siatka">
-        {% for p in r.pokrycie %}
-        <div class="pole">
-          <b>{{ p.temat }}</b>
-          {% if p.niezmierzone %}
-          <span class="nm">nie zmierzone</span>
-          <div class="belka nm-b"></div>
+        <div style="display:flex;flex-direction:column;">
+          {% for k in r.kategorie %}
+          {% if k.niezmierzona %}
+          <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 24px;padding:18px 0;border-top:1px dashed var(--cx-ink-60);color:var(--cx-ink-40);">
+            <div style="flex:0 0 160px;display:flex;align-items:center;gap:12px;">
+              <span style="width:12px;height:12px;border-radius:3px;border:1.5px dashed var(--cx-ink-40);flex:none;"></span>
+              <span style="font-size:17px;">{{ k.nazwa }}</span>
+            </div>
+            <span style="flex:0 0 110px;font-family:var(--font-display);font-size:20px;line-height:1.2;">jeszcze nie mierzone</span>
+            <span style="flex:1 1 280px;min-width:0;font-size:15px;line-height:1.45;">{{ k.niezmierzona }}</span>
+          </div>
           {% else %}
-          <span class="proc">{{ p.procent }}%</span>
-          <div class="belka"><i style="width:{{ p.procent }}%"></i></div>
+          {% set kolor = kolory[(naj | map(attribute="id") | list).index(k.id) % 4] if k.uwag else "var(--cx-ink-60)" %}
+          <a class="kat-wiersz" href="#kat-{{ k.id }}" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 24px;padding:18px 0;border-top:1px solid var(--cx-ink-60);">
+            <div style="flex:0 0 160px;display:flex;align-items:center;gap:12px;">
+              <span style="width:12px;height:12px;border-radius:3px;background:{{ kolor }};flex:none;"></span>
+              <span style="font-size:17px;">{{ k.nazwa }}</span>
+            </div>
+            <div style="flex:0 0 110px;display:flex;align-items:baseline;gap:8px;">
+              <span style="font-family:var(--font-display);font-size:40px;line-height:1;font-variant-numeric:tabular-nums;">{{ k.uwag }}</span>
+              <span style="font-size:14px;color:var(--cx-ink-40);">{{ k.udzial }}%</span>
+            </div>
+            <span style="flex:1 1 280px;min-width:0;font-size:15px;line-height:1.45;color:var(--cx-lime-soft);">{{ k.zdanie }}</span>
+            <span style="display:inline-flex;align-items:center;gap:6px;font-size:14px;white-space:nowrap;">Zobacz {{ k.uwag }} {{ odmiana(k.uwag, "uwagę", "uwagi", "uwag") }}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg></span>
+          </a>
           {% endif %}
-          <p>{{ p.tekst }}</p>
+          {% endfor %}
         </div>
-        {% endfor %}
       </div>
-    </section>
-    {% endif %}
 
-    {% if r.zastrzezenia %}
-    <section class="inne">
-      <h3>Pozostałe zastrzeżenia do danych</h3>
-      <ul>{% for z in r.zastrzezenia %}<li>{{ z }}</li>{% endfor %}</ul>
-    </section>
-    {% endif %}
-  </main>
-
-  {# ═══ RAPORTY POGŁĘBIONE KATEGORII ═══════════════════════════════ #}
-  {% for k in r.zmierzone %}
-  <section class="widok" id="kat-{{ k.id }}">
-    <a class="wroc" href="#glowny">‹ Wróć do raportu głównego</a>
-    <div class="naglowek-kat">
-      <h1>{{ k.nazwa }}</h1>
-      <span>{{ k.uwag }} {{ odmiana(k.uwag, "uwaga krytyczna", "uwagi krytyczne", "uwag krytycznych") }}{% if k.grupy %} w {{ k.grupy | length }} {{ odmiana(k.grupy | length, "rodzaju", "rodzajach", "rodzajach") }} problemów, od najliczniejszych{% endif %}</span>
-    </div>
-    {% set zk = r.pokrycie_kategorii(k.id) %}
-    {% if zk %}
-    <div class="zastrz-kat">
-      <b>Zastrzeżenia kategorii</b>
-      {% for p in zk %}<div><b>{{ p.temat }}:</b> {{ p.tekst }}</div>{% endfor %}
-    </div>
-    {% endif %}
-    {% if not k.grupy %}
-    <div class="brak-uwag">Audyt nie znalazł w tej kategorii uwag krytycznych.</div>
-    {% endif %}
-    {% for g in k.grupy %}
-    <article class="grupa">
-      <header>
-        <h2>{{ g.nazwa_klasy }} <span>{{ g.uwagi | length }} {{ odmiana(g.uwagi | length, "uwaga", "uwagi", "uwag") }}</span></h2>
-        {% if g.wspolna_rekomendacja %}<div class="rek-grupy"><b>Rekomendacja dla całej grupy: </b>{{ g.wspolna_rekomendacja }}</div>{% endif %}
-      </header>
-      <div class="kolumny"><span class="k-opis">Opis</span>{% if not g.wspolna_rekomendacja %}<span class="k-rek">Rekomendacja</span>{% endif %}<span class="k-dowod">Dowód</span><span class="k-zrodlo">Źródło</span></div>
-      {% for u in g.uwagi %}
-      <div class="wiersz">
-        <div class="k-opis"><span class="etykieta-m">Opis</span><p>{{ u.opis }}</p></div>
-        {% if not g.wspolna_rekomendacja %}<div class="k-rek"><span class="etykieta-m">Rekomendacja</span><p>{{ u.rekomendacja }}</p></div>{% endif %}
-        <div class="k-dowod"><span class="etykieta-m">Dowód</span>
-          <div class="chipy">
-            {% for c in u.chipy %}
-            {% if c.niezmierzone %}<span class="chip nm"><span><i>{{ c.etykieta }}: </i><b>nie zmierzone</b></span><i>{{ c.powod }}</i></span>
-            {% else %}<span class="chip"><i>{{ c.etykieta }}:</i><b>{{ c.wartosc }}</b></span>{% endif %}
-            {% endfor %}
+      {% if r.pokrycie %}
+      <div style="background:rgb(255,247,219);border:1px solid rgb(240,215,140);border-radius:24px;padding:clamp(20px,3cqw,32px);display:flex;flex-direction:column;gap:20px;">
+        <div style="display:flex;gap:16px;align-items:flex-start;">
+          <span style="width:44px;height:44px;border-radius:12px;background:rgb(122,86,0);color:#fff;display:flex;align-items:center;justify-content:center;flex:none;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg></span>
+          <div style="display:flex;flex-direction:column;gap:6px;min-width:0;">
+            <h3 style="font-size:clamp(22px,2.6cqw,28px);color:rgb(74,52,0);">Czego ten raport nie sprawdził</h3>
+            <p style="color:rgb(90,64,0);"><strong style="font-weight:700;">Brak uwag w tych obszarach nie znaczy, że są w porządku.</strong> Audyt zbadał tylko część przypadków albo API monday nie udostępnia danych.</p>
           </div>
         </div>
-        <div class="k-zrodlo"><span class="etykieta-m">Źródło</span>
-          {% if u.zrodlo == "szablon" %}<span class="zrodlo szablon">szablon</span>{% else %}<span class="zrodlo ai">AI</span>{% endif %}
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:12px;">
+          {% for p in r.pokrycie %}
+          <div style="background:#fff;border:1px solid rgb(240,215,140);border-radius:16px;padding:18px;display:flex;flex-direction:column;gap:10px;">
+            <span style="font-weight:600;font-size:15px;">{{ p.temat }}</span>
+            {% if p.niezmierzone %}
+            <span style="font-family:var(--font-display);font-size:26px;line-height:1.1;color:var(--cx-gray-1);">nie zmierzone</span>
+            <div style="height:8px;border-radius:4px;border:1.5px dashed rgb(210,180,110);"></div>
+            {% else %}
+            <div style="display:flex;flex-direction:column;gap:4px;"><span style="font-family:var(--font-display);font-size:36px;line-height:1;color:rgb(122,86,0);font-variant-numeric:tabular-nums;">{{ p.procent }}%</span><span style="font-size:14px;line-height:1.4;color:var(--cx-gray-1);">zbadano {{ p.zbadanych }} z {{ p.wszystkich }}</span></div>
+            <div style="height:8px;border-radius:4px;background:rgb(250,234,188);overflow:hidden;"><div style="height:100%;width:{{ p.procent }}%;background:rgb(122,86,0);border-radius:4px;"></div></div>
+            {% endif %}
+            <p style="font-size:14px;line-height:1.45;color:var(--cx-gray-1);">{{ p.tekst }}</p>
+          </div>
+          {% endfor %}
         </div>
       </div>
+      {% endif %}
+
+      {% if r.zastrzezenia %}
+      <div style="background:#fff;border:1px solid var(--cx-cloud);border-radius:16px;padding:20px 24px;display:flex;flex-direction:column;gap:10px;">
+        <strong style="font-weight:600;font-size:15px;">Pozostałe zastrzeżenia do danych</strong>
+        {% for z in r.zastrzezenia %}<div style="display:flex;gap:10px;font-size:15px;color:var(--cx-gray-1);"><span style="color:rgb(122,86,0);flex:none;">—</span><span>{{ z }}</span></div>{% endfor %}
+      </div>
+      {% endif %}
+
+      <p style="font-size:13px;color:var(--cx-gray-3);">Raport z nazwiskami, wygenerowany jednorazowo — CXLABS nie przechowuje jego kopii.{% if r.nieznane_hashe %} {{ r.nieznane_hashe }} {{ odmiana(r.nieznane_hashe, "konto", "konta", "kont") }} bez rozwiniętej nazwy oznaczono jako „nieznane konto".{% endif %}</p>
+    </div>
+  </main>
+
+  {# ═══ D · RAPORT POGŁĘBIONY KATEGORII ════════════════════════════════ #}
+  {% for k in r.zmierzone %}
+  <section class="widok" id="kat-{{ k.id }}">
+    {{ naglowek(k.nazwa, [("Audyt monday.com", None), ("Raport audytu", "#glowny"), (k.nazwa, None)]) }}
+    <div style="max-width:960px;margin:0 auto;padding:clamp(24px,4cqw,48px) clamp(20px,5cqw,64px) clamp(48px,6cqw,80px);display:flex;flex-direction:column;gap:clamp(20px,3cqw,32px);">
+      {{ metadane(True) }}
+
+      <div style="display:flex;flex-wrap:wrap;gap:12px 32px;align-items:baseline;">
+        <span style="font-family:var(--font-display);font-size:clamp(24px,2.8cqw,32px);">{{ k.uwag }} {{ odmiana(k.uwag, "uwaga krytyczna", "uwagi krytyczne", "uwag krytycznych") }}</span>
+        {% if k.grupy %}<span style="color:var(--cx-gray-2);">w {{ k.grupy | length }} {{ odmiana(k.grupy | length, "rodzaju problemu", "rodzajach problemów", "rodzajach problemów") }}, od najliczniejszych</span>{% endif %}
+      </div>
+
+      {% set zk = r.pokrycie_kategorii(k.id) %}
+      {% if zk %}
+      <div style="background:#fff;border:1px solid var(--cx-cloud);border-radius:16px;padding:20px 24px;display:flex;flex-direction:column;gap:10px;">
+        <strong style="font-weight:600;font-size:15px;">Zastrzeżenia kategorii</strong>
+        {% for p in zk %}<div style="display:flex;gap:10px;font-size:15px;color:var(--cx-gray-1);"><span style="color:rgb(122,86,0);flex:none;">—</span><span><strong style="font-weight:600;color:var(--cx-ink);">{{ p.temat }}:</strong> {{ p.tekst }}</span></div>{% endfor %}
+      </div>
+      {% endif %}
+
+      {% if not k.grupy %}
+      <div style="background:#fff;border:1px dashed var(--cx-cloud-2);border-radius:16px;padding:32px;color:var(--cx-gray-2);">Audyt nie znalazł w tej kategorii uwag krytycznych.</div>
+      {% endif %}
+
+      {% for g in k.grupy %}
+      <div class="grupa" style="background:#fff;border:1px solid var(--cx-cloud-2);border-radius:16px;overflow:hidden;">
+        <div style="padding:clamp(18px,2.6cqw,24px);display:flex;flex-direction:column;gap:12px;">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <h3 style="font-size:clamp(20px,2.2cqw,24px);">{{ g.nazwa_klasy }}</h3>
+            <span style="background:var(--cx-ink);color:var(--cx-mist);border-radius:8px;padding:2px 10px;font-size:14px;">{{ g.uwagi | length }} {{ odmiana(g.uwagi | length, "uwaga", "uwagi", "uwag") }}</span>
+          </div>
+          {% if g.wspolna_rekomendacja %}
+          <div style="background:var(--cx-mist);border-radius:12px;padding:12px 16px;font-size:15px;"><span style="color:var(--cx-ink-10);font-weight:600;">Rekomendacja dla całej grupy: </span>{{ g.wspolna_rekomendacja }}</div>
+          {% endif %}
+        </div>
+        <div class="grupa-wiersz-nag" style="gap:24px;padding:10px 24px;background:var(--cx-paper);border-top:1px solid var(--cx-cloud);font-size:13px;color:var(--cx-gray-2);">
+          <span style="flex:1.1 1 240px;">Opis</span>{% if not g.wspolna_rekomendacja %}<span style="flex:1 1 220px;">Rekomendacja</span>{% endif %}<span style="flex:1.4 1 280px;">Dowód</span><span style="flex:0 0 72px;">Źródło</span>
+        </div>
+        {% for u in g.uwagi %}
+        <div style="display:flex;flex-wrap:wrap;gap:14px 24px;padding:18px 24px;border-top:1px solid var(--cx-cloud);">
+          <div style="flex:1.1 1 240px;min-width:0;display:flex;flex-direction:column;gap:4px;">
+            <span class="etykieta-m">Opis</span>
+            <p style="font-size:15px;line-height:1.5;">{{ u.opis }}</p>
+          </div>
+          {% if not g.wspolna_rekomendacja %}
+          <div style="flex:1 1 220px;min-width:0;display:flex;flex-direction:column;gap:4px;">
+            <span class="etykieta-m">Rekomendacja</span>
+            <p style="font-size:15px;line-height:1.5;display:flex;gap:8px;"><span style="color:var(--cx-ink-10);flex:none;">→</span><span>{{ u.rekomendacja }}</span></p>
+          </div>
+          {% endif %}
+          <div style="flex:1.4 1 280px;min-width:0;display:flex;flex-direction:column;gap:6px;">
+            <span class="etykieta-m">Dowód</span>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;">
+              {% for c in u.chipy %}
+              {% if c.niezmierzone %}
+              <span style="display:inline-flex;flex-direction:column;gap:2px;padding:6px 10px;border-radius:8px;background:#fff;border:1.5px dashed var(--cx-gray-3);font-size:13px;line-height:1.4;max-width:100%;"><span><span style="color:var(--cx-gray-2);">{{ c.etykieta }}: </span><span style="color:var(--cx-gray-1);font-weight:600;">nie zmierzone</span></span><span style="color:var(--cx-gray-2);">{{ c.powod }}</span></span>
+              {% else %}
+              <span style="display:inline-flex;flex-wrap:wrap;gap:4px;padding:4px 10px;border-radius:8px;background:var(--cx-paper);border:1px solid var(--cx-cloud);font-size:13px;line-height:1.4;max-width:100%;overflow-wrap:anywhere;"><span style="color:var(--cx-gray-2);">{{ c.etykieta }}:</span><span style="color:var(--cx-ink);font-weight:600;">{{ c.wartosc }}</span></span>
+              {% endif %}
+              {% endfor %}
+            </div>
+          </div>
+          <div style="flex:0 0 72px;display:flex;flex-direction:column;gap:4px;align-items:flex-start;">
+            <span class="etykieta-m">Źródło</span>
+            {% if u.zrodlo == "szablon" %}<span style="background:#fff;border:1px solid var(--cx-cloud-2);color:var(--cx-gray-1);border-radius:6px;padding:2px 8px;font-size:12px;">szablon</span>
+            {% else %}<span style="background:var(--cx-ink-80);color:var(--cx-mist);border-radius:6px;padding:2px 8px;font-size:12px;">AI</span>{% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
       {% endfor %}
-    </article>
-    {% endfor %}
-    <a class="wroc" href="#glowny">‹ Wróć do raportu głównego</a>
+    </div>
   </section>
   {% endfor %}
-
-  <p class="stopka">
-    Raport z nazwiskami, wygenerowany jednorazowo — CXLABS nie przechowuje jego kopii.
-    {% if r.nieznane_hashe %}{{ r.nieznane_hashe }} {{ odmiana(r.nieznane_hashe, "konto", "konta", "kont") }} bez rozwiniętej nazwy oznaczono jako „nieznane konto".{% endif %}
-  </p>
 </div>
 </html>

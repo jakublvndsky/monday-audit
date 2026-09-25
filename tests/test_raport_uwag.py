@@ -215,13 +215,14 @@ def test_cztery_kategorie_w_kolejnosci_z_rubryki_a_niemierzone_mowia_to_wprost(
     raport = _zbuduj(con, [_uwaga(), _duplikaty(), _duplikaty()])
 
     kategorie = {k.id: k for k in raport.kategorie}
-    assert list(kategorie) == ["workspace", "tablice", "uzytkownicy", "agenci"]
+    # Z uwagami od najliczniejszej, niemierzone na końcu (uwaga Kuby 2026-09-25).
+    assert list(kategorie) == ["tablice", "uzytkownicy", "workspace", "agenci"]
     assert (kategorie["tablice"].uwag, kategorie["tablice"].udzial) == (2, 67)
     assert (kategorie["uzytkownicy"].uwag, kategorie["uzytkownicy"].udzial) == (1, 33)
     assert kategorie["workspace"].niezmierzona and kategorie["agenci"].niezmierzona
     assert kategorie["tablice"].niezmierzona is None
-    # Zdanie na kafelek: pierwsze zdanie uwagi z najliczniejszej grupy.
-    assert kategorie["tablice"].zdanie == "10 kopii jednego szablonu w jednym workspace."
+    # Zdanie na kafelek mówi o KATEGORII, nie cytuje jednej uwagi.
+    assert kategorie["tablice"].zdanie == "Wiele tablic robiących to samo."
 
 
 def test_dowod_staje_sie_czytelnymi_chipami(con: sqlite3.Connection) -> None:
@@ -316,3 +317,32 @@ def test_mapa_udzialow_to_procent_per_tablica(con: sqlite3.Connection) -> None:
     [chip] = _zbuduj(con, [obejscie]).uwagi[0].chipy
 
     assert chip.wartosc == "7: 82%, 8: 50%"
+
+
+def test_puste_fakty_nie_zasmiecaja_dowodu(con: sqlite3.Connection) -> None:
+    """Uwaga Kuby 2026-09-25: przy tablicy porzuconej cztery chipy „brak" mówiły
+    jedno. Zostaje fakt z wartością; „nie zmierzone" zostaje zawsze."""
+    porzucona = {
+        "klasa_id": "BOARD_GHOST",
+        "opis": "Tablica porzucona.",
+        "rekomendacja": "Zarchiwizować.",
+        "dowod": {"board_id": "1", "najnowszy_at": None, "po_klasie": {}, "kubelki_dni": {},
+                  "items_count": 87, "wpisow_w_oknie": 0},
+    }  # fmt: skip
+
+    etykiety = [c.etykieta for c in _zbuduj(con, [porzucona]).uwagi[0].chipy]
+
+    assert etykiety == ["tablica", "elementy", "wpisy w logu (okno)"]
+
+
+def test_zdanie_kategorii_z_kilkoma_rodzajami(con: sqlite3.Connection) -> None:
+    raport = _zbuduj(con, [_duplikaty(), _duplikaty(), {**_duplikaty(), "klasa_id": "BOARD_GHOST"}])
+
+    tablice = next(k for k in raport.kategorie if k.id == "tablice")
+    assert tablice.zdanie == "Najczęstszy problem: wiele tablic robiących to samo (2 z 3)."
+
+
+def test_przycisk_prowadzi_do_najliczniejszej_kategorii(con: sqlite3.Connection) -> None:
+    html = wyrenderuj_uwagi(_zbuduj(con, [_duplikaty(), _duplikaty(), _uwaga()]))
+
+    assert 'href="#kat-tablice">Zacznij od tablic<' in html

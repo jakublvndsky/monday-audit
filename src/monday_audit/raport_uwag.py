@@ -53,8 +53,6 @@ LOGO_JASNE = "cxlabs-white.png"
 # Ile pozycji listy pokazać, zanim pojawi się „i N kolejnych". Grupa duplikatów
 # na pełnym CXLABS ma 91 tablic — dowód z 91 nazwami przestaje być dowodem.
 POZYCJI_W_LISCIE = 3
-# Zdanie „największy problem" na kafelku kategorii — jedno, krótkie.
-DLUGOSC_ZDANIA = 180
 
 ZNACZNIK_NIE_ZMIERZONE = "nie_zmierzone"
 _DATA_ISO = re.compile(r"^\d{4}-\d{2}-\d{2}(?:[T ][\d:.]+(?:Z|[+-]\d{2}:?\d{2})?)?$")
@@ -209,6 +207,12 @@ def chipy_dowodu(
         }
         formater = formatery.get(opis.format)
         tekst = formater(wartosc) if formater else _auto(wartosc, run_at=run_at, nazwy=nazwy)
+        # Pusty fakt nie idzie do chipa: „ostatni wpis: brak", „rodzaje zmian:
+        # brak" i „wpisy wg wieku: brak" przy tablicy porzuconej to cztery chipy
+        # z jednym faktem, który już niesie „wpisy w logu: 0" (uwaga Kuby
+        # 2026-09-25). „Nie zmierzone" jest wyżej i zostaje zawsze.
+        if tekst == "brak":
+            continue
         wynik.append(Chip(opis.etykieta, wartosc=tekst))
     return tuple(wynik)
 
@@ -267,14 +271,6 @@ def _grupy(uwagi: Sequence[UwagaWRaporcie]) -> tuple[GrupaUwag, ...]:
     return tuple(sorted(grupy, key=lambda g: -len(g.uwagi)))
 
 
-def _pierwsze_zdanie(tekst: str) -> str:
-    """Zdanie na kafelek kategorii — deterministycznie, bez modelu (decyzja 2026-09-25)."""
-    zdanie = re.split(r"(?<=[.!?])\s+", tekst.strip(), maxsplit=1)[0]
-    if len(zdanie) <= DLUGOSC_ZDANIA:
-        return zdanie
-    return zdanie[: DLUGOSC_ZDANIA - 1].rsplit(" ", 1)[0].rstrip(",;:—– ") + "…"
-
-
 @dataclass(frozen=True, slots=True)
 class KategoriaRaportu:
     """Kafelek raportu głównego i jego widok pogłębiony."""
@@ -292,10 +288,18 @@ class KategoriaRaportu:
 
     @property
     def zdanie(self) -> str:
-        """„Największy problem": pierwsze zdanie pierwszej uwagi najliczniejszej grupy."""
+        """„Najczęstszy problem: X (n z m)." — krótko, deterministycznie.
+
+        Pierwsza wersja brała pierwsze zdanie opisu uwagi: w raporcie z pełnego
+        CXLABS wyszło 180 znaków o jednej tablicy, z liczbą itemów i datą
+        (uwaga Kuby 2026-09-25). Kafelek mówi o KATEGORII, nie o jednej uwadze.
+        """
         if not self.grupy:
             return "Audyt nie znalazł w tej kategorii uwag krytycznych."
-        return _pierwsze_zdanie(self.grupy[0].uwagi[0].opis)
+        g = self.grupy[0]
+        if len(self.grupy) == 1:
+            return f"{g.nazwa_klasy}."
+        return f"Najczęstszy problem: {g.nazwa_klasy.lower()} ({len(g.uwagi)} z {self.uwag})."
 
 
 @dataclass(frozen=True, slots=True)
@@ -383,7 +387,10 @@ def _kategorie(uwagi: Sequence[UwagaWRaporcie], rubryka: Rubryka) -> tuple[Kateg
                 udzial=round(len(swoje) / razem * 100),
             )
         )
-    return tuple(wynik)
+    # Kolejność z projektu: kategorie z uwagami od najliczniejszej, potem
+    # mierzone bez uwag, niemierzone na końcu (uwaga Kuby 2026-09-25 —
+    # niemierzony „Workspace" stał na pierwszym miejscu raportu).
+    return tuple(sorted(wynik, key=lambda k: (bool(k.niezmierzona), -k.uwag)))
 
 
 def _pokrycie(
