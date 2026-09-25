@@ -211,7 +211,7 @@
       </div>
       {% endif %}
 
-      <p style="font-size:13px;color:var(--cx-gray-3);">Raport z nazwiskami, wygenerowany jednorazowo — CXLABS nie przechowuje jego kopii.{% if r.nieznane_hashe %} {{ r.nieznane_hashe }} {{ odmiana(r.nieznane_hashe, "konto", "konta", "kont") }} bez rozwiniętej nazwy oznaczono jako „nieznane konto".{% endif %}</p>
+      <p style="font-size:13px;color:var(--cx-gray-3);">Raport z nazwiskami, wygenerowany jednorazowo — CXLABS nie przechowuje jego kopii.{% if r.nieznane_hashe %} {{ r.nieznane_hashe }} {{ odmiana(r.nieznane_hashe, "konto", "konta", "kont") }} nie występuje na liście użytkowników konta — zwykle to konta usunięte, które nadal są wskazane np. jako właściciel tablicy. Oznaczono je „konto spoza listy użytkowników".{% endif %}</p>
     </div>
   </main>
 

@@ -148,8 +148,9 @@ class ProfilOsoby:
     """
 
     user_hash: str
-    # Nazwisko z `osoby_mapowanie`, albo `nieznane konto (prefiks)`. Ta sama
-    # deanonimizacja co raport — jedno źródło, nie druga implementacja.
+    # Nazwisko z `osoby_mapowanie`, albo `konto spoza listy użytkowników
+    # (prefiks)`. Ta sama deanonimizacja co raport — jedno źródło, nie druga
+    # implementacja.
     etykieta: str
     # `member`, `admin`, `guest`, `view_only`, `personal_agent_member` albo `None`
     # dla autora nieobecnego na liście kont.

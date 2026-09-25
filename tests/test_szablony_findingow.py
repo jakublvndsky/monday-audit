@@ -81,6 +81,23 @@ def test_admin_jest_nazwany_wprost() -> None:
     assert f["dowod"]["kind"] == "admin"
 
 
+def test_opis_bez_nazw_pol_i_z_data_slownie() -> None:
+    """Opis czyta klient: „(kind: member)" i surowe ISO należą do dowodu.
+
+    ZGŁOSZONE po runie Demo-44 (2026-09-25): szablon wstawiał `kind:`
+    i `obecnosc_w_logach: false` do każdej z 8 uwag — prompt tego nie obejmuje,
+    bo te uwagi w ogóle nie idą przez model.
+    """
+    for kind in ("member", "admin"):
+        opis = zombie_z_szablonu(
+            hipoteza(kind=kind, last_activity="2026-06-09T13:01:12Z"), KLASA, TERAZ
+        )["opis"]
+        assert "kind" not in opis
+        assert "obecnosc_w_logach" not in opis
+        assert "T13:01" not in opis
+        assert "9 czerwca 2026" in opis
+
+
 def test_rekomendacja_nigdy_nie_proponuje_guest() -> None:
     """Model to zaproponował, a `GUEST_SPRAWL` audytuje to jako wadę.
 

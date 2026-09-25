@@ -71,7 +71,7 @@ def test_mapowanie_innego_klienta_jest_niewidoczne(con: sqlite3.Connection) -> N
     rozwiniete = Deanonimizacja(con, "cxlabs").nazwa(HASH_OBCY)
 
     assert "Nie Ten Klient" not in rozwiniete
-    assert rozwiniete.startswith("[nieznane konto")
+    assert rozwiniete.startswith("konto spoza listy użytkowników (")
 
 
 # ── hash w wolnym tekście ────────────────────────────────────────────────
@@ -173,7 +173,7 @@ def test_nieznany_hash_jest_oznaczony_i_policzony(
 
     wynik = deanon.wartosc({"user_hash": HASH_OBCY})
 
-    assert wynik == {"user_hash": "[nieznane konto deadbeef…]"}
+    assert wynik == {"user_hash": "konto spoza listy użytkowników (deadbeef…)"}
     assert deanon.nieznane == (HASH_OBCY,)
 
     with caplog.at_level(logging.WARNING):

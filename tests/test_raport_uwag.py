@@ -69,7 +69,7 @@ def test_pseudonim_w_dowodzie_i_opisie_staje_sie_nazwiskiem(con: sqlite3.Connect
 def test_nieznany_pseudonim_jest_oznaczony_a_nie_zgubiony(con: sqlite3.Connection) -> None:
     html = _raport(con, _uwaga(dowod={"user_hash": "ffffffffffffffff"}, opis="konto"))
 
-    assert "nieznane konto" in html
+    assert "konto spoza listy użytkowników" in html
     assert "ffffffffffffffff" not in html
 
 

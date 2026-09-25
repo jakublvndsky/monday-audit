@@ -68,6 +68,23 @@ def _dni_ciszy(fakty: dict[str, Any], teraz: datetime | None = None) -> int | No
     return ((teraz or datetime.now(tz=UTC)) - kiedy).days
 
 
+_MIESIACE = (
+    "stycznia", "lutego", "marca", "kwietnia", "maja", "czerwca",
+    "lipca", "sierpnia", "września", "października", "listopada", "grudnia",
+)  # fmt: skip
+
+
+def _data_slownie(surowy: Any) -> str | None:
+    """`2026-06-09T13:01:12Z` → `9 czerwca 2026`. Nieczytelne ISO zostaje jak jest."""
+    if not surowy:
+        return None
+    try:
+        kiedy = datetime.fromisoformat(str(surowy).replace("Z", "+00:00"))
+    except ValueError:
+        return str(surowy)
+    return f"{kiedy.day} {_MIESIACE[kiedy.month - 1]} {kiedy.year}"
+
+
 def _opis_zombie(fakty: dict[str, Any], dni: int | None) -> str:
     """Opis: co, gdzie, dlaczego — z faktów, bez ani jednego zdania od modelu.
 
@@ -84,14 +101,16 @@ def _opis_zombie(fakty: dict[str, Any], dni: int | None) -> str:
     czas = f"{dni} dni" if dni is not None else "cały okres badania"
     plan = str(fakty.get("plan_tier") or "?")
 
+    # Bez nazw pól (`kind`, `obecnosc_w_logach`) i bez surowego ISO: opis czyta
+    # klient, surowe wartości są w `dowod` (uwaga Kuby po runie Demo-44, 2026-09-25).
+    ostatnia = _data_slownie(fakty.get("last_activity"))
     zdania = [
-        f"Konto {rola} (kind: {kind}) zajmuje płatne miejsce w planie {plan}"
-        f" i nie wykazuje aktywności od {czas}.",
-        f"Ostatnia aktywność: {fakty.get('last_activity') or 'brak zapisu'}."
-        if fakty.get("last_activity")
+        f"Konto {rola} zajmuje płatne miejsce w planie {plan} i nie wykazuje aktywności od {czas}.",
+        f"Ostatnia aktywność: {ostatnia}."
+        if ostatnia
         else "Konto nie ma zapisanej daty ostatniej aktywności.",
         "Nie pojawia się też jako autor w żadnym wpisie logu aktywności"
-        " z badanego okna (obecnosc_w_logach: false) — to drugi, niezależny dowód.",
+        " z badanego okna — to drugi, niezależny dowód.",
     ]
     if kind == "admin":
         zdania.append(

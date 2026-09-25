@@ -24,7 +24,11 @@ w dokumencie:
 
 ## Hash nierozwiązany nie przechodzi cicho
 
-Zamieniamy go na `[nieznane konto 05677b1a…]` i liczymy. Surowy hash
+Zamieniamy go na `konto spoza listy użytkowników (05677b1a…)` i liczymy.
+W trybie pamięci sól i mapowanie są z tego samego runu, więc taki hash to
+identyfikator, którego `users` nie oddało — najczęściej konto usunięte, które
+nadal figuruje jako właściciel tablicy (run Demo-44, 2026-09-25: 9 tablic).
+Dawniej „[nieznane konto …]" — czytelnik nie wiedział, co to znaczy. Surowy hash
 w dokumencie dla klienta to usterka, nie kosmetyka — dlatego test na to
 stoi w warstwie granic, obok testów PII.
 
@@ -65,6 +69,9 @@ WZORZEC_W_ZDANIU = re.compile(rf"(?:hash(?:e|u|em|a)?\s+)?({WZORZEC_HASHA.patter
 
 # Ile znaków hasha zostaje w oznaczeniu nierozwiązanego konta.
 DLUGOSC_PREFIKSU = 8
+
+# Mówi, CO wiemy (konta nie ma wśród użytkowników), a nie zgaduje dlaczego.
+ETYKIETA_NIEZNANEGO = "konto spoza listy użytkowników"
 
 
 class Deanonimizacja:
@@ -113,7 +120,7 @@ class Deanonimizacja:
         if znaleziona is not None:
             return znaleziona
         self._nieznane.add(haszyk)
-        return f"[nieznane konto {haszyk[:DLUGOSC_PREFIKSU]}…]"
+        return f"{ETYKIETA_NIEZNANEGO} ({haszyk[:DLUGOSC_PREFIKSU]}…)"
 
     def tekst(self, tresc: str) -> str:
         """Podmienia hashe WEWNĄTRZ zdania — `opis` i `rekomendacja` od agenta."""
@@ -168,8 +175,9 @@ class Deanonimizacja:
             return
         logger.warning(
             "%d hashy bez wpisu w `osoby_mapowanie` — w raporcie są oznaczone jako "
-            "nieznane konto. Najczęstsza przyczyna: snapshot z innej soli albo "
-            "z innego klienta niż podany. Prefiksy: %s",
+            "konto spoza listy użytkowników. Przyczyny: konto usunięte, a nadal "
+            "wskazane np. jako właściciel tablicy; przy `--snapshot` także inna sól "
+            "albo inny klient niż podany. Prefiksy: %s",
             len(self._nieznane),
             ", ".join(h[:DLUGOSC_PREFIKSU] for h in self.nieznane),
         )
