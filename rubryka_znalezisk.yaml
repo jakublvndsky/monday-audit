@@ -33,7 +33,7 @@
 # To są decyzje biznesowe z etapu 1 i pomiary techniczne nie mają do nich nic
 # do powiedzenia.
 
-wersja: "0.6"
+wersja: "0.7"
 odbiorca_domyslny: wewnetrzny
 
 # ──────────────────────────────────────────────────────────────
@@ -81,6 +81,95 @@ reguly:
     zapisuj_wersje: true
 
 # ──────────────────────────────────────────────────────────────
+# RAPORT — kategorie i słownik pól dowodu (0.7, faza 7, 2026-09-25)
+# ──────────────────────────────────────────────────────────────
+#
+# Raport główny to cztery kategorie z wytycznych (ustalone z Kubą
+# 2026-09-23). Każda klasa należy do jednej (`kategoria` przy klasie).
+# Kategoria bez klasy z detektorem jest „jeszcze nie mierzona" — i raport
+# mówi to wprost, zamiast pokazać „0 problemów".
+kategorie:
+  - id: workspace
+    nazwa: Workspace
+    niezmierzona: >-
+      Audyt nie ma jeszcze sygnałów o workspace'ach. Brak uwag nie oznacza,
+      że wszystko jest w porządku.
+  - id: tablice
+    nazwa: Tablice
+  - id: uzytkownicy
+    nazwa: Użytkownicy
+  - id: agenci
+    nazwa: Agenci AI
+    niezmierzona: >-
+      API monday nie udostępnia jeszcze danych o agentach (O20). Brak uwag nie
+      oznacza, że wszystko jest w porządku.
+
+# Jak pokazać pole dowodu człowiekowi. `format`: tekst (domyślny), liczba,
+# procent (0–1 → %), data (+ „N dni przed analizą"), tablice (ID → nazwy
+# ze snapshotu), lista, aktywnosc (mapa tablica → wpisy), zakres_dat (mapa
+# → od–do), mapa_liczb, pomin. Pole spoza słownika dostaje etykietę
+# z nazwy klucza i format zgadnięty z typu wartości.
+pola_dowodu:
+  board_id: {etykieta: tablica, format: tablice}
+  board_ids: {etykieta: tablice, format: tablice}
+  board_stary: {etykieta: "tablica, która ucichła", format: tablice}
+  boardy_nowe: {etykieta: nowe tablice, format: tablice}
+  boardy: {etykieta: tablice, format: tablice}
+  owners: {etykieta: właściciele, format: lista}
+  nazwa: {format: pomin}
+  typ: {format: pomin}
+  items_count: {etykieta: elementy, format: liczba}
+  liczba_kolumn: {etykieta: kolumny, format: liczba}
+  kolumny_martwe: {etykieta: kolumny bez wpisów, format: lista}
+  rozmiar_probki: {etykieta: elementów w próbce, format: liczba}
+  nakladanie_kolumn: {etykieta: nakładanie kolumn, format: procent}
+  nakladanie_subskrybentow: {etykieta: nakładanie subskrybentów, format: procent}
+  aktywnosc_stron: {etykieta: aktywność tablic w oknie, format: aktywnosc}
+  daty_utworzenia: {etykieta: utworzone, format: zakres_dat}
+  daty_utworzenia_nowych: {etykieta: nowe utworzone, format: zakres_dat}
+  daty_utworzenia_kont: {etykieta: konta utworzone, format: zakres_dat}
+  najnowszy_at: {etykieta: ostatni wpis w logu, format: data}
+  updated_at: {etykieta: ostatnia zmiana, format: data}
+  last_activity: {etykieta: ostatnia aktywność, format: data}
+  data_zamilkniecia: {etykieta: ucichła, format: data}
+  data_zwrotu: {etykieta: punkt zwrotu, format: data}
+  wpisow_w_oknie: {etykieta: wpisy w logu (okno), format: liczba}
+  kubelki_dni: {etykieta: wpisy wg wieku, format: mapa_liczb}
+  po_klasie: {etykieta: rodzaje zmian, format: mapa_liczb}
+  po_event: {etykieta: rodzaje zdarzeń, format: mapa_liczb}
+  top_kontrybutor_hash: {etykieta: najaktywniejsza osoba}
+  user_hash: {etykieta: konto}
+  guest_hash: {etykieta: goście, format: lista}
+  tablice_dostepne: {etykieta: dostęp gości do tablic}
+  kind: {etykieta: rodzaj konta}
+  status: {etykieta: status}
+  obecnosc_w_logach: {etykieta: obecność w logach}
+  plan_tier: {etykieta: plan}
+  podstawa_miejsc: {format: pomin}
+  liczba_miejsc: {etykieta: zajęte miejsca, format: liczba}
+  aktywni_30d: {etykieta: aktywni w 30 dni, format: liczba}
+  aktywni_7d: {etykieta: aktywni w 7 dni, format: liczba}
+  aktywni_90d: {etykieta: aktywni w 90 dni, format: liczba}
+  liczba_guest: {etykieta: goście, format: liczba}
+  liczba_members: {etykieta: członkowie, format: liczba}
+  akcji: {etykieta: akcje, format: liczba}
+  tablic: {etykieta: tablice, format: liczba}
+  grupa: {etykieta: grupa}
+  zdarzenie_towarzyszace: {etykieta: zdarzenie towarzyszące}
+  hipoteza_przyczyny: {etykieta: prawdopodobna przyczyna}
+  automation_id: {etykieta: automatyzacja}
+  failure: {etykieta: błędy, format: liczba}
+  success: {etykieta: udane, format: liczba}
+  exhausted: {etykieta: wyczerpane ponowienia, format: liczba}
+  powody_bledow: {etykieta: powody błędów, format: mapa_liczb}
+  uruchomienia_konta: {etykieta: uruchomienia na koncie, format: liczba}
+  tablic_sondowanych: {etykieta: tablice sprawdzone, format: liczba}
+  tablic_bez_zdarzen: {etykieta: tablice bez zdarzeń, format: liczba}
+  udzial: {etykieta: udział, format: procent}
+  kandydaci: {etykieta: kandydaci, format: tablice}
+  zuzycie_kredytow_ai: {etykieta: zużycie kredytów AI, format: liczba}
+
+# ──────────────────────────────────────────────────────────────
 # KLASY ZNALEZISK
 # ──────────────────────────────────────────────────────────────
 
@@ -90,6 +179,7 @@ klasy:
 
   - id: ZOMBIE_ACCOUNT
     nazwa: Konto nieaktywne, wciąż licencjonowane
+    kategoria: uzytkownicy
     modul_zrodlowy: 2
     # Sygnał przepisany w 0.2 pod pomiar (OTWARTE.md O17). Pól `enabled`
     # i `is_pending` nie ma w API 2026-10, a `kind` niesie więcej: rozdziela
@@ -119,6 +209,7 @@ klasy:
 
   - id: PLAN_MISMATCH
     nazwa: Plan nieadekwatny do realnego użycia
+    kategoria: uzytkownicy
     modul_zrodlowy: 1
     # `max_users` pochodzi z `account.plan`, a to zwraca NULL przy tokenie bez
     # uprawnień admina (zmierzone na CXLABS, O2). Dlatego 0.2 dopuszcza drugie
@@ -151,6 +242,7 @@ klasy:
 
   - id: GUEST_SPRAWL
     nazwa: Niekontrolowany dostęp gości
+    kategoria: uzytkownicy
     modul_zrodlowy: 2
     sygnal: |
       liczba_guest > 0.25 * liczba_members
@@ -196,6 +288,7 @@ klasy:
   # „ile dni ciszy".
   - id: UZYTKOWNIK_WYGASZONY
     nazwa: Osoba przestała pracować, choć konto zostało
+    kategoria: uzytkownicy
     modul_zrodlowy: 2
     sygnal: |
       osoba obecna w activity logs, której akcje leżą WYŁĄCZNIE
@@ -233,6 +326,7 @@ klasy:
 
   - id: ENGAGEMENT_DROP
     nazwa: Spadek zaangażowania zespołu lub działu
+    kategoria: uzytkownicy
     modul_zrodlowy: 2, 5
     sygnal: |
       grupa (zespół lub workspace) z udziałem aktywnych_7d < 40%
@@ -264,6 +358,7 @@ klasy:
 
   - id: BOARD_GHOST
     nazwa: Tablica porzucona
+    kategoria: tablice
     modul_zrodlowy: 3
     # Dwie poprawki w 0.2, obie z pomiarów.
     #
@@ -333,6 +428,7 @@ klasy:
 
   - id: BOARD_NO_OWNER
     nazwa: Tablica bez właściciela
+    kategoria: tablice
     modul_zrodlowy: 3
     sygnal: owners = [] OR wszyscy właściciele mają enabled = false
     rola_agenta: |
@@ -352,6 +448,7 @@ klasy:
 
   - id: BOARD_OVERCOMPLEX
     nazwa: Tablica z polami, których nikt nie wypełnia
+    kategoria: tablice
     modul_zrodlowy: 3
     sygnal: liczba_kolumn > 15
     rola_agenta: |
@@ -373,6 +470,7 @@ klasy:
 
   - id: DUPLICATE_STRUCTURE
     nazwa: Wiele tablic robiących to samo
+    kategoria: tablice
     modul_zrodlowy: 3
     sygnal: |
       >= 2 tablice w tym samym workspace o nakładaniu zestawu
@@ -425,6 +523,7 @@ klasy:
 
   - id: PROCESS_BYPASS
     nazwa: Zespół obchodzi proces
+    kategoria: tablice
     modul_zrodlowy: 3, 5
     sygnal: |
       brak sygnału pojedynczego — wzbudzane koniunkcją:
@@ -467,6 +566,7 @@ klasy:
 
   - id: AUTOMATION_ABSENT
     nazwa: Konto nie korzysta z automatyzacji
+    kategoria: tablice
     modul_zrodlowy: 4
     # Przepisane w 0.2, bo poprzedni sygnał był NIEWYKONALNY (O1, O12).
     # API monday **nie udostępnia listy automatyzacji** — ani per konto, ani per
@@ -507,6 +607,7 @@ klasy:
 
   - id: AUTOMATION_DEAD
     nazwa: Automatyzacja uruchamia się i nie działa
+    kategoria: tablice
     modul_zrodlowy: 4
     # Przepisane w 0.2. Poprzedni sygnał („is_active = false OR 0 uruchomień")
     # był niewykonalny w obie strony: `is_active` nie istnieje w API, a
@@ -552,6 +653,7 @@ klasy:
 
   - id: AI_UNUSED
     nazwa: Konto nie wykorzystuje funkcji AI
+    kategoria: agenci
     modul_zrodlowy: 6
     status: do_weryfikacji
     # BLOKER: nie jest potwierdzone, czy API zwraca zużycie kredytów AI.

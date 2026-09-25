@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/cxlabs-design-system-2b90221c-6624-4eec-9151-ab20b3af3b2d/colors_and_type.css">
+<script src="_ds/cxlabs-design-system-2b90221c-6624-4eec-9151-ab20b3af3b2d/_ds_bundle.js"></script>
+<style>@keyframes cxspin{to{transform:rotate(360deg)}}@keyframes cxpulse{0%,100%{opacity:1}50%{opacity:.3}}body{margin:0}a{color:var(--cx-ink-10);text-decoration:none}a:hover{color:var(--cx-ink)}</style>
+</helmet>
+<div ref="{{ rootRef }}" style="container-type:inline-size;background:var(--cx-mist);font-family:var(--font-body);color:var(--cx-ink);min-height:100%;">
+  <div style="background:var(--cx-ink);color:var(--cx-mist);display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 clamp(16px,4cqw,40px);height:56px;">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span class="cx-chev" style="color:var(--cx-lime);width:18px;height:15px;"></span>
+      <span style="font-family:var(--font-display);font-size:18px;letter-spacing:0.02em;">CXLABS</span>
+      <sc-if value="{{ wide }}" hint-placeholder-val="{{ true }}"><span style="color:var(--cx-ink-40);font-size:14px;margin-left:6px;">Portal klienta</span></sc-if>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;font-size:14px;color:var(--cx-lime-soft);">
+      <sc-if value="{{ team }}" hint-placeholder-val="{{ false }}"><span style="border:1px solid var(--cx-ink-60);color:var(--cx-lime);border-radius:8px;padding:3px 10px;font-size:13px;">Widok zespołu CXLABS</span></sc-if>
+      <span>Nordwind Logistics</span>
+    </div>
+  </div>
+
+  <div style="background:#fff;border-bottom:1px solid var(--cx-cloud);">
+    <div style="max-width:960px;margin:0 auto;padding:clamp(20px,3cqw,32px) clamp(20px,5cqw,64px);display:flex;flex-wrap:wrap;gap:16px 32px;align-items:flex-end;justify-content:space-between;">
+      <div style="display:flex;flex-direction:column;gap:10px;min-width:0;">
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:14px;color:var(--cx-gray-2);">
+          <sc-for list="{{ crumbs }}" as="c" hint-placeholder-count="2">
+            <span style="display:flex;align-items:center;gap:6px;">
+              <sc-if value="{{ c.sep }}"><span style="color:var(--cx-gray-3);">/</span></sc-if>
+              <sc-if value="{{ c.link }}"><a href="#" onClick="{{ c.onClick }}" style="color:var(--cx-ink-10);">{{ c.label }}</a></sc-if>
+              <sc-if value="{{ c.plain }}"><span>{{ c.label }}</span></sc-if>
+            </span>
+          </sc-for>
+        </div>
+        <h1 style="font-size:clamp(28px,3.4cqw,40px);">{{ title }}</h1>
+        <div style="display:flex;align-items:flex-start;gap:8px;font-size:14px;color:var(--cx-gray-2);">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-top:2px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg>
+          <span>Audyt tylko czyta Twoje konto monday.com. Nie ma technicznej możliwości wprowadzenia na nim zmian.</span>
+        </div>
+      </div>
+      <sc-if value="{{ showHistLink }}" hint-placeholder-val="{{ true }}"><a href="#" onClick="{{ goHistory }}" style="font-size:14px;display:flex;align-items:center;gap:6px;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><path d="M3 3v5h5"></path><path d="M12 7v5l3 2"></path></svg>Historia audytów</a></sc-if>
+    </div>
+  </div>
+
+  <div ref="{{ mainRef }}" style="max-width:960px;margin:0 auto;padding:clamp(24px,4cqw,48px) clamp(20px,5cqw,64px) clamp(48px,6cqw,80px);display:flex;flex-direction:column;gap:clamp(20px,3cqw,32px);">
+
+    <!-- ===== A: idle ===== -->
+    <sc-if value="{{ aIntro }}" hint-placeholder-val="{{ true }}">
+      <div style="background:#fff;border:1px solid var(--cx-cloud);border-radius:24px;padding:clamp(24px,4cqw,48px);display:flex;flex-direction:column;gap:20px;align-items:flex-start;">
+        <span class="cx-eyebrow cx-eyebrow--on-light">Krok 1 z 2 · Przegląd konta</span>
+        <h2 style="font-size:clamp(24px,2.8cqw,32px);max-width:640px;text-wrap:pretty;">Sprawdź, co jest na Twoim koncie monday.com</h2>
+        <p style="margin:0;color:var(--cx-gray-2);max-width:620px;text-wrap:pretty;">Policzymy workspace'y, tablice, użytkowników, gości i agentów AI oraz odczytamy licencję. Przegląd trwa kilka sekund, nic nie kosztuje i zużywa kilkadziesiąt wywołań z dziennego limitu API konta.</p>
+        <sc-if value="{{ aIdle }}" hint-placeholder-val="{{ true }}">
+          <button class="cx-btn" style="white-space:nowrap;flex-shrink:0;" onClick="{{ startOverview }}">Analizuj moje środowisko<span class="cx-btn__chev" style="white-space:nowrap;flex-shrink:0;"><span class="cx-chev"></span></span></button>
+        </sc-if>
+        <sc-if value="{{ aLoading }}">
+          <div style="display:flex;align-items:center;gap:12px;height:48px;color:var(--cx-ink-80);">{{ spinInk }}<span>Czytam konto. To zwykle trwa kilka sekund.</span></div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <!-- ===== A: errors ===== -->
+    <sc-if value="{{ aErr }}">
+      <div style="background:rgb(252,241,238);border:1px solid rgb(238,200,190);border-radius:16px;padding:clamp(20px,3cqw,32px);display:flex;gap:16px;align-items:flex-start;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgb(163,52,38)" stroke-width="1.8" stroke-linecap="round" style="flex:none;"><circle cx="12" cy="12" r="10"></circle><path d="M12 7v6"></path><path d="M12 16.5v.5"></path></svg>
+        <div style="display:flex;flex-direction:column;gap:12px;min-width:0;">
+          <strong style="font-weight:600;color:rgb(140,42,30);">Przegląd konta się nie udał</strong>
+          <p style="margin:0;color:var(--cx-ink);text-wrap:pretty;">{{ errMsg }}</p>
+          <div style="display:flex;flex-wrap:wrap;gap:12px;">
+            <sc-if value="{{ errSettings }}"><a href="#" onClick="{{ noop }}" style="font-size:15px;display:inline-flex;align-items:center;gap:6px;text-decoration:underline;text-underline-offset:3px;">Przejdź do ustawień integracji w portalu</a></sc-if>
+            <sc-if value="{{ errRetry }}"><button class="cx-btn cx-btn--secondary" style="white-space:nowrap;flex-shrink:0;font-size:15px;" onClick="{{ startOverview }}">Spróbuj ponownie</button></sc-if>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ===== A: results ===== -->
+    <sc-if value="{{ aDone }}">
+      <div style="display:flex;flex-direction:column;gap:16px;">
+        <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px 24px;">
+          <span class="cx-eyebrow cx-eyebrow--on-light">Krok 1 z 2 · Przegląd konta</span>
+          <span style="font-size:14px;color:var(--cx-gray-2);">nordwind.monday.com · odczytano dziś o 13:58</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr));gap:16px;">
+          <div data-anim="1" style="background:#fff;border:1px solid var(--cx-cloud);border-radius:16px;padding:24px;display:flex;flex-direction:column;gap:16px;">
+            <div style="display:flex;align-items:center;gap:12px;"><span style="width:36px;height:36px;border-radius:8px;background:var(--cx-mist);color:var(--cx-ink-10);display:flex;align-items:center;justify-content:center;flex:none;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 2 10 5-10 5L2 7z"></path><path d="m2 17 10 5 10-5"></path><path d="m2 12 10 5 10-5"></path></svg></span><span style="font-size:15px;color:var(--cx-gray-1);flex:1;">Workspace'y</span></div>
+            <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;"><span style="font-family:var(--font-display);font-size:44px;line-height:1;letter-spacing:-0.01em;">138</span></div>
+            <div style="display:flex;gap:2px;height:8px;border-radius:4px;overflow:hidden;"><span style="flex:122 1 0;min-width:3px;background:var(--cx-violet);"></span><span style="flex:12 1 0;min-width:3px;background:var(--cx-green);"></span><span style="flex:4 1 0;min-width:3px;background:var(--cx-yellow);"></span></div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <div style="display:flex;align-items:center;gap:10px;font-size:14px;"><span style="width:22px;height:22px;border-radius:6px;background:var(--cx-violet);color:#fff;display:flex;align-items:center;justify-content:center;flex:none;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg></span><span style="flex:1;color:var(--cx-gray-1);">Work Management</span><span style="font-weight:600;font-variant-numeric:tabular-nums;">122</span><span style="width:40px;text-align:right;color:var(--cx-gray-3);font-size:13px;font-variant-numeric:tabular-nums;">88%</span></div>
+              <div style="display:flex;align-items:center;gap:10px;font-size:14px;"><span style="width:22px;height:22px;border-radius:6px;background:var(--cx-green);color:var(--cx-ink);display:flex;align-items:center;justify-content:center;flex:none;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></span><span style="flex:1;color:var(--cx-gray-1);">CRM</span><span style="font-weight:600;font-variant-numeric:tabular-nums;">12</span><span style="width:40px;text-align:right;color:var(--cx-gray-3);font-size:13px;font-variant-numeric:tabular-nums;">9%</span></div>
+              <div style="display:flex;align-items:center;gap:10px;font-size:14px;"><span style="width:22px;height:22px;border-radius:6px;background:var(--cx-yellow);color:var(--cx-ink);display:flex;align-items:center;justify-content:center;flex:none;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"></path></svg></span><span style="flex:1;color:var(--cx-gray-1);">Service</span><span style="font-weight:600;font-variant-numeric:tabular-nums;">4</span><span style="width:40px;text-align:right;color:var(--cx-gray-3);font-size:13px;font-variant-numeric:tabular-nums;">3%</span></div>
+            </div>
+          </div>
+          <div data-anim="1" style="background:#fff;border:1px solid var(--cx-cloud);border-radius:16px;padding:24px;display:flex;flex-direction:column;gap:16px;">
+            <div style="display:flex;align-items:center;gap:12px;"><span style="width:36px;height:36px;border-radius:8px;background:var(--cx-mist);color:var(--cx-ink-10);display:flex;align-items:center;justify-content:center;flex:none;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M3 9h18"></path><path d="M3 15h18"></path><path d="M9 3v18"></path></svg></span><span style="font-size:15px;color:var(--cx-gray-1);flex:1;">Tablice</span></div>
+            <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;"><span style="font-family:var(--font-display);font-size:44px;line-height:1;letter-spacing:-0.01em;">1 316</span><span style="font-size:15px;color:var(--cx-gray-2);">aktywnych</span></div>
+            <div style="display:flex;gap:2px;height:8px;border-radius:4px;overflow:hidden;"><span style="flex:1316 1 0;min-width:3px;background:var(--cx-ink-10);"></span><span style="flex:1206 1 0;min-width:3px;background:var(--cx-gray-3);"></span><span style="flex:46 1 0;min-width:3px;background:var(--cx-ink-20);"></span><span style="flex:700 1 0;min-width:3px;background:var(--cx-cloud-2);"></span></div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <div style="display:flex;align-items:center;gap:10px;font-size:14px;"><span style="width:10px;height:10px;border-radius:3px;background:var(--cx-ink-10);flex:none;"></span><span style="flex:1;color:var(--cx-gray-1);">aktywne</span><span style="font-weight:600;font-variant-numeric:tabular-nums;">1 316</span><span style="width:40px;text-align:right;color:var(--cx-gray-3);font-size:13px;font-variant-numeric:tabular-nums;">40%</span></div>
+              <div style="display:flex;align-items:center;gap:10px;font-size:14px;"><span style="width:10px;height:10px;border-radius:3px;background:var(--cx-gray-3);flex:none;"></span><span style="flex:1;color:var(--cx-gray-1);">w koszu</span><span style="font-weight:600;font-variant-numeric:tabular-nums;">1 206</span><span style="width:40px;text-align:right;color:var(--cx-gray-3);font-size:13px;font-variant-numeric:tabular-nums;">37%</span></div>
+              <div style="display:flex;align-items:center;gap:10px;font-size:14px;"><span style="width:10px;height:10px;border-radius:3px;background:var(--cx-ink-20);flex:none;"></span><span style="flex:1;color:var(--cx-gray-1);">w archiwum</span><span style="font-weight:600;font-variant-numeric:tabular-nums;">46</span><span style="width:40px;text-align:right;color:var(--cx-gray-3);font-size:13px;font-variant-numeric:tabular-nums;">1%</span></div>
+              <div style="display:flex;align-items:center;gap:10px;font-size:14px;"><span style="width:10px;height:10px;border-radius:3px;background:var(--cx-cloud-2);flex:none;"></span><span style="flex:1;color:var(--cx-gray-1);">pozostałe obiekty</span><span style="font-weight:600;font-variant-numeric:tabular-nums;">700</span><span style="width:40px;text-align:right;color:var(--cx-gray-3);font-size:13px;font-variant-numeric:tabular-nums;">21%</span></div>
+            </div>
+            <span style="font-size:13px;color:var(--cx-gray-2);">razem 3 268 obiektów</span>
+          </div>
+          <div data-anim="1" style="background:#fff;border:1px solid var(--cx-cloud);border-radius:16px;padding:24px;display:flex;flex-direction:column;gap:16px;">
+            <div style="display:flex;align-items:center;gap:12px;"><span style="width:36px;height:36px;border-radius:8px;background:var(--cx-mist);color:var(--cx-ink-10);display:flex;align-items:center;justify-content:center;flex:none;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg></span><span style="font-size:15px;color:var(--cx-gray-1);flex:1;">Użytkownicy</span></div>
+            <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;"><span style="font-family:var(--font-display);font-size:44px;line-height:1;letter-spacing:-0.01em;">19</span></div>
+            <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;">
+              <div style="background:var(--cx-mist);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:2px;"><span style="font-family:var(--font-display);font-size:24px;line-height:1.1;">10</span><span style="font-size:13px;color:var(--cx-gray-1);">admin</span></div>
+              <div style="background:var(--cx-mist);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:2px;"><span style="font-family:var(--font-display);font-size:24px;line-height:1.1;">9</span><span style="font-size:13px;color:var(--cx-gray-1);">member</span></div>
+              <div style="background:var(--cx-mist);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:2px;"><span style="font-family:var(--font-display);font-size:24px;line-height:1.1;">2</span><span style="font-size:13px;color:var(--cx-gray-1);">tylko podgląd</span></div>
+            </div>
+          </div>
+          <div data-anim="1" style="background:#fff;border:1px solid var(--cx-cloud);border-radius:16px;padding:24px;display:flex;flex-direction:column;gap:16px;">
+            <div style="display:flex;align-items:center;gap:12px;"><span style="width:36px;height:36px;border-radius:8px;background:var(--cx-mist);color:var(--cx-ink-10);display:flex;align-items:center;justify-content:center;flex:none;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"></circle><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"></path><path d="M19 8v6"></path><path d="M22 11h-6"></path></svg></span><span style="font-size:15px;color:var(--cx-gray-1);flex:1;">Goście</span><span style="font-size:12px;color:rgb(122,86,0);background:rgb(255,247,219);border-radius:6px;padding:2px 8px;">z zastrzeżeniem</span></div>
+            <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;"><span style="font-family:var(--font-display);font-size:44px;line-height:1;letter-spacing:-0.01em;">13</span></div>
+            <span style="font-size:14px;color:var(--cx-gray-2);">konta spoza organizacji z dostępem do konta monday</span>
+          </div>
+          <div data-anim="1" style="background:#fff;border:1px solid var(--cx-cloud);border-radius:16px;padding:24px;display:flex;flex-direction:column;gap:16px;">
+            <div style="display:flex;align-items:center;gap:12px;"><span style="width:36px;height:36px;border-radius:8px;background:var(--cx-mist);color:var(--cx-ink-10);display:flex;align-items:center;justify-content:center;flex:none;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"></rect><circle cx="12" cy="5" r="2"></circle><path d="M12 7v4"></path><path d="M8 16h.01"></path><path d="M16 16h.01"></path></svg></span><span style="font-size:15px;color:var(--cx-gray-1);flex:1;">Agenci AI</span><span style="font-size:12px;color:rgb(122,86,0);background:rgb(255,247,219);border-radius:6px;padding:2px 8px;">z zastrzeżeniem</span></div>
+            <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;"><span style="font-family:var(--font-display);font-size:44px;line-height:1;letter-spacing:-0.01em;">41</span></div>
+            <span style="font-size:14px;color:var(--cx-gray-2);">konta agentowe na koncie</span>
+          </div>
+          <div data-anim="1" style="background:#fff;border:1px solid var(--cx-cloud);border-radius:16px;padding:24px;display:flex;flex-direction:column;gap:16px;">
+            <div style="display:flex;align-items:center;gap:12px;"><span style="width:36px;height:36px;border-radius:8px;background:var(--cx-mist);color:var(--cx-ink-10);display:flex;align-items:center;justify-content:center;flex:none;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="6"></circle><path d="M15.5 13.5 17 22l-5-3-5 3 1.5-8.5"></path></svg></span><span style="font-size:15px;color:var(--cx-gray-1);flex:1;">Licencja</span></div>
+            <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;"><span style="font-family:var(--font-display);font-size:44px;line-height:1;letter-spacing:-0.01em;">{{ licPlan }}</span></div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <div style="display:flex;justify-content:space-between;font-size:14px;"><span style="color:var(--cx-gray-1);">miejsca w licencji</span><span style="font-weight:600;font-variant-numeric:tabular-nums;">{{ licSeats }}</span></div>
+              <div style="height:8px;border-radius:4px;background:var(--cx-paper);overflow:hidden;"><div style="height:100%;width:{{ licPct }}%;background:{{ licColor }};border-radius:4px;"></div></div>
+              <span style="font-size:13px;color:var(--cx-gray-2);">{{ licPeriod }}</span>
+            </div>
+          </div>
+        </div>
+        <div style="background:#fff;border:1px solid var(--cx-cloud);border-radius:16px;padding:20px 24px;display:flex;flex-direction:column;gap:10px;">
+          <strong style="font-weight:600;font-size:15px;">Zastrzeżenia</strong>
+          <sc-for list="{{ aCaveats }}" as="cv" hint-placeholder-count="2">
+            <div style="display:flex;gap:10px;font-size:14px;color:var(--cx-gray-1);"><span style="color:rgb(122,86,0);flex:none;">—</span><span><strong style="font-weight:600;">{{ cv.subj }}:</strong> {{ cv.text }}</span></div>
+          </sc-for>
+          <div style="display:flex;gap:10px;font-size:14px;color:var(--cx-gray-2);border-top:1px solid var(--cx-cloud);padding-top:10px;margin-top:4px;">Ten krok zużył 36 wywołań z dziennego limitu API konta.</div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ aStep2 }}">
+      <div data-anim="1" class="cx-bg-hero" style="border-radius:24px;padding:clamp(24px,4cqw,48px);display:flex;flex-direction:column;gap:24px;">
+        <div style="display:flex;flex-direction:column;gap:12px;max-width:680px;">
+          <span class="cx-eyebrow">Krok 2 z 2 · Pełna analiza</span>
+          <h2 style="font-size:clamp(24px,2.8cqw,32px);color:var(--cx-mist);">Pełny skan konta i analiza przez AI</h2>
+          <p style="margin:0;color:var(--cx-lime-soft);text-wrap:pretty;">Przejrzymy tablice, automatyzacje, użytkowników i logi aktywności. AI oceni zebrane sygnały, a na końcu dostaniesz raport z uwagami krytycznymi.</p>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:1px;background:var(--cx-ink-60);border:1px solid var(--cx-ink-60);border-radius:16px;overflow:hidden;">
+          <div style="background:var(--cx-ink-80);padding:20px;display:flex;flex-direction:column;gap:6px;">
+            <span style="font-size:13px;color:var(--cx-ink-40);">Wywołania API monday</span>
+            <span style="color:var(--cx-mist);">ok. 280–1 200 wywołań</span>
+            <span style="font-size:14px;color:var(--cx-lime-soft);">{{ limitPct }}</span>
+          </div>
+          <div style="background:var(--cx-ink-80);padding:20px;display:flex;flex-direction:column;gap:6px;">
+            <span style="font-size:13px;color:var(--cx-ink-40);">Czas</span>
+            <span style="color:var(--cx-mist);">kilkanaście–kilkadziesiąt minut</span>
+            <span style="font-size:14px;color:var(--cx-lime-soft);">Możesz zamknąć stronę, analiza działa dalej.</span>
+          </div>
+          <sc-if value="{{ team }}">
+            <div style="background:var(--cx-ink-80);padding:20px;display:flex;flex-direction:column;gap:6px;">
+              <span style="font-size:13px;color:var(--cx-ink-40);">Koszt AI · tylko zespół</span>
+              <span style="color:var(--cx-mist);">od ok. 0,60 USD</span>
+              <span style="font-size:14px;color:var(--cx-lime-soft);">Dokładna kwota znana po zebraniu danych, przed uruchomieniem modelu.</span>
+            </div>
+          </sc-if>
+        </div>
+        <sc-if value="{{ aWarn }}">
+          <div style="background:rgb(255,247,219);border-radius:12px;padding:16px 20px;display:flex;gap:12px;align-items:flex-start;color:rgb(90,64,0);">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-top:2px;"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>
+            <span style="font-size:15px;text-wrap:pretty;"><strong style="font-weight:600;">W najgorszym przypadku analiza zużyje 64% dziennego limitu API tego konta (plan Pro).</strong> To może spowolnić Wasze integracje z monday.com w dniu roboczym. Rozważ uruchomienie po godzinach pracy.</span>
+          </div>
+        </sc-if>
+        <div style="display:flex;flex-wrap:wrap;align-items:center;gap:16px 24px;">
+          <button class="cx-btn" style="white-space:nowrap;flex-shrink:0;" onClick="{{ startAnalysis }}">Chcę wykonać analizę<span class="cx-btn__chev" style="white-space:nowrap;flex-shrink:0;"><span class="cx-chev"></span></span></button>
+          <span style="font-size:14px;color:var(--cx-ink-40);">Jedna analiza naraz na konto.</span>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ aBusy }}">
+      <div style="background:#fff;border:1px solid var(--cx-ink-20);border-radius:24px;padding:clamp(24px,4cqw,40px);display:flex;flex-direction:column;gap:16px;align-items:flex-start;">
+        <div style="display:flex;align-items:center;gap:10px;">{{ pulse }}<span style="font-size:14px;color:var(--cx-ink-10);">Analiza w toku</span></div>
+        <h2 style="font-size:clamp(22px,2.4cqw,28px);">Analiza tego konta już trwa</h2>
+        <p style="margin:0;color:var(--cx-gray-2);max-width:620px;text-wrap:pretty;">Rozpoczęta dziś o 14:02, obecnie w fazie zbierania danych. Na jednym koncie może działać tylko jedna analiza, więc nie uruchomimy drugiej.</p>
+        <button class="cx-btn cx-btn--dark" style="white-space:nowrap;flex-shrink:0;" onClick="{{ toCollect }}">Pokaż postęp<span class="cx-btn__chev" style="white-space:nowrap;flex-shrink:0;"><span class="cx-chev"></span></span></button>
+      </div>
+    </sc-if>
+
+    <!-- ===== B ===== -->
+    <sc-if value="{{ isB }}">
+      <div style="background:#fff;border:1px solid var(--cx-cloud);border-radius:24px;overflow:hidden;">
+        <div style="padding:clamp(20px,3cqw,32px);display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;justify-content:space-between;border-bottom:1px solid var(--cx-cloud);">
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            <span class="cx-eyebrow cx-eyebrow--on-light">Krok 2 z 2 · Pełna analiza</span>
+            <sc-if value="{{ bRunning }}"><div style="display:flex;align-items:center;gap:10px;"><span style="display:inline-flex;align-items:center;gap:8px;background:var(--cx-mist);border:1px solid var(--cx-ink-20);border-radius:8px;padding:4px 10px;font-size:14px;color:var(--cx-ink-80);">{{ pulse }}W toku</span><span style="font-size:14px;color:var(--cx-gray-2);">rozpoczęta dziś o 14:02</span></div></sc-if>
+            <sc-if value="{{ bError }}"><div style="display:flex;align-items:center;gap:10px;"><span style="display:inline-flex;align-items:center;gap:8px;background:rgb(252,241,238);border:1px solid rgb(238,200,190);border-radius:8px;padding:4px 10px;font-size:14px;color:rgb(140,42,30);">Przerwana</span><span style="font-size:14px;color:var(--cx-gray-2);">rozpoczęta dziś o 14:02, zatrzymana o 14:19</span></div></sc-if>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;">
+            <span style="font-family:var(--font-display);font-size:24px;">{{ bCalls }}</span>
+            <span style="font-size:13px;color:var(--cx-gray-2);">wywołań API zużytych dotąd</span>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));border-bottom:1px solid var(--cx-cloud);">
+          <sc-for list="{{ phases }}" as="p" hint-placeholder-count="3">
+            <div style="padding:20px clamp(20px,3cqw,32px);display:flex;gap:12px;align-items:flex-start;border-right:1px solid var(--cx-cloud);">
+              <sc-if value="{{ p.done }}"><span style="width:28px;height:28px;border-radius:8px;background:var(--cx-lime);display:flex;align-items:center;justify-content:center;flex:none;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--cx-ink)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg></span></sc-if>
+              <sc-if value="{{ p.active }}"><span style="width:28px;height:28px;border-radius:8px;background:var(--cx-ink);color:var(--cx-lime);display:flex;align-items:center;justify-content:center;flex:none;font-size:14px;">{{ p.n }}</span></sc-if>
+              <sc-if value="{{ p.pending }}"><span style="width:28px;height:28px;border-radius:8px;border:1px solid var(--cx-cloud-2);color:var(--cx-gray-3);display:flex;align-items:center;justify-content:center;flex:none;font-size:14px;box-sizing:border-box;">{{ p.n }}</span></sc-if>
+              <sc-if value="{{ p.error }}"><span style="width:28px;height:28px;border-radius:8px;background:rgb(163,52,38);color:#fff;display:flex;align-items:center;justify-content:center;flex:none;font-size:15px;">!</span></sc-if>
+              <div style="display:flex;flex-direction:column;gap:2px;min-width:0;">
+                <span style="font-weight:600;font-size:15px;">{{ p.label }}</span>
+                <span style="font-size:13px;color:var(--cx-gray-2);">{{ p.hint }}</span>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+
+        <sc-if value="{{ bProgress }}">
+          <div style="padding:clamp(20px,3cqw,32px) clamp(20px,3cqw,32px) 8px;display:flex;flex-direction:column;gap:10px;">
+            <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px 16px;">
+              <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;min-width:0;"><span style="font-family:var(--font-display);font-size:40px;line-height:1.1;min-width:2.4em;font-variant-numeric:tabular-nums;">{{ bPct }}%</span><span style="font-size:15px;color:var(--cx-gray-1);">{{ bStage }}</span></div>
+              <span style="font-size:14px;color:var(--cx-gray-2);font-variant-numeric:tabular-nums;">{{ bRight }}</span>
+            </div>
+            <div style="height:10px;border-radius:6px;background:var(--cx-paper);overflow:hidden;"><div style="height:100%;width:{{ bPct }}%;background:{{ bBarColor }};border-radius:6px;transition:width 120ms linear;"></div></div>
+          </div>
+          <div style="padding:4px clamp(20px,3cqw,32px) clamp(16px,2.4cqw,24px);display:flex;flex-direction:column;">
+            <sc-for list="{{ bRows }}" as="r" hint-placeholder-count="5">
+              <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;padding:12px 0;border-bottom:1px solid var(--cx-cloud);">
+                <span style="flex:1 1 200px;display:flex;align-items:center;gap:10px;min-width:0;">
+                  <sc-if value="{{ r.done }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--cx-ink-10)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex:none;"><path d="M20 6 9 17l-5-5"></path></svg></sc-if>
+                  <sc-if value="{{ r.active }}">{{ spinTeal }}</sc-if>
+                  <sc-if value="{{ r.pending }}"><span style="width:16px;height:16px;border-radius:50%;border:1.5px solid var(--cx-cloud-2);box-sizing:border-box;flex:none;"></span></sc-if>
+                  <sc-if value="{{ r.error }}"><span style="width:16px;height:16px;border-radius:50%;background:rgb(163,52,38);color:#fff;font-size:11px;display:flex;align-items:center;justify-content:center;flex:none;">!</span></sc-if>
+                  <span style="color:{{ r.color }};">{{ r.label }}</span>
+                </span>
+                <span style="font-size:14px;color:var(--cx-gray-2);font-variant-numeric:tabular-nums;">{{ r.meta }}</span>
+                <sc-if value="{{ r.showBar }}"><div style="flex:1 1 100%;height:4px;border-radius:3px;background:var(--cx-paper);overflow:hidden;"><div style="height:100%;width:{{ r.pct }}%;background:{{ r.barColor }};border-radius:3px;transition:width 120ms linear;"></div></div></sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ bEstimate }}">
+          <div style="padding:clamp(20px,3cqw,32px);display:flex;flex-direction:column;gap:20px;">
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <strong style="font-weight:600;">Szacunek przed uruchomieniem modelu</strong>
+              <span style="font-size:14px;color:var(--cx-gray-2);">Dane zebrane. Model uruchomi się automatycznie, nie musisz nic robić.</span>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:16px;">
+              <div style="background:var(--cx-mist);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:4px;"><span style="font-family:var(--font-display);font-size:40px;line-height:1.1;">{{ eSig }}</span><span style="font-size:14px;color:var(--cx-gray-1);">sygnałów do zbadania</span></div>
+              <div style="background:var(--cx-mist);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:4px;"><span style="font-family:var(--font-display);font-size:40px;line-height:1.1;">{{ eAi }}</span><span style="font-size:14px;color:var(--cx-gray-1);">trafia do AI</span></div>
+              <div style="background:var(--cx-mist);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:4px;"><span style="font-family:var(--font-display);font-size:40px;line-height:1.1;">{{ eTpl }}</span><span style="font-size:14px;color:var(--cx-gray-1);">rozstrzyga szablon (bez kosztu)</span></div>
+              <sc-if value="{{ team }}"><div style="background:var(--cx-ink-80);color:var(--cx-mist);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:4px;"><span style="font-family:var(--font-display);font-size:40px;line-height:1.1;">~3,90 USD</span><span style="font-size:14px;color:var(--cx-lime-soft);">szacowany koszt AI · tylko zespół</span></div></sc-if>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <strong style="font-weight:600;font-size:15px;">Przycięte limitem</strong>
+              <sc-for list="{{ trimmed }}" as="tr" hint-placeholder-count="2">
+                <div style="display:flex;gap:10px;font-size:14px;color:var(--cx-gray-1);background:rgb(255,247,219);border-radius:8px;padding:10px 14px;"><span><strong style="font-weight:600;">{{ tr.subj }}:</strong> {{ tr.text }}</span></div>
+              </sc-for>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:var(--cx-ink-80);">{{ spinTeal }}Uruchamiam model…</div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ bAi }}">
+          <div style="padding:0 clamp(20px,3cqw,32px) clamp(20px,3cqw,32px);">
+            <div style="background:var(--cx-mist);border-radius:12px;padding:14px 18px;display:flex;flex-direction:column;gap:6px;font-size:14px;color:var(--cx-gray-1);">
+              <span>615 sygnałów · 99 bada AI · 8 rozstrzyga szablon<sc-if value="{{ team }}"><span> · szacowany koszt ~3,90 USD</span></sc-if></span>
+              <span>Przycięte limitem: tablice przeładowane kolumnami (20 z 401), konta bez aktywności (30 z 64).</span>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ bError }}">
+          <div style="padding:clamp(20px,3cqw,32px);display:flex;flex-direction:column;gap:16px;">
+            <div style="background:rgb(252,241,238);border:1px solid rgb(238,200,190);border-radius:16px;padding:20px 24px;display:flex;flex-direction:column;gap:10px;">
+              <strong style="font-weight:600;color:rgb(140,42,30);">Analiza została przerwana podczas zbierania danych</strong>
+              <p style="margin:0;text-wrap:pretty;">Połączenie z API monday zostało przerwane podczas pobierania logów aktywności.</p>
+              <p style="margin:0;font-size:14px;color:var(--cx-gray-1);">Przed zatrzymaniem zużyto 870 wywołań z dziennego limitu API konta. Raport nie powstał.</p>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;">
+              <button class="cx-btn cx-btn--dark" style="white-space:nowrap;flex-shrink:0;" onClick="{{ startAnalysis }}">Uruchom analizę ponownie<span class="cx-btn__chev" style="white-space:nowrap;flex-shrink:0;"><span class="cx-chev"></span></span></button>
+              <span style="font-size:14px;color:var(--cx-gray-2);">Ponowne uruchomienie zużyje kolejne wywołania z limitu.</span>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+      <sc-if value="{{ bRunning }}">
+        <div style="display:flex;gap:12px;align-items:flex-start;font-size:14px;color:var(--cx-gray-1);padding:0 4px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--cx-ink-10)" stroke-width="1.8" stroke-linecap="round" style="flex:none;margin-top:1px;"><circle cx="12" cy="12" r="10"></circle><path d="M12 11v6"></path><path d="M12 7.5v.5"></path></svg>
+          <span style="text-wrap:pretty;">Możesz zamknąć lub odświeżyć tę stronę. Analiza działa po naszej stronie, a po powrocie zobaczysz ją w tym samym miejscu, bez ponownego zbierania danych.</span>
+        </div>
+      </sc-if>
+    </sc-if>
+
+    <!-- ===== H: historia ===== -->
+    <sc-if value="{{ isH }}">
+      <div style="display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;justify-content:space-between;">
+        <p style="margin:0;font-size:15px;color:var(--cx-gray-1);max-width:680px;text-wrap:pretty;">Raporty w historii są zamaskowane: osoby oznaczono jako [OSOBA], a daty podano względem dnia analizy. Wersję z nazwiskami można pobrać tylko zaraz po zakończeniu analizy.</p>
+        <button class="cx-btn cx-btn--secondary" style="white-space:nowrap;flex-shrink:0;font-size:15px;" onClick="{{ toA }}">Nowy audyt</button>
+      </div>
+      <div style="background:#fff;border:1px solid var(--cx-cloud-2);border-radius:16px;overflow:hidden;">
+        <sc-if value="{{ wide }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;gap:24px;padding:10px 24px;background:var(--cx-paper);font-size:13px;color:var(--cx-gray-2);">
+            <span style="flex:0 0 150px;">Data</span><span style="flex:0 0 110px;">Status</span><span style="flex:1 1 260px;">Wynik</span><sc-if value="{{ team }}"><span style="flex:0 0 100px;">Koszt</span></sc-if><span style="flex:0 0 230px;"></span>
+          </div>
+        </sc-if>
+        <sc-for list="{{ historyRows }}" as="hr" hint-placeholder-count="4">
+          <div data-anim="1" style="display:flex;flex-wrap:wrap;align-items:center;gap:10px 24px;padding:20px 24px;border-top:1px solid var(--cx-cloud);">
+            <div style="flex:0 0 150px;display:flex;flex-direction:column;gap:2px;"><span style="font-weight:600;">{{ hr.date }}</span><span style="font-size:13px;color:var(--cx-gray-2);">{{ hr.time }}</span></div>
+            <div style="flex:0 0 110px;">
+              <sc-if value="{{ hr.ok }}"><span style="display:inline-flex;background:var(--cx-mist);border:1px solid var(--cx-ink-20);color:var(--cx-ink-80);border-radius:8px;padding:2px 10px;font-size:13px;">Zakończona</span></sc-if>
+              <sc-if value="{{ hr.failed }}"><span style="display:inline-flex;background:rgb(252,241,238);border:1px solid rgb(238,200,190);color:rgb(140,42,30);border-radius:8px;padding:2px 10px;font-size:13px;">Przerwana</span></sc-if>
+            </div>
+            <div style="flex:1 1 260px;min-width:0;display:flex;flex-direction:column;gap:2px;"><span style="font-size:15px;">{{ hr.main }}</span><span style="font-size:13px;color:var(--cx-gray-2);text-wrap:pretty;">{{ hr.sub }}</span></div>
+            <sc-if value="{{ team }}"><div style="flex:0 0 100px;font-size:14px;color:var(--cx-gray-1);font-variant-numeric:tabular-nums;">{{ hr.cost }}</div></sc-if>
+            <div style="flex:0 0 230px;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font-size:14px;">
+              <sc-if value="{{ hr.ok }}"><a href="#" onClick="{{ hr.open }}" style="display:inline-flex;align-items:center;gap:4px;">Otwórz raport<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg></a><a href="#" onClick="{{ noop }}" style="color:var(--cx-gray-2);">Pobierz (HTML)</a></sc-if>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <!-- ===== C/D shared banners ===== -->
+    <sc-if value="{{ isReport }}">
+      <div style="display:flex;flex-wrap:wrap;gap:16px 32px;align-items:center;justify-content:space-between;">
+        <div style="display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center;font-size:14px;color:var(--cx-gray-2);">
+          <span style="display:inline-flex;align-items:center;gap:6px;background:var(--cx-lime);color:var(--cx-ink);border-radius:8px;padding:3px 10px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>Zakończona</span>
+          <span style="color:var(--cx-ink);font-weight:600;">nordwind.monday.com</span>
+          <span>Plan Enterprise</span>
+          <span>analiza z 24.09.2026, 14:41</span>
+        </div>
+        <sc-if value="{{ isD }}"><a href="#" onClick="{{ toReport }}" style="font-size:14px;display:inline-flex;align-items:center;gap:6px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"></path></svg>Wróć do raportu głównego</a></sc-if>
+      </div>
+
+      <sc-if value="{{ fresh }}">
+        <div style="background:var(--cx-ink);border-radius:16px;padding:clamp(20px,3cqw,28px);display:flex;flex-wrap:wrap;gap:16px 32px;align-items:center;justify-content:space-between;">
+          <div style="display:flex;gap:14px;align-items:flex-start;flex:1 1 320px;min-width:0;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--cx-lime)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-top:2px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m7 10 5 5 5-5"></path><path d="M12 15V3"></path></svg>
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              <strong style="font-weight:600;color:var(--cx-mist);">Zapisz ten raport teraz</strong>
+              <span style="font-size:15px;color:var(--cx-lime-soft);text-wrap:pretty;">Po zamknięciu tego widoku nie odtworzymy wersji z nazwiskami. W historii zostanie wersja zamaskowana: [OSOBA] zamiast nazwisk, daty liczone od dnia analizy.</span>
+            </div>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+            <button class="cx-btn" style="white-space:nowrap;flex-shrink:0;" onClick="{{ noop }}">Pobierz raport (HTML)<span class="cx-btn__chev" style="white-space:nowrap;flex-shrink:0;"><span class="cx-chev"></span></span></button>
+            <span style="font-size:13px;color:var(--cx-ink-40);">PDF wkrótce</span>
+          </div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ history }}">
+        <div style="background:#fff;border:1px solid var(--cx-cloud-2);border-radius:16px;padding:16px 20px;display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;justify-content:space-between;">
+          <span style="font-size:15px;color:var(--cx-gray-1);text-wrap:pretty;flex:1 1 320px;"><strong style="font-weight:600;color:var(--cx-ink);">Wersja z historii, zamaskowana.</strong> Osoby oznaczono jako [OSOBA], daty podano względem dnia analizy.</span>
+          <button class="cx-btn cx-btn--secondary" style="white-space:nowrap;flex-shrink:0;font-size:15px;" onClick="{{ noop }}">Pobierz (HTML)</button>
+        </div>
+      </sc-if>
+      <sc-if value="{{ partial }}">
+        <div style="background:rgb(252,241,238);border:1px solid rgb(238,200,190);border-radius:16px;padding:16px 20px;display:flex;flex-direction:column;gap:6px;">
+          <strong style="font-weight:600;color:rgb(140,42,30);">Raport z nazwiskami nie powstał</strong>
+          <span style="font-size:15px;text-wrap:pretty;">Nie udało się przypisać nazwisk do identyfikatorów osób przed usunięciem mapowania. Uwagi są kompletne, pokazujemy je w wersji zamaskowanej.</span>
+        </div>
+      </sc-if>
+    </sc-if>
+
+    <!-- ===== C ===== -->
+    <sc-if value="{{ isC }}">
+      <sc-if value="{{ layoutHero }}" hint-placeholder-val="{{ true }}">
+      <div data-anim="1" class="cx-bg-hero" style="border-radius:24px;padding:clamp(24px,4cqw,48px);display:flex;flex-direction:column;gap:28px;">
+        <div style="display:flex;flex-wrap:wrap;gap:24px 48px;align-items:flex-end;justify-content:space-between;">
+          <div style="display:flex;flex-direction:column;gap:14px;flex:1 1 320px;min-width:0;">
+            <span class="cx-eyebrow">Wynik audytu</span>
+            <div style="display:flex;align-items:flex-end;gap:20px;flex-wrap:wrap;">
+              <span data-count="22" style="font-family:var(--font-display);font-weight:300;font-size:clamp(88px,11cqw,128px);line-height:0.9;letter-spacing:-0.02em;color:var(--cx-lime);font-variant-numeric:tabular-nums;">22</span>
+              <span style="font-family:var(--font-display);font-size:clamp(24px,2.8cqw,32px);color:var(--cx-mist);line-height:1.15;padding-bottom:6px;display:flex;flex-direction:column;"><span style="white-space:nowrap;">uwagi krytyczne</span><span style="white-space:nowrap;">na Twoim koncie</span></span>
+            </div>
+            <p style="margin:0;color:var(--cx-lime-soft);max-width:560px;text-wrap:pretty;">Każda uwaga ma opis, rekomendację i dowód z konta. Wybierz kategorię, żeby zobaczyć szczegóły.</p>
+          </div>
+          <button class="cx-btn" style="white-space:nowrap;flex-shrink:0;" onClick="{{ openBoards }}">Zacznij od tablic<span class="cx-btn__chev"><span class="cx-chev"></span></span></button>
+        </div>
+        <div data-grow="1" style="display:flex;gap:3px;height:14px;border-radius:7px;overflow:hidden;transform-origin:left center;">
+          <sc-for list="{{ heroCats }}" as="hc" hint-placeholder-count="3"><span style="flex:{{ hc.count }} 1 0;background:{{ hc.color }};"></span></sc-for>
+        </div>
+        <div style="display:flex;flex-direction:column;">
+          <sc-for list="{{ cats }}" as="k" hint-placeholder-count="4">
+            <div data-anim="1">
+              <sc-if value="{{ k.measured }}">
+                <div role="button" onClick="{{ k.open }}" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 24px;padding:18px 0;border-top:1px solid var(--cx-ink-60);cursor:pointer;color:var(--cx-mist);transition:color 150ms ease;" style-hover="color:var(--cx-lime)">
+                  <div style="flex:0 0 160px;display:flex;align-items:center;gap:12px;">
+                    <span style="width:12px;height:12px;border-radius:3px;background:{{ k.color }};flex:none;"></span>
+                    <span style="font-size:17px;">{{ k.name }}</span>
+                  </div>
+                  <div style="flex:0 0 110px;display:flex;align-items:baseline;gap:8px;">
+                    <span data-count="{{ k.count }}" style="font-family:var(--font-display);font-size:40px;line-height:1;font-variant-numeric:tabular-nums;">{{ k.count }}</span>
+                    <span style="font-size:14px;color:var(--cx-ink-40);">{{ k.share }}%</span>
+                  </div>
+                  <span style="flex:1 1 280px;min-width:0;font-size:15px;line-height:1.45;color:var(--cx-lime-soft);text-wrap:pretty;">{{ k.text }}</span>
+                  <span style="display:inline-flex;align-items:center;gap:6px;font-size:14px;white-space:nowrap;">{{ k.cta }}<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg></span>
+                </div>
+              </sc-if>
+              <sc-if value="{{ k.notMeasured }}">
+                <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px 24px;padding:18px 0;border-top:1px dashed var(--cx-ink-60);color:var(--cx-ink-40);">
+                  <div style="flex:0 0 160px;display:flex;align-items:center;gap:12px;">
+                    <span style="width:12px;height:12px;border-radius:3px;border:1.5px dashed var(--cx-ink-40);box-sizing:border-box;flex:none;"></span>
+                    <span style="font-size:17px;">{{ k.name }}</span>
+                  </div>
+                  <span style="flex:0 0 110px;font-family:var(--font-display);font-size:20px;line-height:1.2;">jeszcze nie mierzone</span>
+                  <span style="flex:1 1 280px;min-width:0;font-size:15px;line-height:1.45;text-wrap:pretty;">{{ k.text }}</span>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+
+      <sc-if value="{{ layoutTiles }}">
+      <div data-anim="1" style="background:#fff;border:1px solid var(--cx-cloud-2);border-radius:24px;padding:clamp(20px,3cqw,28px);display:flex;flex-wrap:wrap;gap:12px 28px;align-items:center;">
+        <span data-count="22" style="font-family:var(--font-display);font-size:72px;line-height:1;letter-spacing:-0.02em;font-variant-numeric:tabular-nums;">22</span>
+        <div style="display:flex;flex-direction:column;gap:4px;flex:1 1 280px;min-width:0;">
+          <span style="font-family:var(--font-display);font-size:clamp(22px,2.6cqw,28px);line-height:1.2;">uwagi krytyczne na Twoim koncie</span>
+          <span style="font-size:15px;color:var(--cx-gray-2);text-wrap:pretty;">Każda uwaga ma opis, rekomendację i dowód z konta. Kliknij kategorię, żeby zobaczyć szczegóły.</span>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:16px;">
+        <sc-for list="{{ cats }}" as="k" hint-placeholder-count="4">
+          <div data-anim="1">
+            <sc-if value="{{ k.measured }}">
+              <div role="button" onClick="{{ k.open }}" style="cursor:pointer;height:100%;box-sizing:border-box;background:#fff;border:1px solid var(--cx-cloud-2);border-radius:24px;padding:24px;display:flex;flex-direction:column;gap:16px;transition:border-color 150ms ease, box-shadow 150ms ease;" style-hover="border-color:var(--cx-ink);box-shadow:var(--shadow-md)">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                  <span style="font-size:15px;color:var(--cx-gray-1);font-weight:600;">{{ k.name }}</span>
+                  <span style="font-size:13px;color:var(--cx-gray-2);">{{ k.share }}% wszystkich uwag</span>
+                </div>
+                <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;"><span data-count="{{ k.count }}" style="font-family:var(--font-display);font-size:64px;line-height:1;font-variant-numeric:tabular-nums;">{{ k.count }}</span><span style="font-size:15px;color:var(--cx-gray-1);">{{ k.countLabel }}</span></div>
+                <div style="height:6px;border-radius:3px;background:var(--cx-paper);overflow:hidden;"><div data-grow="1" style="height:100%;width:{{ k.share }}%;background:var(--cx-ink);border-radius:3px;transform-origin:left center;"></div></div>
+                <div style="background:var(--cx-mist);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:4px;">
+                  <span style="font-size:12px;color:var(--cx-ink-10);font-weight:600;">Największy problem</span>
+                  <span style="font-size:15px;line-height:1.45;text-wrap:pretty;">{{ k.text }}</span>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                  <sc-for list="{{ k.types }}" as="ty" hint-placeholder-count="3">
+                    <div style="display:flex;align-items:baseline;gap:10px;font-size:14px;"><span style="flex:1;color:var(--cx-gray-1);text-wrap:pretty;">{{ ty.n }}</span><span style="font-weight:600;font-variant-numeric:tabular-nums;">{{ ty.c }}</span></div>
+                  </sc-for>
+                  <sc-if value="{{ k.hasMore }}"><span style="font-size:13px;color:var(--cx-gray-2);">{{ k.more }}</span></sc-if>
+                </div>
+                <div style="margin-top:auto;padding-top:4px;"><span class="cx-btn cx-btn--dark" style="white-space:nowrap;flex-shrink:0;font-size:15px;">{{ k.cta }}<span class="cx-btn__chev" style="white-space:nowrap;flex-shrink:0;"><span class="cx-chev"></span></span></span></div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ k.notMeasured }}">
+              <div style="height:100%;box-sizing:border-box;background:var(--cx-paper);border:1.5px dashed var(--cx-gray-3);border-radius:24px;padding:24px;display:flex;flex-direction:column;gap:16px;">
+                <span style="font-size:15px;color:var(--cx-gray-1);font-weight:600;">{{ k.name }}</span>
+                <span style="font-family:var(--font-display);font-size:32px;line-height:1.1;color:var(--cx-gray-1);">jeszcze nie mierzone</span>
+                <p style="margin:0;font-size:15px;line-height:1.45;color:var(--cx-gray-1);text-wrap:pretty;">{{ k.text }}</p>
+              </div>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+      </sc-if>
+
+      <div data-anim="1" style="background:rgb(255,247,219);border:1px solid rgb(240,215,140);border-radius:24px;padding:clamp(20px,3cqw,32px);display:flex;flex-direction:column;gap:20px;">
+        <div style="display:flex;gap:16px;align-items:flex-start;">
+          <span style="width:44px;height:44px;border-radius:12px;background:rgb(122,86,0);color:#fff;display:flex;align-items:center;justify-content:center;flex:none;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg></span>
+          <div style="display:flex;flex-direction:column;gap:6px;min-width:0;">
+            <h3 style="font-size:clamp(22px,2.6cqw,28px);color:rgb(74,52,0);">Czego ten raport nie sprawdził</h3>
+            <p style="margin:0;color:rgb(90,64,0);text-wrap:pretty;"><strong style="font-weight:700;">Brak uwag w tych obszarach nie znaczy, że są w porządku.</strong> Audyt zbadał tylko część przypadków albo API monday nie udostępnia danych.</p>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:12px;">
+          <sc-for list="{{ coverage }}" as="cv" hint-placeholder-count="5">
+            <div style="background:#fff;border:1px solid rgb(240,215,140);border-radius:16px;padding:18px;display:flex;flex-direction:column;gap:10px;">
+              <span style="font-weight:600;font-size:15px;">{{ cv.subj }}</span>
+              <sc-if value="{{ cv.measured }}">
+                <div style="display:flex;flex-direction:column;gap:4px;"><span style="font-family:var(--font-display);font-size:36px;line-height:1;color:rgb(122,86,0);font-variant-numeric:tabular-nums;">{{ cv.pct }}%</span><span style="font-size:14px;line-height:1.4;color:var(--cx-gray-1);">zbadano {{ cv.frac }}</span></div>
+                <div style="height:8px;border-radius:4px;background:rgb(250,234,188);overflow:hidden;"><div data-grow="1" style="height:100%;width:{{ cv.pct }}%;background:rgb(122,86,0);border-radius:4px;transform-origin:left center;"></div></div>
+              </sc-if>
+              <sc-if value="{{ cv.nm }}">
+                <span style="font-family:var(--font-display);font-size:26px;line-height:1.1;color:var(--cx-gray-1);">nie zmierzone</span>
+                <div style="height:8px;border-radius:4px;border:1.5px dashed rgb(210,180,110);box-sizing:border-box;"></div>
+              </sc-if>
+              <p style="margin:0;font-size:14px;line-height:1.45;color:var(--cx-gray-1);text-wrap:pretty;">{{ cv.text }}</p>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+
+      <sc-if value="{{ team }}">
+        <div data-anim="1" style="background:var(--cx-ink-80);color:var(--cx-mist);border-radius:16px;padding:24px;display:flex;flex-direction:column;gap:14px;">
+          <span style="font-size:13px;color:var(--cx-ink-40);">Tylko dla zespołu CXLABS</span>
+          <div style="display:flex;flex-wrap:wrap;gap:16px 48px;">
+            <div style="display:flex;flex-direction:column;gap:2px;"><span style="font-family:var(--font-display);font-size:32px;line-height:1.1;">47</span><span style="font-size:14px;color:var(--cx-lime-soft);">hipotez sprawdzonych i odrzuconych</span></div>
+            <div style="display:flex;flex-direction:column;gap:2px;"><span style="font-family:var(--font-display);font-size:32px;line-height:1.1;">2,34 USD</span><span style="font-size:14px;color:var(--cx-lime-soft);">koszt analizy</span></div>
+          </div>
+          <span style="font-size:13px;color:var(--cx-ink-40);border-top:1px solid var(--cx-ink-60);padding-top:10px;">1 184 wywołania API · czas 39 min · 615 sygnałów (99 AI, 8 szablon) · id analizy AUD-2026-0924-01</span>
+        </div>
+      </sc-if>
+    </sc-if>
+
+    <!-- ===== D ===== -->
+    <sc-if value="{{ isDStub }}">
+      <div style="background:#fff;border:1px dashed var(--cx-cloud-2);border-radius:16px;padding:32px;color:var(--cx-gray-2);">Ta kategoria ma ten sam układ co Tablice. W prototypie szczegółowo rozpisano kategorię Tablice.</div>
+    </sc-if>
+    <sc-if value="{{ isDBoards }}">
+      <div style="display:flex;flex-wrap:wrap;gap:12px 32px;align-items:baseline;">
+        <span style="font-family:var(--font-display);font-size:clamp(24px,2.8cqw,32px);">12 uwag krytycznych</span>
+        <span style="color:var(--cx-gray-2);">w 5 rodzajach problemów, od najliczniejszych</span>
+        <sc-if value="{{ team }}"><span style="font-size:14px;background:var(--cx-ink-80);color:var(--cx-lime-soft);border-radius:8px;padding:3px 10px;">tylko zespół: 19 hipotez odrzuconych w tej kategorii</span></sc-if>
+      </div>
+      <div style="background:#fff;border:1px solid var(--cx-cloud);border-radius:16px;padding:20px 24px;display:flex;flex-direction:column;gap:10px;">
+        <strong style="font-weight:600;font-size:15px;">Zastrzeżenia kategorii</strong>
+        <sc-for list="{{ boardCaveats }}" as="cv" hint-placeholder-count="2">
+          <div style="display:flex;gap:10px;font-size:15px;color:var(--cx-gray-1);text-wrap:pretty;"><span style="color:rgb(122,86,0);flex:none;">—</span><span><strong style="font-weight:600;color:var(--cx-ink);">{{ cv.subj }}:</strong> {{ cv.text }}</span></div>
+        </sc-for>
+      </div>
+
+      <sc-for list="{{ groups }}" as="g" hint-placeholder-count="3">
+        <div data-anim="1" style="background:#fff;border:1px solid var(--cx-cloud-2);border-radius:16px;overflow:hidden;">
+          <div style="padding:clamp(18px,2.6cqw,24px);display:flex;flex-direction:column;gap:12px;">
+            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+              <h3 style="font-size:clamp(20px,2.2cqw,24px);">{{ g.name }}</h3>
+              <span style="background:var(--cx-ink);color:var(--cx-mist);border-radius:8px;padding:2px 10px;font-size:14px;">{{ g.countLabel }}</span>
+            </div>
+            <sc-if value="{{ g.hasRec }}">
+              <div style="background:var(--cx-mist);border-radius:12px;padding:12px 16px;font-size:15px;text-wrap:pretty;"><span style="color:var(--cx-ink-10);font-weight:600;">Rekomendacja dla całej grupy: </span>{{ g.rec }}</div>
+            </sc-if>
+          </div>
+          <sc-if value="{{ wide }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;gap:24px;padding:10px 24px;background:var(--cx-paper);border-top:1px solid var(--cx-cloud);font-size:13px;color:var(--cx-gray-2);">
+              <span style="flex:1.1 1 240px;">Opis</span><span style="flex:1 1 220px;">Rekomendacja</span><span style="flex:1.4 1 280px;">Dowód</span><span style="flex:0 0 72px;">Źródło</span>
+            </div>
+          </sc-if>
+          <sc-for list="{{ g.notes }}" as="n" hint-placeholder-count="2">
+            <div style="display:flex;flex-wrap:wrap;gap:14px 24px;padding:18px 24px;border-top:1px solid var(--cx-cloud);">
+              <div style="flex:1.1 1 240px;min-width:0;display:flex;flex-direction:column;gap:4px;">
+                <sc-if value="{{ narrow }}"><span style="font-size:13px;color:var(--cx-gray-2);">Opis</span></sc-if>
+                <p style="margin:0;font-size:15px;line-height:1.5;text-wrap:pretty;">{{ n.desc }}</p>
+              </div>
+              <div style="flex:1 1 220px;min-width:0;display:flex;flex-direction:column;gap:4px;">
+                <sc-if value="{{ narrow }}"><span style="font-size:13px;color:var(--cx-gray-2);">Rekomendacja</span></sc-if>
+                <p style="margin:0;font-size:15px;line-height:1.5;text-wrap:pretty;display:flex;gap:8px;"><span style="color:var(--cx-ink-10);flex:none;">→</span><span>{{ n.rec }}</span></p>
+              </div>
+              <div style="flex:1.4 1 280px;min-width:0;display:flex;flex-direction:column;gap:6px;">
+                <sc-if value="{{ narrow }}"><span style="font-size:13px;color:var(--cx-gray-2);">Dowód</span></sc-if>
+                <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                  <sc-for list="{{ n.ev }}" as="e" hint-placeholder-count="4">
+                    <span style="display:contents;">
+                      <sc-if value="{{ e.measured }}"><span style="display:inline-flex;flex-wrap:wrap;gap:4px;padding:4px 10px;border-radius:8px;background:var(--cx-paper);border:1px solid var(--cx-cloud);font-size:13px;line-height:1.4;max-width:100%;box-sizing:border-box;overflow-wrap:anywhere;"><span style="color:var(--cx-gray-2);">{{ e.label }}:</span><span style="color:var(--cx-ink);font-weight:600;">{{ e.value }}</span></span></sc-if>
+                      <sc-if value="{{ e.isNm }}"><span style="display:inline-flex;flex-direction:column;gap:2px;padding:6px 10px;border-radius:8px;background:#fff;border:1.5px dashed var(--cx-gray-3);font-size:13px;line-height:1.4;max-width:100%;box-sizing:border-box;"><span><span style="color:var(--cx-gray-2);">{{ e.label }}: </span><span style="color:var(--cx-gray-1);font-weight:600;">nie zmierzone</span></span><span style="color:var(--cx-gray-2);">{{ e.reason }}</span></span></sc-if>
+                    </span>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="flex:0 0 72px;display:flex;flex-direction:column;gap:4px;align-items:flex-start;">
+                <sc-if value="{{ narrow }}"><span style="font-size:13px;color:var(--cx-gray-2);">Źródło</span></sc-if>
+                <sc-if value="{{ n.isAi }}"><span style="background:var(--cx-ink-80);color:var(--cx-mist);border-radius:6px;padding:2px 8px;font-size:12px;">AI</span></sc-if>
+                <sc-if value="{{ n.isTpl }}"><span style="background:#fff;border:1px solid var(--cx-cloud-2);color:var(--cx-gray-1);border-radius:6px;padding:2px 8px;font-size:12px;">szablon</span></sc-if>
+              </div>
+              <sc-if value="{{ team }}"><div style="flex:1 1 100%;font-size:12px;color:var(--cx-gray-3);font-family:var(--font-mono);">{{ n.sig }}</div></sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </sc-for>
+    </sc-if>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1200,&quot;height&quot;:900},&quot;screen&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;a-idle&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;options&quot;:[&quot;a-idle&quot;,&quot;a-loading&quot;,&quot;a-done&quot;,&quot;a-warn&quot;,&quot;a-busy&quot;,&quot;a-err-admin&quot;,&quot;a-err-limit&quot;,&quot;a-err-key&quot;,&quot;b-collect&quot;,&quot;b-estimate&quot;,&quot;b-ai&quot;,&quot;b-error&quot;,&quot;c-fresh&quot;,&quot;c-history&quot;,&quot;c-partial&quot;,&quot;d-fresh&quot;,&quot;d-history&quot;,&quot;d-partial&quot;,&quot;h&quot;]},&quot;viewer&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;client&quot;,&quot;tsType&quot;:&quot;'client' | 'team'&quot;,&quot;options&quot;:[&quot;client&quot;,&quot;team&quot;]},&quot;reportLayout&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;hero&quot;,&quot;tsType&quot;:&quot;'hero' | 'tiles'&quot;,&quot;options&quot;:[&quot;hero&quot;,&quot;tiles&quot;]}}">
+const GROUPS = [
+  { name: 'Wiele tablic robiących to samo', rec: 'Dla każdego zestawu ustalić tablicę wiodącą, przenieść na nią dane z pozostałych i zarchiwizować kopie.', notes: [
+    { src: 'AI', sig: 'sygnał BRD-DUP-0031 · hipoteza potwierdzona · 2 410 tokenów',
+      desc: '10 tablic w jednym workspace ma tę samą nazwę „Duplikat Production Pipeline TEMPLATE”, zostały utworzone tego samego dnia w odstępach kilkunastu minut i mają identyczne kolumny oraz subskrybentów.',
+      rec: 'Ustalić, czy którakolwiek kopia jest w użyciu; jeśli nie, usunąć wszystkie i zostawić jeden oznaczony szablon.',
+      ev: [{ k: 'tablice', v: '10' }, { k: 'nakładanie kolumn', v: '100%' }, { k: 'nakładanie subskrybentów', v: '100%' }, { k: 'aktywnych w oknie', v: '0 z 10' }, { k: 'utworzone', v: '2026-05-29', m: '118 dni przed analizą' }, { k: 'ID', v: '1846203311, 1846203318 i 8 kolejnych' }] },
+    { src: 'AI', sig: 'sygnał BRD-DUP-0044 · hipoteza potwierdzona · 1 980 tokenów',
+      desc: 'Tablice „Leady 2025”, „Leady – nowe” i „Leady CRM” w workspace Sprzedaż zbierają te same kontakty w niemal identycznym układzie kolumn. Każdą edytują inne osoby.',
+      rec: 'Wybrać jedną tablicę leadów dla zespołu sprzedaży i połączyć na niej dane.',
+      ev: [{ k: 'tablice', v: '3' }, { k: 'nakładanie kolumn', v: '92%' }, { k: 'nakładanie subskrybentów', v: '40%' }, { k: 'aktywnych w oknie', v: '3 z 3' }, { k: 'najaktywniejsze osoby', v: 'Piotr Zieliński, Ewa Mazur, Karol Wójcik', m: '[OSOBA], [OSOBA], [OSOBA]' }] },
+    { src: 'szablon', sig: 'reguła R-DUP-02',
+      desc: 'Dwie tablice „Onboarding klienta” w różnych workspace\'ach mają identyczne kolumny. Jedna nie była edytowana od utworzenia.',
+      rec: 'Zarchiwizować nieużywaną kopię.',
+      ev: [{ k: 'tablice', v: '2' }, { k: 'nakładanie kolumn', v: '100%' }, { k: 'wpisy w logu', v: '0 i 1 348' }, { k: 'utworzone', v: '2025-11-03 i 2026-02-17', m: '325 i 219 dni przed analizą' }] }
+  ]},
+  { name: 'Tablica porzucona', rec: 'Potwierdzić z zespołem, czy tablice są potrzebne; nieużywane zarchiwizować, żeby nie myliły w wyszukiwaniu i automatyzacjach.', notes: [
+    { src: 'szablon', sig: 'reguła R-ABN-01',
+      desc: 'Tablica „Kampanie Q1 2025” ma 412 elementów i 6 aktywnych automatyzacji, ale od 214 dni nikt jej nie edytował.',
+      rec: 'Wyłączyć automatyzacje i zarchiwizować tablicę.',
+      ev: [{ k: 'elementy', v: '412' }, { k: 'aktywne automatyzacje', v: '6' }, { k: 'ostatnia edycja', v: '2026-02-22', m: '214 dni przed analizą' }, { k: 'wpisy w logu (90 dni)', v: '0' }] },
+    { src: 'AI', sig: 'sygnał BRD-ABN-0107 · hipoteza potwierdzona · 1 640 tokenów',
+      desc: 'Tablica „Reklamacje – archiwum 2024” jest nadal podpięta do formularza, który co tydzień dodaje nowe elementy. Nikt ich nie otwiera ani nie przypisuje.',
+      rec: 'Odłączyć formularz albo wyznaczyć osobę odpowiedzialną za nowe zgłoszenia.',
+      ev: [{ k: 'nowe elementy (90 dni)', v: '37' }, { k: 'z przypisaną osobą', v: '0 z 37' }, { k: 'otwarcia elementów', v: '0' }, { k: 'ostatnia edycja przez człowieka', v: '2025-12-08', m: '290 dni przed analizą' }] },
+    { src: 'AI', sig: 'sygnał BRD-ABN-0112 · hipoteza potwierdzona · 1 220 tokenów',
+      desc: 'Tablica „Plan wdrożenia v2” ma 14 subskrybentów, z których żaden nie był na niej aktywny od 178 dni.',
+      rec: 'Zapytać zespół wdrożeniowy, czy plan jest aktualny; jeśli nie, zarchiwizować.',
+      ev: [{ k: 'subskrybenci', v: '14' }, { k: 'aktywni subskrybenci', v: '0 z 14' }, { k: 'ostatnia aktywność', v: '2026-03-30', m: '178 dni przed analizą' }, { k: 'dostęp gości do tablicy', nm: 'API nie pokazuje gości wśród subskrybentów' }] }
+  ]},
+  { name: 'Tablica bez właściciela', notes: [
+    { src: 'szablon', sig: 'reguła R-OWN-01',
+      desc: 'Tablica „Zlecenia serwisowe” nie ma właściciela: jedyne konto właściciela zostało dezaktywowane, a tablica jest intensywnie używana.',
+      rec: 'Wyznaczyć właściciela. Najczęściej edytuje ją Marta Wiśniewska.', rm: 'Wyznaczyć właściciela. Najczęściej edytuje ją [OSOBA].',
+      ev: [{ k: 'właściciele', v: '0' }, { k: 'wpisy w logu (30 dni)', v: '1 912' }, { k: 'najaktywniejsza osoba', v: 'Marta Wiśniewska (412 edycji)', m: '[OSOBA] (412 edycji)' }, { k: 'konto poprzedniego właściciela', v: 'dezaktywowane 2026-06-12', m: 'dezaktywowane 104 dni przed analizą' }] },
+    { src: 'AI', sig: 'sygnał BRD-OWN-0019 · hipoteza potwierdzona · 1 050 tokenów',
+      desc: 'Jedynym właścicielem tablicy „Budżet marketingu 2026” jest konto gościa spoza organizacji.',
+      rec: 'Przenieść własność na członka zespołu, np. Tomasza Lewandowskiego.', rm: 'Przenieść własność na członka zespołu, np. [OSOBA].',
+      ev: [{ k: 'właściciele', v: '1 (gość)' }, { k: 'subskrybenci-członkowie', v: '6' }, { k: 'najaktywniejsza osoba', v: 'Tomasz Lewandowski (88 edycji)', m: '[OSOBA] (88 edycji)' }, { k: 'uprawnienia gościa do edycji', nm: 'API nie zwraca poziomu uprawnień gości' }] }
+  ]},
+  { name: 'Tablica z polami, których nikt nie wypełnia', rec: 'Usunąć albo ukryć kolumny, których nikt nie wypełnia. Jeśli są potrzebne w procesie, dodać je do formularza lub automatyzacji.', notes: [
+    { src: 'szablon', sig: 'reguła R-COL-03',
+      desc: 'W tablicy „Deals” 23 z 61 kolumn są puste we wszystkich 1 840 elementach.',
+      rec: 'Przejrzeć 23 puste kolumny z właścicielem procesu sprzedaży.',
+      ev: [{ k: 'kolumny', v: '61' }, { k: 'puste w 100% elementów', v: '23' }, { k: 'elementy', v: '1 840' }, { k: 'ID tablicy', v: '1592204417' }] },
+    { src: 'AI', sig: 'sygnał BRD-COL-0203 · hipoteza potwierdzona · 1 330 tokenów',
+      desc: 'W tablicy „Zgłoszenia IT” kolumny „Priorytet” i „SLA” są wypełnione w mniej niż 3% elementów, choć dwa widoki zespołu sortują po nich.',
+      rec: 'Uczynić pola wymaganymi w formularzu zgłoszeń albo usunąć je z widoków.',
+      ev: [{ k: 'elementy', v: '2 306' }, { k: 'wypełnienie „Priorytet”', v: '2,1%' }, { k: 'wypełnienie „SLA”', v: '1,4%' }, { k: 'widoki sortujące po tych polach', v: '2' }] }
+  ]},
+  { name: 'Automatyzacja, która się uruchamia i nie działa', notes: [
+    { src: 'AI', sig: 'sygnał AUT-ERR-0051 · hipoteza potwierdzona · 1 870 tokenów',
+      desc: 'Automatyzacja „Gdy status zmieni się na Wygrana, utwórz element w Projekty” uruchamia się, ale od trzech tygodni za każdym razem kończy się błędem.',
+      rec: 'Zaktualizować mapowanie kolumn: tablica docelowa nie ma już kolumny, do której automatyzacja zapisuje klienta.',
+      ev: [{ k: 'uruchomienia (30 dni)', v: '64' }, { k: 'błędy', v: '64 z 64' }, { k: 'ostatni błąd', v: '„Column not found: klient_1”, 2026-09-23', m: '„Column not found: klient_1”, 1 dzień przed analizą' }, { k: 'tablica docelowa', v: '1703319902' }] },
+    { src: 'szablon', sig: 'reguła R-AUT-01',
+      desc: 'W tablicy „Service desk” automatyzacja przypisująca osobę do nowych zgłoszeń z poczty zawodzi przy połowie uruchomień.',
+      rec: 'Dodać brakujące osoby do subskrybentów tablicy albo zmienić regułę przypisania.',
+      ev: [{ k: 'uruchomienia (30 dni)', v: '418' }, { k: 'błędy', v: '203' }, { k: 'ostatni błąd', v: '„User is not a member of the board”' }, { k: 'najczęściej przypisywana osoba', v: 'Ewa Mazur', m: '[OSOBA]' }] }
+  ]}
+];
+const uwagi = n => n === 1 ? 'uwaga krytyczna' : ([2,3,4].includes(n % 10) && ![12,13,14].includes(n % 100)) ? 'uwagi krytyczne' : 'uwag krytycznych';
+const uwagShort = n => n === 1 ? '1 uwaga' : ([2,3,4].includes(n % 10) && ![12,13,14].includes(n % 100)) ? n + ' uwagi' : n + ' uwag';
+const CAT_NAMES = { ws: 'Workspace', boards: 'Tablice', users: 'Użytkownicy', agents: 'Agenci AI' };
+
+class Component extends DCLogic {
+  state = { screen: null, cat: 'boards', wide: true, prog: 0 };
+  timers = [];
+  checkWidth() {
+    const el = this.roEl;
+    const w = el ? el.offsetWidth : 0;
+    if (!el || !w || !this.__host) {
+      this.tries = (this.tries || 0) + 1;
+      if (this.tries < 40 && !this.retryT) this.retryT = setTimeout(() => { this.retryT = null; this.checkWidth(); }, 50);
+      return;
+    }
+    const wide = w >= 860; if (wide !== this.state.wide) this.setState({ wide });
+  }
+  rootRef = el => {
+    if (!el) return;
+    if (this.roEl !== el) {
+      this.ro && this.ro.disconnect();
+      this.roEl = el;
+      if (window.ResizeObserver) { this.ro = new ResizeObserver(() => this.checkWidth()); this.ro.observe(el); }
+    }
+    this.checkWidth();
+    requestAnimationFrame(() => this.checkWidth());
+  };
+  componentDidMount() { setTimeout(() => this.animateIn(), 120); this.checkWidth(); setTimeout(() => this.checkWidth(), 300); }
+  mainRef = el => { if (el) this.mainEl = el; };
+  animateIn() {
+    const el = this.mainEl; if (!el || !el.animate) return;
+    el.animate([{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { duration: 240, easing: 'cubic-bezier(.2,.7,.2,1)' });
+    el.querySelectorAll('[data-grow]').forEach((n, i) => n.animate([{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }], { duration: 700, delay: 150 + Math.min(i, 10) * 40, easing: 'cubic-bezier(.2,.7,.2,1)', fill: 'backwards' }));
+    el.querySelectorAll('[data-count]').forEach(n => {
+      const to = parseInt(n.getAttribute('data-count'), 10); if (!to) return;
+      const t0 = performance.now(), d = 900;
+      const step = now => { const f = Math.min(1, (now - t0) / d); n.textContent = String(Math.round(to * (1 - Math.pow(1 - f, 3)))); if (f < 1) requestAnimationFrame(step); };
+      requestAnimationFrame(step);
+    });
+    el.querySelectorAll('[data-anim]').forEach((n, i) => n.animate([{ opacity: 0, transform: 'translateY(12px)' }, { opacity: 1, transform: 'none' }], { duration: 260, delay: 60 + Math.min(i, 8) * 45, easing: 'cubic-bezier(.2,.7,.2,1)', fill: 'backwards' }));
+  }
+  expand(fromEl, go) {
+    const main = this.mainEl;
+    if (!fromEl || !main || !fromEl.animate) { go(); return; }
+    const a = fromEl.getBoundingClientRect(), b = main.getBoundingClientRect();
+    const h = Math.max(a.height, Math.min(b.height, window.innerHeight - Math.max(b.top, 0)));
+    const ov = document.createElement('div');
+    Object.assign(ov.style, { position: 'fixed', left: a.left + 'px', top: a.top + 'px', width: a.width + 'px', height: a.height + 'px', background: '#fff', border: '1px solid rgb(112,156,154)', borderRadius: '24px', zIndex: 9999, pointerEvents: 'none', boxSizing: 'border-box' });
+    document.body.appendChild(ov);
+    const anim = ov.animate([
+      { left: a.left + 'px', top: a.top + 'px', width: a.width + 'px', height: a.height + 'px', borderRadius: '24px' },
+      { left: b.left + 'px', top: b.top + 'px', width: b.width + 'px', height: h + 'px', borderRadius: '16px' }
+    ], { duration: 340, easing: 'cubic-bezier(.3,.7,.2,1)', fill: 'forwards' });
+    anim.onfinish = () => { go(); requestAnimationFrame(() => { const f = ov.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 200, easing: 'ease-out', fill: 'forwards' }); f.onfinish = () => ov.remove(); }); };
+  }
+  componentDidUpdate(prev) {
+    const key = (this.state.screen || this.props.screen || 'a-idle') + '|' + this.state.cat;
+    if (this.lastKey && key !== this.lastKey) this.animateIn();
+    this.lastKey = key;
+    this.checkWidth();
+    if (prev.screen !== this.props.screen) { this.clear(); this.setState({ screen: null, cat: 'boards' }); } }
+  componentWillUnmount() { this.ro && this.ro.disconnect(); this.clear(); }
+  clear() { this.timers.forEach(clearTimeout); this.timers = []; clearInterval(this.iv); this.iv = null; }
+  runPhase(ms, onDone) {
+    const t0 = Date.now();
+    clearInterval(this.iv);
+    this.iv = setInterval(() => {
+      const p = Math.min(1, (Date.now() - t0) / ms);
+      this.setState({ prog: p });
+      if (p >= 1) { clearInterval(this.iv); this.iv = null; this.timers.push(setTimeout(onDone, 350)); }
+    }, 80);
+  }
+  go(screen, extra) { this.setState({ screen, ...(extra || {}) }); }
+  seq(steps) { this.clear(); let t = 0; steps.forEach(([d, fn]) => { t += d; this.timers.push(setTimeout(fn, t)); }); }
+  spin(color) { return React.createElement('span', { style: { display: 'inline-block', width: 16, height: 16, borderRadius: '50%', border: '2px solid ' + color, borderTopColor: 'transparent', animation: 'cxspin .9s linear infinite', flex: 'none', boxSizing: 'border-box' } }); }
+
+  renderVals() {
+    const s = this.state.screen || this.props.screen || 'a-idle';
+    const team = (this.props.viewer ?? 'client') === 'team';
+    const wide = this.state.wide;
+    const isA = s.startsWith('a-'), isB = s.startsWith('b-'), isC = s.startsWith('c-'), isD = s.startsWith('d-');
+    const variant = (isC || isD) ? s.split('-')[1] : 'fresh';
+    const masked = variant !== 'fresh';
+    const aWarn = s === 'a-warn', aBusy = s === 'a-busy';
+    const aDone = ['a-done', 'a-warn', 'a-busy'].includes(s);
+    const aErr = s.startsWith('a-err');
+    const errs = {
+      'a-err-admin': 'Ten klucz nie ma uprawnień administratora konta monday — przegląd całego konta byłby niepełny. Użyj klucza administratora.',
+      'a-err-limit': 'Dzienny limit wywołań API tego konta monday jest wyczerpany. Spróbuj jutro.',
+      'a-err-key': 'Nie udało się odczytać konta tym kluczem. Sprawdź, czy klucz jest poprawny.'
+    };
+    const toReport = e => { e && e.preventDefault(); this.go('c-' + variant); };
+    const toA = e => { e && e.preventDefault(); this.clear(); this.go('a-idle'); };
+    const isH = s === 'h';
+    const goHistory = e => { e && e.preventDefault && e.preventDefault(); this.clear(); this.go('h'); };
+    const crumbs = [{ label: 'Portal', onClick: e => e.preventDefault() }, { label: 'Audyt monday.com', onClick: toA }];
+    if (isH || ((isC || isD) && variant === 'history')) crumbs.push({ label: 'Historia', onClick: goHistory });
+    if (isC || isD) crumbs.push({ label: 'Raport z 24.09.2026', onClick: toReport });
+    if (isD) crumbs.push({ label: CAT_NAMES[this.state.cat] });
+    crumbs.forEach((c, i) => { c.sep = i > 0; const last = i === crumbs.length - 1; c.link = !last; c.plain = last; });
+
+    const tiles = [
+      { label: "Workspace'y", value: '138', unit: '', detailTitle: 'podział na produkty', details: ['CRM 12', 'Service 4', 'Work Management 122'] },
+      { label: 'Tablice', value: '1 316', unit: 'aktywnych', detailTitle: 'razem obiektów 3 268, w tym', details: ['1 206 w koszu', '46 w archiwum'] },
+      { label: 'Użytkownicy', value: '19', unit: '', detailTitle: 'rodzaje kont', details: ['admin 10', 'member 9', 'tylko podgląd 2'] },
+      { label: 'Goście', value: '13', unit: '', details: [], caveat: true },
+      { label: 'Agenci AI', value: '41', unit: '', details: [], caveat: true },
+      aWarn ? { label: 'Licencja', value: 'Pro', unit: '', detailTitle: 'szczegóły', details: ['okres: miesięczny', 'maks. użytkowników: 20'] }
+            : { label: 'Licencja', value: 'Enterprise', unit: '', detailTitle: 'szczegóły', details: ['okres: roczny', 'maks. użytkowników: 50'] }
+    ].map(t => ({ ...t, hasDetails: t.details.length > 0 }));
+
+    const phaseState = { 'b-collect': ['active', 'pending', 'pending'], 'b-estimate': ['done', 'active', 'pending'], 'b-ai': ['done', 'done', 'active'], 'b-error': ['error', 'pending', 'pending'] }[s] || [];
+    const phases = [
+      { n: '1', label: 'Zbieranie danych', hint: 'kilka minut' },
+      { n: '2', label: 'Szacunek przed modelem', hint: 'automatycznie' },
+      { n: '3', label: 'Analiza AI', hint: 'kilkanaście minut' }
+    ].map((p, i) => { const st = phaseState[i]; return { ...p, done: st === 'done', active: st === 'active', pending: st === 'pending', error: st === 'error' }; });
+    const live = !!this.state.screen && isB;
+    const defP = { 'b-collect': 0.37, 'b-estimate': 1, 'b-ai': 0.58, 'b-error': 870 / 1037 }[s] ?? 0;
+    const p = live && s !== 'b-error' ? this.state.prog : defP;
+    const fmt = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+    const est = s === 'b-estimate' && live ? Math.min(1, p * 1.8) : 1;
+    const mkRows = (defs, done, metaFn) => { let acc = 0; return defs.map((d, i) => {
+      const f = d.w ? Math.max(0, Math.min(1, (done - acc) / d.w)) : 0; acc += d.w;
+      let st = d.skip ? 'pending' : f >= 1 ? 'done' : f > 0 ? 'active' : 'pending';
+      if (st === 'active' && s === 'b-error') st = 'error';
+      return { label: d.label, idx: i, f, st, meta: d.skip ? d.skip : metaFn(d, f, st), done: st === 'done', active: st === 'active', pending: st === 'pending', error: st === 'error', showBar: st === 'active' || st === 'error', pct: Math.round(f * 100), barColor: st === 'error' ? 'rgb(163,52,38)' : 'var(--cx-ink-10)', color: st === 'pending' ? 'var(--cx-gray-3)' : 'var(--cx-ink)' };
+    }); };
+    const CSTEPS = [{ label: 'Konto i licencja', w: 4, total: 1 }, { label: 'Użytkownicy i goście', w: 12, total: 32, unit: 'kont' }, { label: 'Tablice', w: 620, total: 3268, unit: 'tablic' }, { label: 'Automatyzacje', w: 180, total: 412, unit: 'automatyzacji' }, { label: 'Logi aktywności', w: 221, total: 120, unit: 'tablic (próba z 2 065)' }];
+    const ASTEPS = [{ label: 'Workspace', w: 14 }, { label: 'Tablice', w: 52 }, { label: 'Użytkownicy', w: 33 }, { label: 'Agenci AI', w: 0, skip: 'jeszcze nie mierzone, pominięte' }];
+    let calls = 0, bRows = [], bOverall = { pct: 0, stage: '', right: '' };
+    if (s === 'b-collect' || s === 'b-error') {
+      calls = Math.round(p * 1037);
+      bRows = mkRows(CSTEPS, calls, (d, f, st) => d.total === 1 ? (st === 'pending' ? 'czeka' : st === 'done' ? 'gotowe' : 'w toku') : st === 'pending' ? 'czeka' : st === 'done' ? fmt(d.total) + ' ' + d.unit : fmt(Math.round(f * d.total)) + ' z ' + fmt(d.total) + ' ' + d.unit);
+      const cur = bRows.find(r => r.active || r.error) || bRows[bRows.length - 1];
+      bOverall = { pct: Math.round(p * 100), stage: (s === 'b-error' ? 'Zatrzymano na etapie ' : 'Etap ') + (cur.idx + 1) + ' z 5: ' + cur.label, right: fmt(calls) + ' wywołań API' };
+    } else if (s === 'b-estimate') { calls = 1037; }
+    else if (s === 'b-ai') {
+      calls = 1037 + Math.round(p * 147);
+      const sig = Math.round(p * 99);
+      bRows = mkRows(ASTEPS, sig, (d, f, st) => st === 'pending' ? 'czeka · ' + d.w + ' sygnałów' : st === 'done' ? d.w + ' z ' + d.w + ' sygnałów' : Math.round(f * d.w) + ' z ' + d.w + ' sygnałów');
+      const cur = bRows.find(r => r.active) || bRows[2];
+      bOverall = { pct: Math.round(p * 100), stage: 'Kategoria ' + (cur.idx + 1) + ' z 3: ' + cur.label + ' · ' + sig + ' z 99 sygnałów', right: 'pozostało ok. ' + Math.max(1, Math.ceil((1 - p) * 16)) + ' min' };
+    }
+
+    const TOTAL = 22;
+    const cats = [
+      { id: 'boards', count: 12, text: '10 kopii jednego szablonu utworzonych w ciągu godziny, żadna nie nosi docelowej nazwy.', types: GROUPS.slice(0, 3).map(g => ({ n: g.name, c: g.notes.length })), more: '+ 2 kolejne rodzaje problemów', color: 'var(--cx-lime)' },
+      { id: 'users', count: 7, text: '4 płatne konta nie wykazały aktywności od ponad 90 dni.', types: [{ n: 'Konto płatne bez aktywności', c: 4 }, { n: 'Administrator bez aktywności', c: 2 }, { n: 'Nadmiarowe uprawnienia administratora', c: 1 }], color: 'var(--cx-ink-20)' },
+      { id: 'ws', count: 3, text: "41 workspace'ów nie ma żadnej aktywnej tablicy; 17 z nich ma w nazwie „test” albo „kopia”.", types: [{ n: "Workspace bez aktywnych tablic", c: 2 }, { n: 'Workspace testowy lub kopia', c: 1 }], color: 'var(--cx-ink-40)' },
+      { id: 'agents', nm: true, text: 'API monday nie udostępnia jeszcze danych o agentach. Brak uwag nie oznacza, że wszystko jest w porządku.', types: [] }
+    ].map(k => ({ ...k, name: CAT_NAMES[k.id], measured: !k.nm, notMeasured: !!k.nm, countLabel: k.nm ? '' : uwagi(k.count), share: k.nm ? 0 : Math.round(k.count / TOTAL * 100), hasMore: !!k.more, more: k.more || '', cta: k.nm ? '' : 'Zobacz ' + uwagShort(k.count), open: e => { const t = e && e.currentTarget; this.expand(t, () => this.go('d-' + variant, { cat: k.id })); } }));
+    const heroCats = cats.filter(k => k.measured);
+
+    let num = 0;
+    const groups = GROUPS.map(g => ({
+      name: g.name, hasRec: !!g.rec, rec: g.rec || '', countLabel: uwagShort(g.notes.length),
+      notes: g.notes.map(n => ({
+        num: ++num, desc: masked && n.dm ? n.dm : n.desc, rec: masked && n.rm ? n.rm : n.rec,
+        isAi: n.src === 'AI', isTpl: n.src !== 'AI', sig: n.sig,
+        ev: n.ev.map(e => ({ label: e.k, measured: !e.nm, isNm: !!e.nm, reason: e.nm || '', value: masked && e.m ? e.m : (e.v || '') }))
+      }))
+    }));
+
+    return {
+      rootRef: this.rootRef, mainRef: this.mainRef, wide, narrow: !wide, team, crumbs,
+      title: isH ? 'Historia audytów' : isD ? CAT_NAMES[this.state.cat] : (isC ? 'Raport audytu' : 'Audyt monday.com'),
+      isH, goHistory, toA, showHistLink: !isH,
+      historyRows: [
+        { date: '24.09.2026', time: '14:02–14:41', ok: true, main: '22 uwagi krytyczne', sub: 'Workspace 3 · Tablice 12 · Użytkownicy 7 · Agenci AI: jeszcze nie mierzone', cost: '2,34 USD' },
+        { date: '24.09.2026', time: '11:05–11:21', failed: true, main: 'Przerwana podczas zbierania danych', sub: 'Zużyto 870 wywołań API. Raport nie powstał.', cost: '0,00 USD' },
+        { date: '12.06.2026', time: '09:30–10:12', ok: true, main: '31 uwag krytycznych', sub: 'Workspace 5 · Tablice 17 · Użytkownicy 9 · Agenci AI: jeszcze nie mierzone', cost: '3,10 USD' },
+        { date: '03.03.2026', time: '13:14–13:49', ok: true, main: '38 uwag krytycznych', sub: 'Workspace 6 · Tablice 21 · Użytkownicy 11 · Agenci AI: jeszcze nie mierzone', cost: '2,85 USD' }
+      ].map(r => ({ ...r, ok: !!r.ok, failed: !!r.failed, open: e => { e && e.preventDefault && e.preventDefault(); this.go('c-history'); } })),
+      noop: e => e && e.preventDefault && e.preventDefault(),
+      aIntro: s === 'a-idle' || s === 'a-loading' || aErr, aIdle: s === 'a-idle' || aErr ? s === 'a-idle' : false, aLoading: s === 'a-loading',
+      aErr, errMsg: errs[s] || '', errSettings: s === 'a-err-admin' || s === 'a-err-key', errRetry: s === 'a-err-key',
+      aDone, aWarn, aBusy, aStep2: aDone && !aBusy, tiles,
+      licPlan: aWarn ? 'Pro' : 'Enterprise', licSeats: aWarn ? '19 z 20' : '19 z 50', licPct: aWarn ? 95 : 38, licColor: aWarn ? 'rgb(122,86,0)' : 'var(--cx-ink-10)', licPeriod: aWarn ? 'okres rozliczeniowy: miesięczny' : 'okres rozliczeniowy: roczny',
+      limitPct: aWarn ? 'maks. 64% dziennego limitu konta' : 'maks. 5% dziennego limitu konta',
+      aCaveats: [
+        { subj: 'Agenci AI', text: 'liczba agentów obejmuje konta agentowe, nie listę agentów z API.' },
+        { subj: 'Goście', text: 'liczba z listy użytkowników konta; API nie pokazuje, do których tablic goście mają dostęp.' }
+      ],
+      startOverview: () => { this.go('a-loading'); this.seq([[1800, () => this.go('a-done')]]); },
+      startAnalysis: () => { this.clear(); this.go('b-collect', { prog: 0 }); this.runPhase(9000, () => { this.go('b-estimate', { prog: 0 }); this.runPhase(3000, () => { this.go('b-ai', { prog: 0 }); this.runPhase(10000, () => this.go('c-fresh')); }); }); },
+      toCollect: () => { this.clear(); this.go('b-collect', { prog: 0.37 }); },
+      isB, bRunning: isB && s !== 'b-error', bCollect: s === 'b-collect', bEstimate: s === 'b-estimate', bAi: s === 'b-ai', bError: s === 'b-error',
+      bCalls: fmt(calls), bProgress: isB && s !== 'b-estimate', bPct: bOverall.pct, bStage: bOverall.stage, bRight: bOverall.right, bRows, bBarColor: s === 'b-error' ? 'rgb(163,52,38)' : 'var(--cx-ink-80)',
+      phases, eSig: fmt(Math.round(615 * est)), eAi: fmt(Math.round(99 * est)), eTpl: fmt(Math.round(8 * est)),
+      trimmed: [
+        { subj: 'Tablice przeładowane kolumnami', text: 'AI zbada 20 najcięższych z 401.' },
+        { subj: 'Konta bez aktywności', text: 'AI zbada 30 z 64.' }
+      ],
+      spinInk: this.spin('var(--cx-ink)'), spinTeal: this.spin('var(--cx-ink-10)'),
+      pulse: React.createElement('span', { style: { width: 8, height: 8, borderRadius: '50%', background: 'var(--cx-ink-10)', animation: 'cxpulse 1.4s ease-in-out infinite', display: 'inline-block', flex: 'none' } }),
+      isReport: isC || isD, isC, isD, fresh: variant === 'fresh', history: variant === 'history', partial: variant === 'partial',
+      toReport, cats, heroCats,
+      layoutHero: (this.props.reportLayout ?? 'hero') !== 'tiles', layoutTiles: (this.props.reportLayout ?? 'hero') === 'tiles',
+      openBoards: () => this.go('d-' + variant, { cat: 'boards' }),
+      coverage: [
+        { subj: 'Tablice przeładowane kolumnami', pct: 5, frac: '20 z 401 przypadków', text: 'AI zbadało 20 z 401 przypadków. Pozostałych 381 nie oceniało — ich brak w raporcie NIE znaczy, że są w porządku.' },
+        { subj: 'Logi aktywności', pct: 6, frac: '120 z 2 065 tablic', text: 'Ocena aktywności tablic opiera się tylko na tej próbie.' },
+        { subj: 'Konta bez aktywności', pct: 47, frac: '30 z 64 kont', text: 'Pozostałych 34 kont AI nie oceniało.' },
+        { subj: 'Dostęp gości do tablic', nm: true, text: 'API nie pokazuje gości wśród subskrybentów.' },
+        { subj: 'Agenci AI', nm: true, text: 'API monday nie zwraca jeszcze danych o agentach.' }
+      ].map(c => ({ ...c, measured: !c.nm, nm: !!c.nm })),
+      reportCaveats: [
+        { subj: 'Tablice przeładowane kolumnami', text: 'AI zbadało 20 z 401 przypadków. Pozostałych 381 nie oceniało — ich brak w raporcie NIE znaczy, że są w porządku.' },
+        { subj: 'Logi aktywności', text: 'pobrano dla 120 z 2 065 tablic.' },
+        { subj: 'Konta bez aktywności', text: 'AI zbadało 30 z 64 kont. Pozostałych 34 nie oceniało.' },
+        { subj: 'Dostęp gości do tablic', text: 'nie zmierzone — API nie pokazuje gości wśród subskrybentów.' }
+      ],
+      isDBoards: isD && this.state.cat === 'boards', isDStub: isD && this.state.cat !== 'boards',
+      boardCaveats: [
+        { subj: 'Tablice przeładowane kolumnami', text: 'AI zbadało 20 z 401 przypadków. Pozostałych 381 nie oceniało — ich brak w raporcie NIE znaczy, że są w porządku.' },
+        { subj: 'Logi aktywności', text: 'pobrano dla 120 z 2 065 tablic. Ocena porzucenia opiera się na tej próbie.' }
+      ],
+      groups
+    };
+  }
+}
+</script>
+</body>
+</html>

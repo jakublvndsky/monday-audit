@@ -10,11 +10,12 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from monday_audit.baza import polacz, zastosuj_migracje
-from monday_audit.raport_uwag import oddaj_raport, wyrenderuj_uwagi, zbuduj_raport_uwag
+from monday_audit.raport_uwag import RaportUwag, oddaj_raport, wyrenderuj_uwagi, zbuduj_raport_uwag
 from monday_audit.rubryka import wczytaj_rubryke
 
 PSEUDONIM = "1dcfeabe7fa5d9a7"
@@ -174,3 +175,130 @@ def test_zastrzezenia_tez_dostaja_nazwiska(con: sqlite3.Connection) -> None:
     )
 
     assert raport.zastrzezenia == (f"[tablice] workspace {NAZWISKO} Leady bez próbki logu",)
+
+
+# ── faza 7: kategorie, pokrycie, dowód jako chipy (2026-09-25) ───────────
+
+
+def _zbuduj(con: sqlite3.Connection, uwagi: list[dict[str, Any]], **k: Any) -> RaportUwag:
+    return zbuduj_raport_uwag(
+        uwagi,
+        con=con,
+        client_id="cxlabs",
+        run_id="r1",
+        run_at="2026-09-24T12:00:00Z",
+        rubryka=wczytaj_rubryke(),
+        **k,
+    )
+
+
+def _duplikaty(**dowod: Any) -> dict[str, Any]:
+    return {
+        "klasa_id": "DUPLICATE_STRUCTURE",
+        "opis": "10 kopii jednego szablonu w jednym workspace. Żadna nie jest używana.",
+        "rekomendacja": "Zostawić jeden szablon.",
+        "dowod": {
+            "board_ids": [str(n) for n in range(10)],
+            "nakladanie_kolumn": 1.0,
+            "nakladanie_subskrybentow": 0.5,
+            "daty_utworzenia": {"0": "2026-05-29T10:00:00Z", "1": "2026-05-29T10:12:00Z"},
+            "aktywnosc_stron": {"0": 3, "1": 0, "2": None},
+            **dowod,
+        },
+    }
+
+
+def test_cztery_kategorie_w_kolejnosci_z_rubryki_a_niemierzone_mowia_to_wprost(
+    con: sqlite3.Connection,
+) -> None:
+    """Kategoria bez detektora to „jeszcze nie mierzone", nie „0 problemów"."""
+    raport = _zbuduj(con, [_uwaga(), _duplikaty(), _duplikaty()])
+
+    kategorie = {k.id: k for k in raport.kategorie}
+    assert list(kategorie) == ["workspace", "tablice", "uzytkownicy", "agenci"]
+    assert (kategorie["tablice"].uwag, kategorie["tablice"].udzial) == (2, 67)
+    assert (kategorie["uzytkownicy"].uwag, kategorie["uzytkownicy"].udzial) == (1, 33)
+    assert kategorie["workspace"].niezmierzona and kategorie["agenci"].niezmierzona
+    assert kategorie["tablice"].niezmierzona is None
+    # Zdanie na kafelek: pierwsze zdanie uwagi z najliczniejszej grupy.
+    assert kategorie["tablice"].zdanie == "10 kopii jednego szablonu w jednym workspace."
+
+
+def test_dowod_staje_sie_czytelnymi_chipami(con: sqlite3.Connection) -> None:
+    """Projekt: „nakładanie kolumn: 100%", „… i 7 kolejnych", daty względem analizy."""
+    raport = _zbuduj(con, [_duplikaty()])
+
+    chipy = {c.etykieta: c.wartosc for c in raport.uwagi[0].chipy}
+    assert chipy["tablice"] == "0, 1, 2 i 7 kolejnych"
+    assert chipy["nakładanie kolumn"] == "100%"
+    assert chipy["nakładanie subskrybentów"] == "50%"
+    assert chipy["utworzone"] == "2026-05-29 (118 dni przed analizą)"
+    assert chipy["aktywność tablic w oknie"] == "aktywnych 1 z 3, bez próbki logu 1"
+
+
+def test_nazwy_tablic_ze_snapshotu_zamiast_id(con: sqlite3.Connection) -> None:
+    """Model przepisuje ID, człowiek czyta nazwy — snapshot jest wtedy w pamięci."""
+    import json
+
+    from monday_audit.przebieg import zapisz_snapshot
+
+    payload = {
+        "tablice": {"tablice": [{"board_id": "0", "nazwa": f"Leady [OSOBA:{PSEUDONIM}]"}]},
+        "konto": {"konto": {"nazwa": "Nordwind"}, "plan": {"tier": "enterprise"}},
+        "aktywnosc": {"podsumowanie": {"tablic_zbadanych": 120, "tablic_pominietych": 1945}},
+    }
+    sid = zapisz_snapshot(con, client_id="cxlabs", payload=json.loads(json.dumps(payload)),
+                          run_at="2026-09-24T12:00:00Z")  # fmt: skip
+
+    raport = _zbuduj(con, [_duplikaty(board_ids=["0"])], snapshot_id=sid)
+
+    assert raport.uwagi[0].chipy[0].wartosc == f"Leady {NAZWISKO}"
+    assert (raport.konto_nazwa, raport.plan) == ("Nordwind", "enterprise")
+    logi = next(p for p in raport.pokrycie if p.temat == "Logi aktywności")
+    assert (logi.zbadanych, logi.wszystkich, logi.procent) == (120, 2065, 6)
+
+
+def test_pokrycie_z_sufitu_i_nie_zmierzone_z_dowodu(con: sqlite3.Connection) -> None:
+    from monday_audit.analiza import PozaSufitem
+
+    gosc = {
+        "klasa_id": "GUEST_SPRAWL",
+        "opis": "13 gości.",
+        "rekomendacja": "Przejrzeć gości.",
+        "dowod": {
+            "liczba_guest": 13,
+            "tablice_dostepne": {"nie_zmierzone": "API nie pokazuje (O45)"},
+        },
+    }
+
+    raport = _zbuduj(
+        con, [gosc], poza_sufitem=[PozaSufitem("BOARD_OVERCOMPLEX", 20, 401, "najwięcej kolumn")]
+    )
+
+    pokrycie = {p.temat: p for p in raport.pokrycie}
+    sufit = pokrycie["Tablica z polami, których nikt nie wypełnia"]
+    assert (sufit.procent, sufit.kategoria) == (5, "tablice")
+    assert "NIE znaczy, że są w porządku" in sufit.tekst
+    goscie = pokrycie["Dostęp gości do tablic"]
+    assert goscie.niezmierzone and goscie.kategoria == "uzytkownicy"
+    assert {"Workspace", "Agenci AI"} <= set(pokrycie)
+    chip = raport.uwagi[0].chipy[1]
+    assert (chip.niezmierzone, chip.powod) == (True, "API nie pokazuje (O45)")
+
+
+def test_plik_to_wersja_klienta_bez_danych_zespolu_i_bez_zasobow(con: sqlite3.Connection) -> None:
+    """Koszt, odrzucone hipotezy i identyfikatory runu to widok zespołu w portalu.
+    Usunięte, nie ukryte. Do tego zero skryptów, fontów i adresów zewnętrznych (D14)."""
+    import re
+
+    html = wyrenderuj_uwagi(_zbuduj(con, [_uwaga(), _duplikaty()], pominietych=4713))
+
+    tekst = re.sub(r"data:[^\"')]+", "", html)  # logo w base64 nie jest treścią
+    assert "USD" not in tekst and "4713" not in tekst and "r1" not in tekst
+    assert "<script" not in html
+    assert "@font-face" not in html
+    assert re.search(r"""(src|href)\s*=\s*["']https?://""", html) is None
+    # Kategorie mierzone mają widok pogłębiony, niemierzone — tylko wiersz.
+    assert 'id="kat-tablice"' in html and 'id="kat-uzytkownicy"' in html
+    assert 'id="kat-agenci"' not in html
+    assert html.count("jeszcze nie mierzone") == 2

@@ -636,10 +636,11 @@ async def analizuj_snapshot(
             client_id=client_id,
             run_id=run_id,
             rubryka=rubryka,
-            zastrzezenia=(
-                *(wejscie.get("zastrzezenia") or ()),
-                *(p.zastrzezenie(rubryka) for p in poza_sufitem),
-            ),
+            # Sufit idzie STRUKTURĄ (procent w bloku „Czego ten raport nie
+            # sprawdził"), a nie tekstem — tekstem zostają zastrzeżenia obrazu.
+            zastrzezenia=tuple(wejscie.get("zastrzezenia") or ()),
+            snapshot_id=snapshot_id,
+            poza_sufitem=poza_sufitem,
         )
 
         zapisanych, blad_zapisu = _zapis_minimalny(
@@ -772,6 +773,8 @@ def _raport_z_nazwiskami(
     run_id: str,
     rubryka: Rubryka,
     zastrzezenia: tuple[str, ...],
+    snapshot_id: int,
+    poza_sufitem: Sequence[PozaSufitem],
 ) -> str | None:
     """HTML z nazwiskami albo `None` — awaria renderowania nie zabiera wyniku."""
     try:
@@ -784,6 +787,8 @@ def _raport_z_nazwiskami(
             rubryka=rubryka,
             pominietych=len(walidacja.pominiete),
             zastrzezenia=zastrzezenia,
+            snapshot_id=snapshot_id,
+            poza_sufitem=poza_sufitem,
         )
         return wyrenderuj_uwagi(raport)
     except Exception:  # raport nie jest wynikiem — wynik zostaje

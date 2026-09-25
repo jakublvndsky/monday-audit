@@ -1,71 +1,273 @@
-{# Raport uwag krytycznych (faza 5c, wariant A). Wygląd tymczasowy — faza 7.
+{# Raport uwag krytycznych — układ z fazy 7 (projekt Claude Design „Audyt monday.com",
+   ekrany C i D, wariant „hero"; decyzje Kuby z 2026-09-25).
 
    Dokument niesie NAZWISKA pracowników klienta. Powstaje raz, w trakcie runu,
-   i nie ma kopii na serwerze. Jeden plik, zero zasobów zewnętrznych.
+   i nie ma kopii na serwerze. Jeden plik, zero zasobów zewnętrznych, zero skryptów:
+   przejście z raportu głównego do kategorii to kotwice i `:target`.
+
+   Wersja DLA KLIENTA: bez kosztu, bez odrzuconych hipotez, bez identyfikatorów
+   sygnałów (to widok zespołu w portalu). Fonty nie są osadzone — D14.
 #}
-{% from "_makra.html.j2" import wartosc_dowodu %}
 <!doctype html>
 <html lang="pl">
 <meta charset="utf-8">
-<title>Uwagi krytyczne — {{ r.client_id }} — {{ r.run_at[:10] }}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Raport audytu monday.com — {{ r.konto_nazwa or r.client_id }} — {{ r.run_at[:10] }}</title>
 <style>
 {% include "_marka.css.j2" %}
-  body { max-width: 900px; margin: 0 auto; padding: var(--space-7) var(--space-6); }
-  .znak { height: 32px; width: auto; margin-bottom: var(--space-4); display: block; }
-  .meta { color: var(--fg-muted); font-size: var(--fs-small); }
-  .spis { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4);
-          font-size: var(--fs-small); margin: var(--space-4) 0 var(--space-6); }
-  .grupa { border: 1px solid var(--border-subtle); border-radius: var(--radius-xl);
-           padding: var(--space-5) var(--space-6); margin: var(--space-6) 0; }
-  .grupa h2 { margin: 0 0 var(--space-3); }
-  .liczba { color: var(--fg-muted); font-weight: 400; }
-  table.dowod th { text-align: left; font-size: var(--fs-xs); color: var(--fg-muted);
-                   padding: var(--space-1) var(--space-2); }
-  tr.opis td { border-top: none; padding-bottom: var(--space-3); }
-  summary { cursor: pointer; color: var(--fg-muted); }
-  .zrodlo { color: var(--fg-muted); font-size: var(--fs-xs); text-transform: uppercase; }
-  .rekomendacja { font-weight: 600; }
-  table.dowod { font-size: var(--fs-small); border-collapse: collapse; width: 100%; }
-  table.dowod td { padding: var(--space-1) var(--space-2); vertical-align: top;
-                   border-top: 1px solid var(--border-subtle); }
-  pre { white-space: pre-wrap; margin: 0; }
+  :root { --cx-ink-20: rgb(139, 189, 184); }
+  body { max-width: none; margin: 0; padding: 0; background: var(--cx-mist); }
+  a { color: var(--cx-ink-10); text-decoration: none; }
+  a:hover { color: var(--cx-ink); }
+  .pasek { background: var(--cx-ink); color: var(--cx-mist); height: 56px; display: flex;
+           align-items: center; justify-content: space-between; gap: var(--space-4);
+           padding: 0 clamp(16px, 4vw, 40px); }
+  .pasek img { height: 22px; width: auto; display: block; }
+  .pasek span { font-size: var(--fs-small); color: var(--cx-lime-soft); }
+  .tresc { max-width: 1040px; margin: 0 auto; padding: clamp(20px, 4vw, 40px) clamp(16px, 4vw, 40px) var(--space-8);
+           display: flex; flex-direction: column; gap: var(--space-5); }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center;
+          font-size: var(--fs-small); color: var(--cx-gray-2); }
+  .meta b { color: var(--cx-ink); font-weight: 600; }
+  .stan { background: var(--cx-lime); color: var(--cx-ink); border-radius: var(--radius-sm); padding: 3px 10px; }
+
+  /* ── widoki: główny + kategorie, przełączane kotwicą ──────────────── */
+  .widok { display: none; flex-direction: column; gap: var(--space-5); }
+  .widok:target { display: flex; }
+  #glowny { display: flex; flex-direction: column; gap: var(--space-5); }
+  body:has(.widok:target) #glowny { display: none; }
+
+  /* ── hero ──────────────────────────────────────────────────────────── */
+  .hero { background: linear-gradient(180deg, var(--cx-ink-80) 0%, var(--cx-ink) 100%);
+          color: var(--cx-mist); border-radius: var(--radius-xl);
+          padding: clamp(24px, 4vw, 48px); display: flex; flex-direction: column; gap: 28px; }
+  .hero .eyebrow { color: var(--cx-ink-40); margin: 0; }
+  .wynik { display: flex; align-items: flex-end; gap: 20px; flex-wrap: wrap; }
+  .wynik .liczba { font-family: var(--font-display); font-weight: 300; line-height: .9;
+                   font-size: clamp(72px, 11vw, 128px); letter-spacing: -.02em; color: var(--cx-lime);
+                   font-variant-numeric: tabular-nums; }
+  .wynik .podpis { font-family: var(--font-display); font-size: clamp(22px, 2.8vw, 32px);
+                   line-height: 1.15; padding-bottom: 6px; }
+  .hero p { margin: 0; color: var(--cx-lime-soft); max-width: 560px; }
+  .udzialy { display: flex; gap: 3px; height: 14px; border-radius: 7px; overflow: hidden; }
+  .kat { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 24px; padding: 18px 0;
+         border-top: 1px solid var(--cx-ink-60); color: var(--cx-mist); }
+  a.kat:hover { color: var(--cx-lime); }
+  .kat .nazwa { flex: 0 0 170px; display: flex; align-items: center; gap: 12px; font-size: 17px; }
+  .kat .znak { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+  .kat .ile { flex: 0 0 110px; display: flex; align-items: baseline; gap: 8px; }
+  .kat .ile b { font-family: var(--font-display); font-weight: 400; font-size: 40px; line-height: 1; }
+  .kat .ile span, .kat.brak { color: var(--cx-ink-40); }
+  .kat .zdanie { flex: 1 1 280px; min-width: 0; font-size: 15px; line-height: 1.45; color: var(--cx-lime-soft); }
+  .kat .dalej { font-size: var(--fs-small); white-space: nowrap; }
+  .kat.brak { border-top-style: dashed; }
+  .kat.brak .znak { border: 1.5px dashed var(--cx-ink-40); }
+  .kat.brak .ile { font-family: var(--font-display); font-size: 20px; line-height: 1.2; }
+  .kat.brak .zdanie { color: var(--cx-ink-40); }
+
+  /* ── pokrycie ──────────────────────────────────────────────────────── */
+  .pokrycie { background: rgb(255, 247, 219); border: 1px solid rgb(240, 215, 140);
+              border-radius: var(--radius-xl); padding: clamp(20px, 3vw, 32px);
+              display: flex; flex-direction: column; gap: 20px; }
+  .pokrycie h2 { margin: 0; font-size: clamp(22px, 2.6vw, 28px); color: rgb(74, 52, 0); }
+  .pokrycie > p { margin: 0; color: rgb(90, 64, 0); }
+  .siatka { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 12px; }
+  .pole { background: #fff; border: 1px solid rgb(240, 215, 140); border-radius: var(--radius-lg);
+          padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+  .pole b { font-weight: 600; font-size: 15px; }
+  .pole .proc { font-family: var(--font-display); font-size: 36px; line-height: 1; color: rgb(122, 86, 0); }
+  .pole .nm { font-family: var(--font-display); font-size: 24px; line-height: 1.1; color: var(--cx-gray-2); }
+  .pole .belka { height: 8px; border-radius: 4px; background: rgb(250, 234, 188); overflow: hidden; }
+  .pole .belka i { display: block; height: 100%; background: rgb(122, 86, 0); }
+  .pole .belka.nm-b { background: none; border: 1.5px dashed rgb(210, 180, 110); }
+  .pole p { margin: 0; font-size: var(--fs-small); line-height: 1.45; color: var(--cx-gray-2); }
+  .inne { background: #fff; border: 1px solid var(--cx-cloud); border-radius: var(--radius-lg);
+          padding: 20px 24px; }
+  .inne h3 { font-size: var(--fs-body); font-family: var(--font-body); font-weight: 600; margin: 0 0 8px; }
+  .inne ul { margin: 0; padding-left: 18px; color: var(--cx-gray-2); font-size: 15px; }
+
+  /* ── widok kategorii ───────────────────────────────────────────────── */
+  .naglowek-kat { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 32px; align-items: baseline; }
+  .naglowek-kat h1 { font-size: clamp(28px, 4vw, 40px); }
+  .naglowek-kat span { color: var(--cx-gray-2); }
+  .grupa { background: #fff; border: 1px solid var(--cx-cloud-2); border-radius: var(--radius-lg); overflow: hidden;
+           break-inside: avoid-page; }
+  .grupa > header { padding: clamp(18px, 2.6vw, 24px); display: flex; flex-direction: column; gap: 12px; }
+  .grupa h2 { margin: 0; font-size: clamp(20px, 2.2vw, 24px); display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .grupa h2 span { background: var(--cx-ink); color: var(--cx-mist); border-radius: var(--radius-sm);
+                   padding: 2px 10px; font-size: var(--fs-small); font-family: var(--font-body); }
+  .rek-grupy { background: var(--cx-mist); border-radius: var(--radius-md); padding: 12px 16px; font-size: 15px; }
+  .rek-grupy b { color: var(--cx-ink-10); font-weight: 600; }
+  .kolumny { display: flex; gap: 24px; padding: 10px 24px; background: var(--cx-paper);
+             border-top: 1px solid var(--cx-cloud); font-size: 13px; color: var(--cx-gray-2); }
+  .wiersz { display: flex; flex-wrap: wrap; gap: 14px 24px; padding: 18px 24px; border-top: 1px solid var(--cx-cloud);
+           break-inside: avoid; }
+  .k-opis { flex: 1.1 1 240px; } .k-rek { flex: 1 1 220px; } .k-dowod { flex: 1.4 1 280px; } .k-zrodlo { flex: 0 0 72px; }
+  .k-opis, .k-rek, .k-dowod { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .wiersz p { margin: 0; font-size: 15px; line-height: 1.5; }
+  .k-rek p::before { content: "→ "; color: var(--cx-ink-10); }
+  .etykieta-m { display: none; font-size: 13px; color: var(--cx-gray-2); }
+  .chipy { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px 10px; border-radius: var(--radius-sm);
+          background: var(--cx-paper); border: 1px solid var(--cx-cloud); font-size: 13px; line-height: 1.4;
+          max-width: 100%; overflow-wrap: anywhere; }
+  .chip i { font-style: normal; color: var(--cx-gray-2); }
+  .chip b { font-weight: 600; }
+  .chip.nm { flex-direction: column; gap: 2px; background: #fff; border: 1.5px dashed var(--cx-gray-3); }
+  .chip.nm b { color: var(--cx-gray-2); }
+  .zrodlo { border-radius: var(--radius-xs); padding: 2px 8px; font-size: 12px; }
+  .zrodlo.ai { background: var(--cx-ink-80); color: var(--cx-mist); }
+  .zrodlo.szablon { background: #fff; border: 1px solid var(--cx-cloud-2); color: var(--cx-gray-2); }
+  .zastrz-kat { background: #fff; border: 1px solid var(--cx-cloud); border-radius: var(--radius-lg);
+                padding: 20px 24px; display: flex; flex-direction: column; gap: 10px; font-size: 15px; }
+  .zastrz-kat div::before { content: "— "; color: rgb(122, 86, 0); }
+  .brak-uwag { background: #fff; border: 1.5px dashed var(--cx-gray-3); border-radius: var(--radius-xl);
+           padding: 32px; color: var(--cx-gray-2); }
+  .stopka { font-size: 13px; color: var(--cx-gray-3); }
+
+  @media (max-width: 720px) {
+    .kolumny { display: none; }
+    .etykieta-m { display: block; }
+    .kat .nazwa, .kat .ile { flex-basis: auto; }
+  }
+  @media print {
+    body { background: #fff; }
+    .widok, #glowny { display: flex !important; }
+    .widok { break-before: page; }
+    .wroc { display: none; }
+  }
 </style>
-{% if logo %}<img class="znak" src="{{ logo }}" alt="CXLABS">{% endif %}
-<h1>Uwagi krytyczne</h1>
-<p class="meta">{{ r.client_id }} · {{ r.run_at[:10] }} · run {{ r.run_id }} ·
-  {{ r.uwagi | length }} {{ odmiana(r.uwagi | length, "uwaga", "uwagi", "uwag") }},
-  {{ r.pominietych }} {{ odmiana(r.pominietych, "hipoteza sprawdzona i odrzucona", "hipotezy sprawdzone i odrzucone", "hipotez sprawdzonych i odrzuconych") }}</p>
 
-{% if r.zastrzezenia %}
-<h2>Czego ten raport nie obejmuje</h2>
-<ul>{% for z in r.zastrzezenia %}<li>{{ z }}</li>{% endfor %}</ul>
-{% endif %}
+{% set kolory = ["var(--cx-lime)", "var(--cx-ink-20)", "var(--cx-ink-40)", "var(--cx-ink-10)"] %}
+<div class="pasek">
+  {% if logo %}<img src="{{ logo }}" alt="CXLABS">{% else %}<b>CXLABS</b>{% endif %}
+  <span>{{ r.konto_nazwa or r.client_id }}</span>
+</div>
 
-<nav class="spis">
-{% for g in r.grupy %}<a href="#{{ g.klasa_id }}">{{ g.nazwa_klasy }} ({{ g.uwagi | length }})</a>{% endfor %}
-</nav>
+<div class="tresc">
+  <div class="meta">
+    <span class="stan">Zakończona</span>
+    <b>{{ r.konto_nazwa or r.client_id }}</b>
+    {% if r.plan %}<span>Plan {{ r.plan | capitalize }}</span>{% endif %}
+    <span>analiza z {{ r.run_at[:10] }}</span>
+  </div>
 
-{% for g in r.grupy %}
-<section class="grupa" id="{{ g.klasa_id }}">
-  <h2>{{ g.nazwa_klasy }} <span class="liczba">{{ g.uwagi | length }}</span></h2>
-  {% if g.wspolna_rekomendacja %}<p class="rekomendacja">→ {{ g.wspolna_rekomendacja }}</p>{% endif %}
-  <table class="dowod">
-    <tr>{% for k in g.kolumny %}<th>{{ k | etykieta }}</th>{% endfor %}</tr>
-    {% for u in g.uwagi %}
-    <tr>{% for k in g.kolumny %}<td>{{ wartosc_dowodu(u.dowod.get(k)) }}</td>{% endfor %}</tr>
-    <tr class="opis"><td colspan="{{ g.kolumny | length }}">
-      <details><summary>{{ u.opis | truncate(140) }}</summary>
-        <p>{{ u.opis }}</p>
-        {% if not g.wspolna_rekomendacja %}<p class="rekomendacja">→ {{ u.rekomendacja }}</p>{% endif %}
-        {% if u.zrodlo == "szablon" %}<p class="zrodlo">reguła, nie model</p>{% endif %}
-      </details>
-    </td></tr>
+  {# ═══ RAPORT GŁÓWNY ═══════════════════════════════════════════════ #}
+  <main id="glowny">
+    <section class="hero">
+      <p class="eyebrow">Wynik audytu</p>
+      <div class="wynik">
+        <span class="liczba">{{ r.uwagi | length }}</span>
+        <span class="podpis">{{ odmiana(r.uwagi | length, "uwaga krytyczna", "uwagi krytyczne", "uwag krytycznych") }}<br>na Twoim koncie</span>
+      </div>
+      <p>Każda uwaga ma opis, rekomendację i dowód z konta. Wybierz kategorię, żeby zobaczyć szczegóły.</p>
+      {% if r.uwagi %}
+      <div class="udzialy">
+        {% for k in r.zmierzone if k.uwag %}<span style="flex:{{ k.uwag }} 1 0;background:{{ kolory[loop.index0 % 4] }}"></span>{% endfor %}
+      </div>
+      {% endif %}
+      <div>
+        {% for k in r.kategorie %}
+        {% if k.niezmierzona %}
+        <div class="kat brak">
+          <span class="nazwa"><span class="znak"></span>{{ k.nazwa }}</span>
+          <span class="ile">jeszcze nie mierzone</span>
+          <span class="zdanie">{{ k.niezmierzona }}</span>
+        </div>
+        {% else %}
+        {% set kolor = kolory[(r.zmierzone | map(attribute="id") | list).index(k.id) % 4] %}
+        <a class="kat" href="#kat-{{ k.id }}">
+          <span class="nazwa"><span class="znak" style="background:{{ kolor }}"></span>{{ k.nazwa }}</span>
+          <span class="ile"><b>{{ k.uwag }}</b><span>{{ k.udzial }}%</span></span>
+          <span class="zdanie">{{ k.zdanie }}</span>
+          <span class="dalej">Zobacz {{ k.uwag }} {{ odmiana(k.uwag, "uwagę", "uwagi", "uwag") }} ›</span>
+        </a>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </section>
+
+    {% if r.pokrycie %}
+    <section class="pokrycie">
+      <h2>Czego ten raport nie sprawdził</h2>
+      <p><b>Brak uwag w tych obszarach nie znaczy, że są w porządku.</b> Audyt zbadał tylko część przypadków albo API monday nie udostępnia danych.</p>
+      <div class="siatka">
+        {% for p in r.pokrycie %}
+        <div class="pole">
+          <b>{{ p.temat }}</b>
+          {% if p.niezmierzone %}
+          <span class="nm">nie zmierzone</span>
+          <div class="belka nm-b"></div>
+          {% else %}
+          <span class="proc">{{ p.procent }}%</span>
+          <div class="belka"><i style="width:{{ p.procent }}%"></i></div>
+          {% endif %}
+          <p>{{ p.tekst }}</p>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% if r.zastrzezenia %}
+    <section class="inne">
+      <h3>Pozostałe zastrzeżenia do danych</h3>
+      <ul>{% for z in r.zastrzezenia %}<li>{{ z }}</li>{% endfor %}</ul>
+    </section>
+    {% endif %}
+  </main>
+
+  {# ═══ RAPORTY POGŁĘBIONE KATEGORII ═══════════════════════════════ #}
+  {% for k in r.zmierzone %}
+  <section class="widok" id="kat-{{ k.id }}">
+    <a class="wroc" href="#glowny">‹ Wróć do raportu głównego</a>
+    <div class="naglowek-kat">
+      <h1>{{ k.nazwa }}</h1>
+      <span>{{ k.uwag }} {{ odmiana(k.uwag, "uwaga krytyczna", "uwagi krytyczne", "uwag krytycznych") }}{% if k.grupy %} w {{ k.grupy | length }} {{ odmiana(k.grupy | length, "rodzaju", "rodzajach", "rodzajach") }} problemów, od najliczniejszych{% endif %}</span>
+    </div>
+    {% set zk = r.pokrycie_kategorii(k.id) %}
+    {% if zk %}
+    <div class="zastrz-kat">
+      <b>Zastrzeżenia kategorii</b>
+      {% for p in zk %}<div><b>{{ p.temat }}:</b> {{ p.tekst }}</div>{% endfor %}
+    </div>
+    {% endif %}
+    {% if not k.grupy %}
+    <div class="brak-uwag">Audyt nie znalazł w tej kategorii uwag krytycznych.</div>
+    {% endif %}
+    {% for g in k.grupy %}
+    <article class="grupa">
+      <header>
+        <h2>{{ g.nazwa_klasy }} <span>{{ g.uwagi | length }} {{ odmiana(g.uwagi | length, "uwaga", "uwagi", "uwag") }}</span></h2>
+        {% if g.wspolna_rekomendacja %}<div class="rek-grupy"><b>Rekomendacja dla całej grupy: </b>{{ g.wspolna_rekomendacja }}</div>{% endif %}
+      </header>
+      <div class="kolumny"><span class="k-opis">Opis</span>{% if not g.wspolna_rekomendacja %}<span class="k-rek">Rekomendacja</span>{% endif %}<span class="k-dowod">Dowód</span><span class="k-zrodlo">Źródło</span></div>
+      {% for u in g.uwagi %}
+      <div class="wiersz">
+        <div class="k-opis"><span class="etykieta-m">Opis</span><p>{{ u.opis }}</p></div>
+        {% if not g.wspolna_rekomendacja %}<div class="k-rek"><span class="etykieta-m">Rekomendacja</span><p>{{ u.rekomendacja }}</p></div>{% endif %}
+        <div class="k-dowod"><span class="etykieta-m">Dowód</span>
+          <div class="chipy">
+            {% for c in u.chipy %}
+            {% if c.niezmierzone %}<span class="chip nm"><span><i>{{ c.etykieta }}: </i><b>nie zmierzone</b></span><i>{{ c.powod }}</i></span>
+            {% else %}<span class="chip"><i>{{ c.etykieta }}:</i><b>{{ c.wartosc }}</b></span>{% endif %}
+            {% endfor %}
+          </div>
+        </div>
+        <div class="k-zrodlo"><span class="etykieta-m">Źródło</span>
+          {% if u.zrodlo == "szablon" %}<span class="zrodlo szablon">szablon</span>{% else %}<span class="zrodlo ai">AI</span>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </article>
     {% endfor %}
-  </table>
-</section>
-{% endfor %}
+    <a class="wroc" href="#glowny">‹ Wróć do raportu głównego</a>
+  </section>
+  {% endfor %}
 
-{% if r.nieznane_hashe %}
-<p class="meta">{{ r.nieznane_hashe }} kont bez rozwiniętej nazwy — oznaczone jako „nieznane konto".</p>
-{% endif %}
+  <p class="stopka">
+    Raport z nazwiskami, wygenerowany jednorazowo — CXLABS nie przechowuje jego kopii.
+    {% if r.nieznane_hashe %}{{ r.nieznane_hashe }} {{ odmiana(r.nieznane_hashe, "konto", "konta", "kont") }} bez rozwiniętej nazwy oznaczono jako „nieznane konto".{% endif %}
+  </p>
+</div>
 </html>

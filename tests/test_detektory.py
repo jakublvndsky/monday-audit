@@ -398,7 +398,7 @@ def test_raport_wymienia_klasy_bez_detektora(con: sqlite3.Connection) -> None:
     assert set(raport["klasy_bez_detektora"]) == wszystkie - zbudowane
     # 0.3 przy dodaniu UZYTKOWNIK_WYGASZONY, 0.4 przy doprecyzowaniu warunku
     # odrzucenia BOARD_GHOST (O34) — oba w etapie 4.
-    assert raport["rubric_version"] == "0.6"
+    assert raport["rubric_version"] == "0.7"
 
 
 def test_budzet_bierze_sie_z_rubryki(con: sqlite3.Connection) -> None:

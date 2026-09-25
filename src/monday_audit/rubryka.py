@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -81,6 +81,8 @@ class Klasa:
     # KLIENT NIE WIDZI GO NIGDY. Filtrowanie jest w `raport.py`, a pilnuje
     # tego test — nie szablon, bo szablon nie może być ostatnią linią obrony.
     trop_sprzedazowy: str | None
+    # Kategoria raportu (0.7, faza 7): workspace, tablice, uzytkownicy, agenci.
+    kategoria: str = ""
 
     @property
     def ma_detektor(self) -> bool:
@@ -90,6 +92,30 @@ class Klasa:
     def ma_wycene(self) -> bool:
         """Czy dla tej klasy wolno w ogóle podać kwotę."""
         return self.typ_wyceny == TYP_OSZCZEDNOSC and bool(self.wzor)
+
+
+FORMATY_DOWODU = frozenset(
+    {"tekst", "liczba", "procent", "data", "tablice", "lista", "aktywnosc", "zakres_dat",
+     "mapa_liczb", "pomin"}
+)  # fmt: skip
+
+
+@dataclass(frozen=True, slots=True)
+class Kategoria:
+    """Jedna z czterech kategorii raportu głównego (ustalone z Kubą 2026-09-23)."""
+
+    id: str
+    nazwa: str
+    # Tekst dla kategorii, której nie da się dziś zmierzyć. `None` = mierzona.
+    niezmierzona: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PoleDowodu:
+    """Jak pokazać pole dowodu człowiekowi. Format z `FORMATY_DOWODU`."""
+
+    etykieta: str
+    format: str = "tekst"
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +129,8 @@ class Rubryka:
     # wysiłku. Bez nich nie da się zrealizować `reguly.kolejnosc_raportu`.
     kolejnosc_wag: tuple[str, ...]
     kolejnosc_wysilkow: tuple[str, ...]
+    kategorie: tuple[Kategoria, ...] = ()
+    pola_dowodu: Mapping[str, PoleDowodu] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.klasy:
@@ -246,7 +274,40 @@ def _klasa(surowa: dict[str, Any], slowniki: dict[str, list[str]], maks: int) ->
         trop_sprzedazowy=(
             str(surowa["trop_sprzedazowy"]).strip() if surowa.get("trop_sprzedazowy") else None
         ),
+        kategoria=str(surowa.get("kategoria") or ""),
     )
+
+
+def _kategorie(surowe: Any, gdzie: str) -> tuple[Kategoria, ...]:
+    if not isinstance(surowe, list) or not surowe:
+        raise RubrykaError(f"{gdzie}: `kategorie` musi być niepustą listą")
+    wynik = []
+    for k in surowe:
+        identyfikator = str(_wymagane(k, "id", f"{gdzie}: kategoria bez id"))
+        niezmierzona = k.get("niezmierzona")
+        wynik.append(
+            Kategoria(
+                id=identyfikator,
+                nazwa=str(_wymagane(k, "nazwa", f"kategoria {identyfikator}")),
+                niezmierzona=" ".join(str(niezmierzona).split()) if niezmierzona else None,
+            )
+        )
+    return tuple(wynik)
+
+
+def _pola_dowodu(surowe: Any, gdzie: str) -> dict[str, PoleDowodu]:
+    if not isinstance(surowe, dict):
+        raise RubrykaError(f"{gdzie}: `pola_dowodu` musi być mapą")
+    wynik = {}
+    for pole, opis in surowe.items():
+        opis = opis or {}
+        format_ = str(opis.get("format") or "tekst")
+        if format_ not in FORMATY_DOWODU:
+            raise RubrykaError(f"{gdzie}: pole dowodu `{pole}` ma nieznany format {format_!r}")
+        wynik[str(pole)] = PoleDowodu(
+            etykieta=str(opis.get("etykieta") or str(pole).replace("_", " ")), format=format_
+        )
+    return wynik
 
 
 def wczytaj_rubryke(sciezka: Path = SCIEZKA_RUBRYKI) -> Rubryka:
@@ -282,12 +343,24 @@ def wczytaj_rubryke(sciezka: Path = SCIEZKA_RUBRYKI) -> Rubryka:
     if duplikaty:
         raise RubrykaError(f"{sciezka}: zduplikowane id klas: {', '.join(duplikaty)}")
 
+    kategorie = _kategorie(surowa.get("kategorie"), str(sciezka))
+    znane = {k.id for k in kategorie}
+    # Klasa bez kategorii albo ze zmyśloną wypadłaby z raportu głównego po cichu.
+    bez_kategorii = sorted(k.id for k in klasy if k.kategoria not in znane)
+    if bez_kategorii:
+        raise RubrykaError(
+            f"{sciezka}: klasy bez znanej `kategoria` ({', '.join(sorted(znane))}): "
+            f"{', '.join(bez_kategorii)}"
+        )
+
     rubryka = Rubryka(
         wersja=wersja,
         klasy=klasy,
         maks_wywolan_na_run=bezpiecznik,
         kolejnosc_wag=tuple(str(w) for w in slowniki["waga"]),
         kolejnosc_wysilkow=tuple(str(w) for w in slowniki["wysilek_naprawy"]),
+        kategorie=kategorie,
+        pola_dowodu=_pola_dowodu(surowa.get("pola_dowodu") or {}, str(sciezka)),
     )
     # Nie błąd: klasa bez tropu po prostu nie doda linijki do wersji
     # wewnętrznej. Ale cisza tutaj już raz kosztowała — `trop` był NULL

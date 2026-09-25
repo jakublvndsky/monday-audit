@@ -131,3 +131,20 @@ def test_rubryka_bez_klas_nie_powstaje() -> None:
             kolejnosc_wag=("krytyczna",),
             kolejnosc_wysilkow=("niski",),
         )
+
+
+def test_kazda_klasa_ma_kategorie_raportu() -> None:
+    """Klasa bez kategorii wypadłaby z raportu głównego po cichu (faza 7)."""
+    rubryka = wczytaj_rubryke()
+
+    znane = {k.id for k in rubryka.kategorie}
+    assert znane == {"workspace", "tablice", "uzytkownicy", "agenci"}
+    assert all(k.kategoria in znane for k in rubryka.klasy)
+
+
+def test_kazde_pole_dowodu_z_rubryki_ma_etykiete() -> None:
+    """Pole bez wpisu dostaje nazwę klucza — w raporcie klienta to „nakladanie_kolumn"."""
+    rubryka = wczytaj_rubryke()
+
+    pola = {p.rstrip("[]") for k in rubryka.klasy for p in k.dowod}
+    assert pola - set(rubryka.pola_dowodu) == set()

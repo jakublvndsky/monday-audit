@@ -430,6 +430,35 @@ na nich napisał.
     produkcję, czego świadomie unikaliśmy; WeasyPrint to czysty Python za cenę
     bibliotek systemowych (pango, cairo). Decyzja przed fazą, nie w trakcie.
 
+  **Decyzje Kuby z 2026-09-25** (przed startem fazy, na podstawie projektu
+  z Claude Design — `docs/design/`):
+
+  - **PDF odłożony.** Faza robi tylko HTML; ryzyko PDF zostaje na później.
+  - Raport to **nasz dokument** (wariant 1), portal go osadza albo daje
+    do pobrania. Plik = **wersja dla klienta**: bez kosztu, odrzuconych
+    hipotez, sygnałów i banera „zapisz teraz". Wersja zamaskowana z historii
+    — później.
+  - Przypisanie klas do kategorii potwierdzone jak wyżej; **Workspace
+    i Agenci „jeszcze nie mierzone"** (brak klas z detektorem).
+  - Zdanie „największy problem" **deterministyczne** (pierwsze zdanie uwagi
+    z najliczniejszej grupy), rekomendacja grupy tylko gdy wspólna — bez
+    zmian promptu.
+  - **Słownik pól dowodu w rubryce** (`pola_dowodu`: etykieta, format).
+  - Pokrycie **liczbami** tam, gdzie się da (sufit, próbka logów), resztą tekstem.
+  - Układ C: wariant **„hero"**.
+  - Fonty: **D14 bez zmian** — nie osadzamy (moja propozycja osadzenia Clash
+    Display łamała EULA z `szablony/fonty/FFL.txt`; wycofana).
+
+  **Kroki:**
+  - [x] **7-1** — raport główny w czterech kategoriach + widok pogłębiony
+    każdej mierzonej kategorii w JEDNYM pliku (kotwice i `:target`, zero
+    skryptów), blok „Czego ten raport nie sprawdził", chipy dowodu z nazwami
+    tablic ze snapshotu, mobile i druk. Rubryka 0.7 (`kategorie`,
+    `kategoria` przy klasie, `pola_dowodu`). Obejrzane w przeglądarce na
+    uwagach z `analiza-20260924T114549Z` (mobile i 1100 px).
+  - [ ] **7-2** — sesja na pełnym koncie i raport z nazwiskami obejrzany
+    przez Kubę; poprawki po nim.
+
 ## Dziennik
 
 <!-- Uzupełniany przy zamykaniu faz: data, faza, link do dokumentu
