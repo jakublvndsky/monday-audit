@@ -346,3 +346,23 @@ def test_przycisk_prowadzi_do_najliczniejszej_kategorii(con: sqlite3.Connection)
     html = wyrenderuj_uwagi(_zbuduj(con, [_duplikaty(), _duplikaty(), _uwaga()]))
 
     assert 'href="#kat-tablice">Zacznij od tablic<' in html
+
+
+def test_pusta_lista_to_ustalenie_a_nie_pusty_fakt() -> None:
+    """`owners: []` to sedno BOARD_NO_OWNER — chip zostaje jako „brak".
+
+    Filtr pustych faktów łapał wcześniej każdy tekst „brak", także pustą listę
+    (code review 2026-09-25). Znika tylko `None` i pusta mapa.
+    """
+    from monday_audit.raport_uwag import chipy_dowodu
+
+    chipy = {
+        c.etykieta: c.wartosc
+        for c in chipy_dowodu(
+            {"owners": [], "najnowszy_at": None, "po_klasie": {}},
+            wczytaj_rubryke().pola_dowodu,
+            run_at="2026-09-25T00:00:00Z",
+        )
+    }
+
+    assert chipy == {"właściciele": "brak"}

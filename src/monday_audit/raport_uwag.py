@@ -205,14 +205,16 @@ def chipy_dowodu(
             "zakres_dat": lambda v: _zakres_dat(v, run_at),
             "mapa_liczb": _mapa_liczb,
         }
-        formater = formatery.get(opis.format)
-        tekst = formater(wartosc) if formater else _auto(wartosc, run_at=run_at, nazwy=nazwy)
         # Pusty fakt nie idzie do chipa: „ostatni wpis: brak", „rodzaje zmian:
         # brak" i „wpisy wg wieku: brak" przy tablicy porzuconej to cztery chipy
         # z jednym faktem, który już niesie „wpisy w logu: 0" (uwaga Kuby
         # 2026-09-25). „Nie zmierzone" jest wyżej i zostaje zawsze.
-        if tekst == "brak":
+        # Tylko `None` i pusta MAPA — pusta LISTA jest ustaleniem: `owners: []`
+        # to sedno BOARD_NO_OWNER (code review 2026-09-25).
+        if wartosc is None or wartosc == {}:
             continue
+        formater = formatery.get(opis.format)
+        tekst = formater(wartosc) if formater else _auto(wartosc, run_at=run_at, nazwy=nazwy)
         wynik.append(Chip(opis.etykieta, wartosc=tekst))
     return tuple(wynik)
 
