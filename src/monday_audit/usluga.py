@@ -326,6 +326,9 @@ def szacuj_analize(
         stale + round(probka * STRON_LOGOW_TYPOWO) + MAKS_PRZEBIEGOW_WYWOLAN // 2 + NARZEDZI_TYPOWO
     )
     maks = stale + probka * MAKS_STRON_LOGOW + MAKS_PRZEBIEGOW_WYWOLAN + BUDZET_NARZEDZI
+    # Log bez okna dla tablic bez właściciela: jedna strona na tablicę, do sufitu.
+    typowo += DOBRANYCH_BEZ_WLASCICIELA
+    maks += DOBRANYCH_BEZ_WLASCICIELA
 
     historia = historia_analiz(trwala) if trwala is not None else None
     usd_od = oszacuj(1, historia).koszt_usd

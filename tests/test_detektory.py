@@ -625,6 +625,33 @@ def test_board_no_owner_lapie_brak_i_nieaktywnych(con: sqlite3.Connection) -> No
     assert bez.fakty["top_kontrybutor_hash"] == "top"
 
 
+def test_board_no_owner_bierze_autora_z_logu_bez_okna_gdy_w_oknie_cisza(
+    con: sqlite3.Connection,
+) -> None:
+    """ZMIERZONE 2026-09-25: 20 z 20 BOARD_NO_OWNER odrzuconych za `null`, bo
+    w oknie 90 dni nikt tablic nie ruszał. Okno ma pierwszeństwo, historia jest
+    awaryjna — i fakt mówi, skąd kandydat."""
+    dane = pelny(
+        tablice=[tablica("cicha", owners=[]), tablica("zywa", owners=[])],
+        aktywnosci=[aktywnosc("zywa", udzial={"z_okna": 5})],
+    )
+    dane["aktywnosc"]["autorzy_bez_okna"] = [
+        {"board_id": "cicha", "wpisow": 40, "top_kontrybutor_hash": "z_historii",
+         "najnowszy_at": "2025-01-27T15:46:02Z"},
+        {"board_id": "zywa", "wpisow": 9, "top_kontrybutor_hash": "inny",
+         "najnowszy_at": "2026-07-01T00:00:00Z"},
+    ]  # fmt: skip
+    snapshot_id = zapisz(con, dane)
+
+    fakty = {h.obiekt_id: h.fakty for h in board_no_owner(con, snapshot_id, 0)}
+
+    assert fakty["cicha"]["top_kontrybutor_hash"] == "z_historii"
+    assert fakty["cicha"]["top_kontrybutor_zrodlo"].startswith("cała historia")
+    assert fakty["cicha"]["ostatni_wpis_at"] == "2025-01-27T15:46:02Z"
+    assert fakty["zywa"]["top_kontrybutor_hash"] == "z_okna"
+    assert fakty["zywa"]["top_kontrybutor_zrodlo"] == "okno analizy"
+
+
 def test_board_overcomplex_nie_udaje_ze_zna_martwe_kolumny(con: sqlite3.Connection) -> None:
     kolumny = [{"title": f"K{n}", "type": "text"} for n in range(16)]
     snapshot_id = zapisz(con, pelny(tablice=[tablica("b1", kolumny=kolumny)]))

@@ -732,3 +732,41 @@ def test_probka_dobiera_tablice_bez_wlasciciela() -> None:
 
     assert [t.items_count for t in probka] == [20, 19, 18, 2, 1, 11, 10]
     assert pominietych == 13
+
+
+# ── autorzy bez okna dla tablic bez właściciela (2026-09-25) ─────────────
+
+
+async def test_tablica_bez_wlasciciela_dostaje_log_bez_okna(zbuduj: Any) -> None:
+    """ZMIERZONE: tablice bez właściciela bywają nieruszane od roku, więc w oknie
+    nie ma autora — BOARD_NO_OWNER nie miał kogo zaproponować. Collector bierze
+    JEDNĄ stronę logu bez okna i wybiera znanego autora, nie automat."""
+    zapytania: list[dict[str, Any]] = []
+    stary = [wpis(user_id="101"), wpis(user_id="101"), wpis(user_id="999"), wpis(user_id="999"),
+             wpis(user_id="999")]  # fmt: skip
+
+    def uchwyt(zapytanie: httpx.Request) -> httpx.Response:
+        zmienne = json.loads(zapytanie.content)["variables"]
+        zapytania.append(zmienne)
+        bez_okna = zmienne["od"] is None and zmienne["do"] is None
+        return _odpowiedz_http(zmienne["ids"][0], stary if bez_okna and zmienne["p"] == 1 else [])
+
+    wynik = await zbierz_logi(
+        zbuduj(uchwyt),
+        [tablica("1"), tablica("2")],
+        client_id=KLIENT,
+        sol=SOL,
+        znane_hashe={policz_hash(KLIENT, "101", SOL)},
+        od="2026-06-01T00:00:00Z",
+        do="2026-09-01T00:00:00Z",
+        dobrane=["1"],
+    )
+
+    [autorzy] = wynik.autorzy_bez_okna
+    assert autorzy.board_id == "1"
+    # 999 ma więcej wpisów, ale nie jest osobą z konta — kandydatem jest 101.
+    assert autorzy.top_kontrybutor_hash == policz_hash(KLIENT, "101", SOL)
+    assert autorzy.wpisow == 5
+    assert sum(1 for z in zapytania if z["od"] is None) == 1, "jedna strona, jedna tablica"
+    assert wynik.sygnaly[0].wpisow == 0, "okno analizy dalej liczy tylko okno"
+    assert "autorzy_bez_okna" in wynik.do_snapshotu()

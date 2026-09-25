@@ -574,6 +574,13 @@ osoby AS (
            json_extract(o.value, '$.kind')      AS kind
     FROM snap, json_each(snap.payload, '$.uzytkownicy.uzytkownicy') AS o
 ),
+-- Ostatni autorzy z logu BEZ okna (collector, 2026-09-25) — gdy w oknie cisza.
+bez_okna AS (
+    SELECT json_extract(b.value, '$.board_id')             AS board_id,
+           json_extract(b.value, '$.top_kontrybutor_hash') AS top_bez_okna,
+           json_extract(b.value, '$.najnowszy_at')         AS najnowszy_bez_okna
+    FROM snap, json_each(snap.payload, '$.aktywnosc.autorzy_bez_okna') AS b
+),
 -- Właściciele w rozbiciu na tych, którzy są jeszcze aktywni, i pozostałych.
 wlasciciele AS (
     SELECT
@@ -587,11 +594,13 @@ wlasciciele AS (
 SELECT
     tablice.board_id, tablice.nazwa, tablice.owners, tablice.updated_at,
     aktywnosc.udzial_autorow,
+    bez_okna.top_bez_okna, bez_okna.najnowszy_bez_okna,
     COALESCE(wlasciciele.wszystkich, 0) AS wlascicieli,
     COALESCE(wlasciciele.aktywnych, 0)  AS wlascicieli_aktywnych
 FROM tablice
 LEFT JOIN wlasciciele USING (board_id)
 LEFT JOIN aktywnosc   USING (board_id)
+LEFT JOIN bez_okna    USING (board_id)
 WHERE tablice.typ = 'board'
   AND tablice.state = 'active'
   AND COALESCE(wlasciciele.aktywnych, 0) = 0
@@ -608,6 +617,10 @@ def board_no_owner(con: sqlite3.Connection, snapshot_id: int, budzet: int) -> li
         # wartość tej klasy: nie „brakuje pola", a „nikt formalnie nie odpowiada
         # za tablicę, na której ktoś realnie pracuje".
         top = max(udzialy.items(), key=lambda p: (p[1], p[0]))[0] if udzialy else None
+        # Cisza w oknie → ostatni znany autor z całej historii logu (collector).
+        zrodlo = "okno analizy" if top else None
+        if top is None and w["top_bez_okna"]:
+            top, zrodlo = w["top_bez_okna"], "cała historia logu (ostatnie 100 wpisów)"
         hipotezy.append(
             Hipoteza(
                 klasa_id="BOARD_NO_OWNER",
@@ -618,6 +631,8 @@ def board_no_owner(con: sqlite3.Connection, snapshot_id: int, budzet: int) -> li
                     "owners": json.loads(w["owners"] or "[]"),
                     "updated_at": w["updated_at"],
                     "top_kontrybutor_hash": top,
+                    "top_kontrybutor_zrodlo": zrodlo,
+                    "ostatni_wpis_at": w["najnowszy_bez_okna"],
                     "podstawa": (
                         "brak właścicieli"
                         if w["wlascicieli"] == 0

@@ -270,9 +270,13 @@ class WynikLogow:
     sygnaly: tuple[SygnalyTablicy, ...]
     pominietych_tablic: int
     discovery: dict[str, Any]
+    # Ostatni autorzy tablic bez aktywnego właściciela, z logu BEZ okna czasowego.
+    # Osobno od `sygnaly`, bo tamte liczą wpisy W OKNIE i na nich stoi BOARD_GHOST.
+    autorzy_bez_okna: tuple[AutorzyBezOkna, ...] = ()
 
     def do_snapshotu(self) -> dict[str, Any]:
         return {
+            "autorzy_bez_okna": [a.do_snapshotu() for a in self.autorzy_bez_okna],
             "aktywnosc_tablic": [s.do_snapshotu() for s in self.sygnaly],
             "per_uzytkownik": self.per_uzytkownik(),
             "podsumowanie": self.podsumowanie(),
@@ -356,6 +360,37 @@ class WynikLogow:
             "po_klasie": dict(klasy),
             "kubelki_dni": dict(kubelki),
             "najczestsze_zdarzenia": dict(zdarzenia.most_common(10)),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class AutorzyBezOkna:
+    """Kto ostatnio pracował na tablicy bez aktywnego właściciela — z całej historii.
+
+    ## ZMIERZONE 2026-09-25 (`analiza-20260925T090024Z`, pełne CXLABS)
+
+    BOARD_NO_OWNER proponuje właściciela z najaktywniejszego autora logu. Tablice
+    bez właściciela bywają od dawna nieruszane (ostatnia zmiana 2025-01-27), więc
+    w oknie 90 dni nie mają ani jednego wpisu i detektor dawał `null`. W sesji 3
+    model sam dociągnął dłuższy log narzędziem i 20 uwag przeszło; w sesji 4 wydał
+    budżet na próbki kolumn i walidacja odrzuciła 20 z 20. Fakt, od którego zależy
+    klasa, nie może zależeć od tego, na co model wyda budżet — więc zbiera go
+    collector: JEDNA strona logu bez okna na tablicę.
+    """
+
+    board_id: str
+    wpisow: int
+    # Najaktywniejszy ZNANY autor (osoba z konta) — kandydat na właściciela.
+    # Nieznany autor to zwykle automatyzacja albo integracja, nie człowiek.
+    top_kontrybutor_hash: str | None
+    najnowszy_at: str | None
+
+    def do_snapshotu(self) -> dict[str, Any]:
+        return {
+            "board_id": self.board_id,
+            "wpisow": self.wpisow,
+            "top_kontrybutor_hash": self.top_kontrybutor_hash,
+            "najnowszy_at": self.najnowszy_at,
         }
 
 
@@ -635,7 +670,40 @@ async def zbierz_logi(
         },
     }
 
-    wynik = WynikLogow(sygnaly=tuple(sygnaly), pominietych_tablic=pominietych, discovery=discovery)
+    autorzy: list[AutorzyBezOkna] = []
+    if dobrane:
+        chciane = set(dobrane)
+        kolejka = sorted(
+            (t for t in tablice if t.board_id in chciane),
+            key=lambda t: (-(t.items_count or 0), t.board_id),
+        )[:DOBRANYCH_BEZ_WLASCICIELA]
+        for tablica in kolejka:
+            logi, _, _ = await _pobierz_logi(
+                klient, tablica.board_id, limit=limit_wpisow, od=None, do=None, maks_stron=1
+            )
+            s = _sygnaly(
+                tablica.board_id,
+                logi,
+                client_id=client_id,
+                sol=sol,
+                znane_hashe=znane,
+                urwane=False,
+                teraz=teraz,
+            )
+            znani = {h: n for h, n in s.udzial_autorow.items() if h in znane}
+            kandydat = max(znani.items(), key=lambda p: (p[1], p[0]))[0] if znani else None
+            autorzy.append(AutorzyBezOkna(tablica.board_id, s.wpisow, kandydat, s.najnowszy_at))
+        discovery["autorzy_bez_okna"] = {
+            "tablic": len(autorzy),
+            "z_kandydatem": sum(1 for a in autorzy if a.top_kontrybutor_hash),
+        }
+
+    wynik = WynikLogow(
+        sygnaly=tuple(sygnaly),
+        pominietych_tablic=pominietych,
+        discovery=discovery,
+        autorzy_bez_okna=tuple(autorzy),
+    )
     waliduj_brak_pii(json.dumps(wynik.do_snapshotu(), ensure_ascii=False), [])
 
     podsumowanie = wynik.podsumowanie()

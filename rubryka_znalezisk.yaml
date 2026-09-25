@@ -138,6 +138,8 @@ pola_dowodu:
   po_klasie: {etykieta: rodzaje zmian, format: mapa_liczb}
   po_event: {etykieta: rodzaje zdarzeń, format: mapa_liczb}
   top_kontrybutor_hash: {etykieta: najaktywniejsza osoba}
+  top_kontrybutor_zrodlo: {etykieta: skąd kandydat}
+  ostatni_wpis_at: {etykieta: ostatni wpis w logu, format: data}
   user_hash: {etykieta: konto}
   guest_hash: {etykieta: goście, format: lista}
   tablice_dostepne: {etykieta: dostęp gości do tablic}
