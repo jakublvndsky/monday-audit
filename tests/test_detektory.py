@@ -289,6 +289,31 @@ def test_automatyzacja_z_bledem_wzbudza(con: sqlite3.Connection) -> None:
     assert hipotezy[0].budzet_wywolan == 5
 
 
+def test_brak_pliku_to_dane_wejsciowe_a_nie_wada(con: sqlite3.Connection) -> None:
+    """Decyzja Kuby 2026-09-25: „brak pliku" to złe dane wejściowe.
+
+    Detektor nie odrzuca sam — podaje fakt pod warunek odrzucenia z rubryki.
+    Mieszane powody to nadal możliwa wada, więc fakt jest False.
+    """
+    brak = "No results – there are no files for the AI to read."
+    snapshot_id = zapisz(
+        con,
+        payload(
+            statystyki=[
+                automatyzacja("a1", failure=9, exhausted=9, powody={brak: 9}),
+                automatyzacja("a2", failure=4, powody={brak: 1, "webhook_error": 3}),
+                automatyzacja("a3", exhausted=2),
+            ]
+        ),
+    )
+
+    fakty = {h.obiekt_id: h.fakty for h in automation_dead(con, snapshot_id, 0)}
+
+    assert fakty["a1"]["tylko_bledy_danych_wejsciowych"] is True
+    assert fakty["a2"]["tylko_bledy_danych_wejsciowych"] is False
+    assert fakty["a3"]["tylko_bledy_danych_wejsciowych"] is False
+
+
 def test_wyczerpanie_limitu_wzbudza_bez_bledow(con: sqlite3.Connection) -> None:
     """`exhausted` to automatyzacja zatrzymana limitem — cicho przestała działać."""
     snapshot_id = zapisz(con, payload(statystyki=[automatyzacja("a1", success=10, exhausted=3)]))
@@ -398,7 +423,7 @@ def test_raport_wymienia_klasy_bez_detektora(con: sqlite3.Connection) -> None:
     assert set(raport["klasy_bez_detektora"]) == wszystkie - zbudowane
     # 0.3 przy dodaniu UZYTKOWNIK_WYGASZONY, 0.4 przy doprecyzowaniu warunku
     # odrzucenia BOARD_GHOST (O34) — oba w etapie 4.
-    assert raport["rubric_version"] == "0.7"
+    assert raport["rubric_version"] == "0.8"
 
 
 def test_budzet_bierze_sie_z_rubryki(con: sqlite3.Connection) -> None:

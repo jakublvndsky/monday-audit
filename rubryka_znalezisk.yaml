@@ -33,7 +33,7 @@
 # To są decyzje biznesowe z etapu 1 i pomiary techniczne nie mają do nich nic
 # do powiedzenia.
 
-wersja: "0.7"
+wersja: "0.8"
 odbiorca_domyslny: wewnetrzny
 
 # ──────────────────────────────────────────────────────────────
@@ -640,6 +640,10 @@ klasy:
     warunki_odrzucenia:
       - pojedynczy błąd przy tysiącach udanych uruchomień — to szum, nie awaria
       - powód błędu wskazuje na dane wejściowe od człowieka, nie na konfigurację
+      # Decyzja Kuby 2026-09-25: „there are no files for the AI to read" (item
+      # bez pliku) to złe dane wejściowe. Detektor liczy to do faktu.
+      - "tylko_bledy_danych_wejsciowych: true — wszystkie błędy to brak danych
+        wejściowych na elemencie (np. brak pliku do odczytu przez krok AI)"
       - exhausted przy jednorazowej migracji — limit wyczerpany świadomie
     waga: srednia
     wysilek_naprawy: niski

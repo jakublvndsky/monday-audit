@@ -254,6 +254,20 @@ def _tier(con: sqlite3.Connection, snapshot_id: int) -> str | None:
 # Poniżej tego progu jeden błąd na tysiąc udanych uruchomień to szum, nie awaria.
 PROG_UDZIALU_BLEDOW = 0.05
 
+# Powody błędów, które znaczą „element nie miał danych, na których krok działa",
+# a nie „automatyzacja jest zepsuta". DECYZJA KUBY 2026-09-25: „brak pliku" to
+# złe dane wejściowe. Bez tego model rozstrzygał te same automatyzacje raz tak,
+# raz tak — na pełnym koncie 11, 1 i 7 uwag w trzech kolejnych runach.
+# Dopasowanie po fragmencie tekstu, bez wielkości liter: monday doklejał
+# „No results – " z różnymi myślnikami.
+POWODY_Z_DANYCH_WEJSCIOWYCH = ("there are no files for the ai to read",)
+
+
+def _z_danych_wejsciowych(powod: str) -> bool:
+    tekst = powod.lower()
+    return any(fragment in tekst for fragment in POWODY_Z_DANYCH_WEJSCIOWYCH)
+
+
 _AUTOMATION_DEAD = """
 WITH snap AS (SELECT payload FROM snapshots WHERE id = :snapshot_id)
 SELECT
@@ -276,6 +290,7 @@ def automation_dead(con: sqlite3.Connection, snapshot_id: int, budzet: int) -> l
     for w in con.execute(_AUTOMATION_DEAD, {"snapshot_id": snapshot_id}):
         uruchomien = w["failure"] + w["success"]
         udzial = round(w["failure"] / uruchomien, 4) if uruchomien else None
+        powody = json.loads(w["powody_bledow"] or "{}")
         hipotezy.append(
             Hipoteza(
                 klasa_id="AUTOMATION_DEAD",
@@ -285,8 +300,14 @@ def automation_dead(con: sqlite3.Connection, snapshot_id: int, budzet: int) -> l
                     "failure": w["failure"],
                     "success": w["success"],
                     "exhausted": w["exhausted"],
-                    "powody_bledow": json.loads(w["powody_bledow"] or "{}"),
+                    "powody_bledow": powody,
                     "udzial_bledow": udzial,
+                    # Jak `powyzej_progu_udzialu`: gotowa ocena dla warunku
+                    # odrzucenia z rubryki, nie cicha decyzja detektora.
+                    # Wszystkie powody znane jako brak danych wejściowych →
+                    # to nie jest wada automatyzacji. Bez powodów: False.
+                    "tylko_bledy_danych_wejsciowych": bool(powody)
+                    and all(_z_danych_wejsciowych(str(p)) for p in powody),
                     # Warunek odrzucenia z rubryki mówi „pojedynczy błąd przy
                     # tysiącach udanych uruchomień to szum". Detektor tego NIE
                     # odrzuca sam — podaje agentowi gotową ocenę, bo odrzucenie
