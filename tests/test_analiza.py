@@ -74,11 +74,12 @@ def test_wszystkie_hipotezy_sa_w_zadaniu() -> None:
 
 
 def test_zadanie_mowi_wprost_ile_ma_byc_rozstrzygniec() -> None:
-    """Bez tego zdania model rozstrzyga „te ciekawsze". Suma jest jedynym
-    mechanicznym sprawdzianem kompletności, jaki mamy."""
+    """Bez tego zdania model rozstrzyga „te ciekawsze". Od 2026-09-25 zdanie
+    żąda każdej hipotezy DOKŁADNIE RAZ, bo pokrycie sprawdzamy parami."""
     zadanie = zbuduj_zadanie(_hipotezy(7), WEJSCIE)
 
-    assert "musi wynosić 7" in zadanie
+    assert "Rozstrzygnij wszystkie 7, każdą DOKŁADNIE RAZ" in zadanie
+    assert "`obiekt_id`" in zadanie
 
 
 def test_obraz_konta_jest_poprawnym_jsonem() -> None:
@@ -402,3 +403,62 @@ def test_brak_jsona_to_blad_a_nie_cisza() -> None:
 
     with pytest.raises(AgentError):
         odpowiedz_z_blokow(["nie mam odpowiedzi"])
+
+
+# ── pokrycie rozstrzygnięć parami (klasa, obiekt) ────────────────────────
+
+
+def _hip(klasa: str, obiekt: str) -> Hipoteza:
+    return Hipoteza(klasa_id=klasa, obiekt_id=obiekt, fakty={}, budzet_wywolan=0)
+
+
+def test_pokrycie_pelne_gdy_kazda_hipoteza_dokladnie_raz() -> None:
+    from monday_audit.analiza import sprawdz_pokrycie
+
+    hipotezy = [_hip("BOARD_GHOST", "1"), _hip("BOARD_GHOST", "2")]
+    odpowiedz = {
+        "uwagi": [{"klasa_id": "BOARD_GHOST", "obiekt_id": "1"}],
+        "pominiete": [{"klasa_id": "BOARD_GHOST", "obiekt_id": "2", "powod": "x"}],
+    }
+
+    assert sprawdz_pokrycie(hipotezy, odpowiedz).pelne
+
+
+def test_zguba_i_podwojenie_nie_znosza_sie() -> None:
+    """ZMIERZONE 2026-09-25: 95 rozstrzygnięć na 94 hipotezy. Suma tego nie
+    rozróżnia, a zgubiona + podwojona dawałyby zgodny wynik."""
+    from monday_audit.analiza import sprawdz_pokrycie
+
+    hipotezy = [_hip("BOARD_GHOST", "1"), _hip("BOARD_GHOST", "2")]
+    odpowiedz = {
+        "uwagi": [{"klasa_id": "BOARD_GHOST", "obiekt_id": "1"}],
+        "pominiete": [{"klasa_id": "BOARD_GHOST", "obiekt_id": "1", "powod": "x"}],
+    }
+
+    pokrycie = sprawdz_pokrycie(hipotezy, odpowiedz)
+
+    assert pokrycie.brakujace == (("BOARD_GHOST", "2"),)
+    assert pokrycie.podwojone == (("BOARD_GHOST", "1"),)
+    assert "bez rozstrzygnięcia 1" in pokrycie.opis()
+    assert "więcej niż raz 1" in pokrycie.opis()
+
+
+def test_obce_i_bez_obiektu_sa_nazwane() -> None:
+    from monday_audit.analiza import sprawdz_pokrycie
+
+    odpowiedz = {
+        "uwagi": [{"klasa_id": "BOARD_GHOST"}, {"klasa_id": "BOARD_GHOST", "obiekt_id": "9"}],
+        "pominiete": [],
+    }
+
+    pokrycie = sprawdz_pokrycie([_hip("BOARD_GHOST", "1")], odpowiedz)
+
+    assert pokrycie.obce == (("BOARD_GHOST", "9"),)
+    assert pokrycie.bez_obiektu == 1
+    assert pokrycie.brakujace == (("BOARD_GHOST", "1"),)
+
+
+def test_prompt_wymaga_obiekt_id_w_uwadze() -> None:
+    tresc = SCIEZKA_PROMPTU_ANALIZY.read_text(encoding="utf-8")
+
+    assert '"obiekt_id": "ID obiektu z hipotezy, niezmienione",\n      "opis"' in tresc

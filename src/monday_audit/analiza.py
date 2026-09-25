@@ -356,8 +356,9 @@ def zbuduj_zadanie(
         "",
         json.dumps(opisane, ensure_ascii=False, indent=1),
         "",
-        f"Rozstrzygnij wszystkie {len(hipotezy)}. Suma `uwagi` i `pominiete` "
-        f"musi wynosić {len(hipotezy)}.",
+        f"Rozstrzygnij wszystkie {len(hipotezy)}, każdą DOKŁADNIE RAZ: para "
+        f"(`klasa_id`, `obiekt_id`) każdej hipotezy ma wystąpić w `uwagi` albo "
+        f"w `pominiete`, nigdy w obu i nigdy dwa razy.",
     ]
     return "\n".join(czesci)
 
@@ -472,27 +473,79 @@ async def zbadaj_konto(
     odpowiedz["wywolania_narzedzi"] = list(narzedzia_sesji.wywolania)
     odpowiedz["przebieg_narzedzi"] = list(narzedzia_sesji.przebieg)
 
-    ile_uwag = len(odpowiedz.get("uwagi") or [])
-    ile_pominietych = len(odpowiedz.get("pominiete") or [])
-    if ile_uwag + ile_pominietych != len(hipotezy):
+    pokrycie = sprawdz_pokrycie(hipotezy, odpowiedz)
+    if not pokrycie.pelne:
         # OSTRZEŻENIE, nie wyjątek. Hipoteza, której model nie tknął, jest
         # stratą, ale nie unieważnia pozostałych rozstrzygnięć. Cisza byłaby
         # gorsza: raport wyglądałby na kompletny.
-        logger.warning(
-            "model rozstrzygnął %d z %d hipotez (%d uwag, %d pominiętych) — "
-            "reszta przepadła bez śladu",
-            ile_uwag + ile_pominietych,
-            len(hipotezy),
-            ile_uwag,
-            ile_pominietych,
-        )
+        logger.warning("rozstrzygnięcia nie pokrywają hipotez: %s", pokrycie.opis())
     return odpowiedz
+
+
+@dataclass(frozen=True, slots=True)
+class PokrycieHipotez:
+    """Które hipotezy model rozstrzygnął źle — parami (klasa, obiekt), nie sumą.
+
+    ZMIERZONE 2026-09-25 (`analiza-20260925T113801Z`): 95 rozstrzygnięć na 94
+    hipotezy, a ostrzeżenie liczone sumą mówiło „reszta przepadła". Suma nie
+    odróżnia podwojenia od zguby, a jedna zgubiona plus jedna podwojona daje
+    zgodny wynik i znika bez śladu.
+    """
+
+    brakujace: tuple[tuple[str, str], ...] = ()
+    podwojone: tuple[tuple[str, str], ...] = ()
+    obce: tuple[tuple[str, str], ...] = ()
+    bez_obiektu: int = 0
+
+    @property
+    def pelne(self) -> bool:
+        return not (self.brakujace or self.podwojone or self.obce or self.bez_obiektu)
+
+    def opis(self) -> str:
+        def pary(nazwa: str, lista: tuple[tuple[str, str], ...]) -> str:
+            pokaz = ", ".join(f"{k}/{o}" for k, o in lista[:5])
+            reszta = f" i {len(lista) - 5} więcej" if len(lista) > 5 else ""
+            return f"{nazwa} {len(lista)} ({pokaz}{reszta})"
+
+        czesci = [
+            pary(nazwa, lista)
+            for nazwa, lista in (
+                ("bez rozstrzygnięcia", self.brakujace),
+                ("rozstrzygnięte więcej niż raz", self.podwojone),
+                ("spoza listy hipotez", self.obce),
+            )
+            if lista
+        ]
+        if self.bez_obiektu:
+            czesci.append(f"bez `obiekt_id` {self.bez_obiektu} (nie da się przypisać)")
+        return "; ".join(czesci) or "pełne"
+
+
+def sprawdz_pokrycie(hipotezy: list[Hipoteza], odpowiedz: dict[str, Any]) -> PokrycieHipotez:
+    """Każda hipoteza dokładnie raz, w `uwagi` albo w `pominiete`."""
+    oczekiwane = {(h.klasa_id, str(h.obiekt_id)) for h in hipotezy}
+    widziane: dict[tuple[str, str], int] = {}
+    bez_obiektu = 0
+    for pozycja in [*(odpowiedz.get("uwagi") or []), *(odpowiedz.get("pominiete") or [])]:
+        if not isinstance(pozycja, dict) or not str(pozycja.get("obiekt_id") or "").strip():
+            bez_obiektu += 1
+            continue
+        klucz = (str(pozycja.get("klasa_id")), str(pozycja["obiekt_id"]))
+        widziane[klucz] = widziane.get(klucz, 0) + 1
+    return PokrycieHipotez(
+        brakujace=tuple(sorted(oczekiwane - widziane.keys())),
+        podwojone=tuple(sorted(k for k, n in widziane.items() if n > 1 and k in oczekiwane)),
+        obce=tuple(sorted(widziane.keys() - oczekiwane)),
+        bez_obiektu=bez_obiektu,
+    )
 
 
 __all__ = [
     "BUDZET_NARZEDZI",
     "SCIEZKA_PROMPTU_ANALIZY",
+    "PokrycieHipotez",
     "definicje_klas",
+    "sprawdz_pokrycie",
     "zbadaj_konto",
     "zbuduj_zadanie",
 ]

@@ -403,7 +403,7 @@ na nich napisał.
     z trzema workspace'ami i czterdziestoma tysiącami leadów trwa dłużej niż
     osiem pustych.
 
-- [ ] **7. Raport: przebudowa treści, HTML i PDF** — wejście w kafelek pogłębia
+- [x] **7. Raport: przebudowa treści, HTML i PDF** — wejście w kafelek pogłębia
   do szczegółów, a sam raport jest **pogrupowany i opisany przez agenta**, nie
   wyliczany zdarzenie po zdarzeniu. Bez kwot przy znaleziskach (2026-09-23).
 
@@ -456,13 +456,44 @@ na nich napisał.
     tablic ze snapshotu, mobile i druk. Rubryka 0.7 (`kategorie`,
     `kategoria` przy klasie, `pola_dowodu`). Obejrzane w przeglądarce na
     uwagach z `analiza-20260924T114549Z` (mobile i 1100 px).
-  - [ ] **7-2** — sesja na pełnym koncie i raport z nazwiskami obejrzany
-    przez Kubę; poprawki po nim.
+  - [x] **7-2** — sesja na pełnym koncie i raport z nazwiskami obejrzany
+    przez Kubę; poprawki po nim. Odebrane na `analiza-20260925T113801Z`.
 
 ## Dziennik
 
 <!-- Uzupełniany przy zamykaniu faz: data, faza, link do dokumentu
      w `docs/features/`, odchylenia od planu. -->
+
+**2026-09-25 — faza 7 zamknięta** (bez PDF, decyzją Kuby). Raport HTML
+w czterech kategoriach z widokami pogłębionymi, markup 1:1 z projektu
+Claude Design (`docs/design/`). Odbiór: `analiza-20260925T113801Z` na pełnym
+koncie CXLABS — 94 hipotezy do modelu, **59 uwag, 0 odrzuconych walidacją**,
+44 pominięte przez model, 2,16 USD przy szacunku 3,71 USD, 14 min. Przed nim
+tańszy run na jednym workspace (Demo - 44, 1,07 USD) i podgląd na danych
+syntetycznych za 0 USD. Dokumentu w `docs/features/` nie ma.
+
+Co poszło inaczej, niż zakładał plan:
+
+- **Pierwsza wersja raportu rozminęła się z projektem** („tragicznie
+  UX-owo"). Zamiast interpretować projekt, markup przeniesiony 1:1;
+  porównanie z projektem wyrenderowanym lokalnie, desktop i mobile.
+- **Zdanie przy kategorii** nie jest pierwszym zdaniem uwagi, jak ustalono
+  przed fazą, tylko „Najczęstszy problem: x (n z m)." — pierwsze zdanie
+  jednej uwagi nie opisywało kategorii.
+- **BOARD_NO_OWNER 20/20 z kandydatem** (było 9–11/20): log bez okna dla
+  wszystkich tablic bez właściciela, collector z limitem 100 osobnym od
+  próbki.
+- **AUTOMATION_DEAD 2 uwagi** (było 11 / 1 / 7): decyzja Kuby — „brak pliku"
+  to złe dane wejściowe; fakt `tylko_bledy_danych_wejsciowych`, rubryka 0.8.
+- **Tekst dla klienta z naszego kodu, nie od modelu:** szablon ZOMBIE wstawiał
+  nazwy pól; hash bez mapowania to teraz „konto spoza listy użytkowników".
+- **Pokrycie rozstrzygnięć parami (klasa, obiekt), nie sumą** — run odbiorczy
+  dał 95 rozstrzygnięć na 94 hipotezy, a stare ostrzeżenie mówiło
+  „reszta przepadła". Uwaga niesie `obiekt_id`; zmienia `prompt_hash`.
+- **Otwarte na później:** PDF; wariant zamaskowany raportu z historii;
+  BOARD_OVERCOMPLEX wciąż mało wybiórczy (398 hipotez); inne powody błędów
+  automatyzacji z danych wejściowych (np. `invalid_person_assignment`)
+  bez decyzji.
 
 **2026-09-24 — krok 6-3b zamknięty** (faza 6 trwa, zostaje 6-4). Pełne konto
 CXLABS jedną sesją: `analiza-20260924T114549Z` — 629 hipotez, 99 do modelu,

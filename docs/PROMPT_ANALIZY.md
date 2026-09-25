@@ -102,6 +102,7 @@ Zwróć JEDEN obiekt JSON, bez tekstu przed ani po:
   "uwagi": [
     {
       "klasa_id": "ID klasy z hipotezy, niezmienione",
+      "obiekt_id": "ID obiektu z hipotezy, niezmienione",
       "opis": "Co jest nie tak i dla kogo to problem. Bez ozdobników.",
       "rekomendacja": "Co zrobić. Konkretnie, nie 'rozważyć optymalizację'.",
       "dowod": { "pola wymagane przez klasę, wartości z faktów": "..." }
@@ -116,6 +117,7 @@ Zwróć JEDEN obiekt JSON, bez tekstu przed ani po:
   ]
 }
 
-Suma uwag i pominiętych musi równać się liczbie hipotez. Hipoteza, której
-nie ma w żadnej z list, jest błędem.
+Jedna hipoteza = jedna pozycja: uwaga ALBO pominięta, dokładnie raz, z tym
+samym `klasa_id` i `obiekt_id` co w hipotezie. Hipoteza, której nie ma
+w żadnej z list, albo która występuje dwa razy, jest błędem.
 ```
