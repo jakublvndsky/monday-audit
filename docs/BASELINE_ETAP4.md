@@ -153,13 +153,13 @@ Dlatego raport porównuje też **tokeny wyjścia na hipotezę** — miarę odpor
 
 ```bash
 # Powtórzenie runu na ZAMROŻONYM snapshocie — po to istnieje D7.
-uv run python -m monday_audit.cli_agent --klient acme --snapshot 6
+uv run python -m monday_audit.stary_panel.cli_agent --klient acme --snapshot 6
 
 # Raport HTML z rozbiciem
-uv run python -m monday_audit.cli_ewaluacja --run <nowy-run-id>
+uv run python -m monday_audit.stary_panel.cli_ewaluacja --run <nowy-run-id>
 
 # Porównanie z baseline
-uv run python -m monday_audit.cli_ewaluacja --run <nowy> --wobec acme-20260811T093330Z-agent
+uv run python -m monday_audit.stary_panel.cli_ewaluacja --run <nowy> --wobec acme-20260811T093330Z-agent
 ```
 
 Koszt jednego powtórzenia: **~7 USD**. Dlatego każdy run kontrolny musi mieć

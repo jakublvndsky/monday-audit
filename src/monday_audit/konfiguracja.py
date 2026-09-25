@@ -34,7 +34,7 @@ from pathlib import Path
 from pydantic import SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from monday_audit.osoby import MIN_DLUGOSC_SOLI, PseudonimizacjaError
+from monday_audit.zbieranie.osoby import MIN_DLUGOSC_SOLI, PseudonimizacjaError
 
 logger = logging.getLogger(__name__)
 

@@ -41,7 +41,11 @@ from typing import Any
 
 import httpx
 
-from monday_audit.analiza import (
+from monday_audit.agent.dowod import KontraktError
+from monday_audit.agent.koszt import Szacunek, historia_analiz, oszacuj, zapisz_zuzycie_analizy
+from monday_audit.agent.narzedzia import Narzedzia
+from monday_audit.agent.sdk import MODEL, hash_promptu
+from monday_audit.agent.sesja import (
     BUDZET_NARZEDZI,
     SCIEZKA_PROMPTU_ANALIZY,
     OdpowiedzBezJsonaError,
@@ -51,34 +55,35 @@ from monday_audit.analiza import (
     zbadaj_konto,
     zbuduj_zadanie,
 )
+from monday_audit.agent.uwagi import WynikUwag, waliduj_uwagi
 from monday_audit.baza import MapowanieOsob, polacz, zastosuj_migracje
-from monday_audit.detektory import uruchom_detektory
-from monday_audit.dowod import KontraktError
-from monday_audit.inwentarz import Inwentarz, zbuduj_inwentarz
-from monday_audit.klient import LimitDziennyError, MondayClient, MondayError
-from monday_audit.konto import LIMITY_DZIENNE, Zakres, ZakresError, rozpoznaj_konto
-from monday_audit.koszt import Szacunek, historia_analiz, oszacuj, zapisz_zuzycie_analizy
-from monday_audit.logi import DOBRANYCH_BEZ_WLASCICIELA, MAKS_BEZ_OKNA, TOP_PO_ITEMACH, Z_OGONA
-from monday_audit.narzedzia import Narzedzia
-from monday_audit.obserwowalnosc import (
-    Wysylka,
-    hasz_obrazu,
-    wyslij_bezpiecznie,
-    zbuduj_trace_analizy,
-)
-from monday_audit.osoby import RODZAJE_AGENTOW, MaPII, zredaguj_pii
-from monday_audit.podglad_zakresu import RejestrPodgladu
-from monday_audit.przebieg import wykonaj_run, zapisz_zuzycie
-from monday_audit.przechowanie import (
+from monday_audit.detekcja.detektory import uruchom_detektory
+from monday_audit.detekcja.rubryka import Rubryka, wczytaj_rubryke
+from monday_audit.obraz.inwentarz import Inwentarz, zbuduj_inwentarz
+from monday_audit.prywatnosc.przechowanie import (
     PrzechowanieError,
     uwaga_do_zapisu,
     zapisz_statystyki,
     zapisz_uwagi,
 )
-from monday_audit.raport_uwag import wyrenderuj_uwagi, zbuduj_raport_uwag
-from monday_audit.rubryka import Rubryka, wczytaj_rubryke
-from monday_audit.sdk import MODEL, hash_promptu
-from monday_audit.uwagi import WynikUwag, waliduj_uwagi
+from monday_audit.raport.uwagi import wyrenderuj_uwagi, zbuduj_raport_uwag
+from monday_audit.tracing.trace import (
+    Wysylka,
+    hasz_obrazu,
+    wyslij_bezpiecznie,
+    zbuduj_trace_analizy,
+)
+from monday_audit.zbieranie.klient import LimitDziennyError, MondayClient, MondayError
+from monday_audit.zbieranie.konto import LIMITY_DZIENNE, Zakres, ZakresError, rozpoznaj_konto
+from monday_audit.zbieranie.logi import (
+    DOBRANYCH_BEZ_WLASCICIELA,
+    MAKS_BEZ_OKNA,
+    TOP_PO_ITEMACH,
+    Z_OGONA,
+)
+from monday_audit.zbieranie.osoby import RODZAJE_AGENTOW, MaPII, zredaguj_pii
+from monday_audit.zbieranie.podglad_zakresu import RejestrPodgladu
+from monday_audit.zbieranie.przebieg import wykonaj_run, zapisz_zuzycie
 
 logger = logging.getLogger(__name__)
 

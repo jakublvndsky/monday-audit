@@ -1,7 +1,7 @@
 // PLIK GENEROWANY — nie edytuj ręcznie.
 //
-// Źródło: dataclassy w `src/monday_audit/pulpit.py`, przez `pulpit.do_json()`.
-// Regeneracja:  uv run python -m monday_audit.generuj_typy
+// Źródło: dataclassy w `src/monday_audit/stary_panel/pulpit.py`, przez `pulpit.do_json()`.
+// Regeneracja:  uv run python -m monday_audit.stary_panel.generuj_typy
 //
 // Ręczne typy rozjechałyby się z Pythonem przy pierwszej zmianie pola, i to
 // cicho — `tsc` nie widzi Pythona. Test `--sprawdz` zatrzymuje CI, gdy ten plik

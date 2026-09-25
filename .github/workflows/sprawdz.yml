@@ -154,7 +154,7 @@ jobs:
       # Musi iść PO buildzie: gdyby `api.ts` był nieaktualny, chcemy zobaczyć
       # najpierw, czy front się w ogóle składa.
       - name: kontrakt api.ts ↔ Python
-        run: uv run --frozen python -m monday_audit.generuj_typy --sprawdz
+        run: uv run --frozen python -m monday_audit.stary_panel.generuj_typy --sprawdz
 
   hooki:
     name: pre-commit (skanery sekretów)

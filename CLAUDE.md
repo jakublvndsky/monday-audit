@@ -94,6 +94,21 @@ nie przypadek.
 
 Skille (`.claude/skills/`) wczytują się same, gdy zadanie do nich pasuje.
 
+## Układ pakietu `src/monday_audit/`
+
+| Pakiet | Co |
+|---|---|
+| `usluga.py`, `konfiguracja.py`, `baza.py` | wejście dla portalu i rdzeń |
+| `zbieranie/` | collector (GraphQL, pseudonimizacja, `agenci_monday` = agenci AI klienta) |
+| `obraz/` | liczby deterministyczne: kafelki, przegląd tablic, rollupy, wejście modelu |
+| `detekcja/` | detektory, rubryka, uwagi z szablonu — bez modelu |
+| `agent/` | nasz agent: sesja, narzędzia tylko do odczytu, `sdk` (granica zapisu), walidacja uwag, koszt |
+| `prywatnosc/` | maskowanie, deanonimizacja, zapis minimalny |
+| `tracing/` | trace'y i wysyłka do Langfuse |
+| `raport/` | raport uwag i szablony |
+| `cli/` | wejścia z linii komend nowej ścieżki |
+| `stary_panel/` | panel z etapów 3–5, do usunięcia z wejściem portalu. **Nowa ścieżka nic stąd nie importuje** — pilnuje `tests/test_granice_pakietow.py` |
+
 ## Zasada, gdy masz wątpliwość
 
 Ten projekt jest budowany funkcja po funkcji, świadomie wolno.

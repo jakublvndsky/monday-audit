@@ -891,7 +891,7 @@ wracał, Mikrus potrzebuje Node 20–22, nie najnowszego.
 
 **Status:** zmierzone 2026-08-04
 **Blokuje:** śledzenie kredytów agentów, `AI_UNUSED`
-**Sonda w kodzie:** `monday_audit.agenci.sonduj_agentow`
+**Sonda w kodzie:** `monday_audit.zbieranie.agenci_monday.sonduj_agentow`
 
 Sprawdzone **zapytaniem**, nie introspekcją — bo introspekcja monday nie jest
 wiarygodnym źródłem prawdy o dostępności pola (O17):
@@ -976,7 +976,7 @@ i lista źródeł: `docs/CENNIK_AI.md`.
 
 **Status:** otwarte, do rozstrzygnięcia PRZED wystawieniem na Marketplace
 **Waga:** średnia teraz, wysoka przy publikacji
-**Dotyczy:** `monday_audit.cli_cennik`
+**Dotyczy:** `monday_audit.cli.cennik`
 
 Stawki publiczne pobiera scraper ze stron monday, bo cennika **nie ma
 w API**: `Plan` odsłania `max_users`, `period`, `tier` i `version`, a jedyne
@@ -1003,7 +1003,7 @@ stawek przez front (`sposob = 'reczna'` jest już w schemacie i obsłużone).
 
 **Status:** otwarte, do rozstrzygnięcia PRZED wystawieniem panelu
 **Waga:** wysoka — dotyczy danych osobowych ludzi klienta
-**Dotyczy:** `monday_audit.pulpit`, decyzja D15
+**Dotyczy:** `monday_audit.stary_panel.pulpit`, decyzja D15
 
 Raport z 3.12 był **plikiem na dysku**: leżał u nas, wysyłaliśmy go świadomie,
 a odbiorca dostawał kopię. Panel to inny profil ryzyka: **dane osobowe klienta

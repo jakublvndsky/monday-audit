@@ -63,30 +63,30 @@ Trzy wejścia, świadomie osobne — bo to trzy różne koszty i trzy różne mo
 
 ```bash
 # 1. Collector: spisuje konto do snapshotu. Kosztuje wywołania klienta.
-uv run python -m monday_audit.cli --klient cxlabs --zakres workspace --id 6576039
+uv run python -m monday_audit.stary_panel.cli --klient cxlabs --zakres workspace --id 6576039
 
 # 2. Agent: bada hipotezy z zamrożonego snapshotu. Kosztuje pieniądze za model.
-uv run python -m monday_audit.cli_agent --klient cxlabs --snapshot 5 \
+uv run python -m monday_audit.stary_panel.cli_agent --klient cxlabs --snapshot 5 \
     --koszt-licencji-mies 100 --zrodlo-stawki "faktura 07/2026"
 
 # 3. Cennik: odświeża stawki ze stron monday. NIGDY w trakcie audytu.
-uv run python -m monday_audit.cli_cennik --odswiez --pokaz
+uv run python -m monday_audit.cli.cennik --odswiez --pokaz
 
 # 4. Raport: dwa dokumenty HTML z zapisanego runu. Darmowe i powtarzalne.
-uv run python -m monday_audit.cli_raport --run-id agent-pelny-19
+uv run python -m monday_audit.stary_panel.cli_raport --run-id agent-pelny-19
 
 # 5. Dashboardy jako pliki HTML: szybki podgląd bez serwera.
-uv run python -m monday_audit.cli_pulpit --json
+uv run python -m monday_audit.stary_panel.cli_pulpit --json
 
 # 6. Aplikacja web: jeden adres, dwa wejścia. Klient sam odpala audyt.
 cd front && npm install && npm run build && cd ..   # raz, po zmianach we froncie
-uv run python -m monday_audit.cli_web --dodaj-klienta acme        # wypisuje hasło
-uv run python -m monday_audit.cli_web --dodaj-osobe jle@cxlabs.digital
-uv run python -m monday_audit.cli_web --serwuj --port 8010
+uv run python -m monday_audit.stary_panel.cli_web --dodaj-klienta acme        # wypisuje hasło
+uv run python -m monday_audit.stary_panel.cli_web --dodaj-osobe jle@cxlabs.digital
+uv run python -m monday_audit.stary_panel.cli_web --serwuj --port 8010
 
 # Zgubione hasło — droga ratunkowa z terminala (codziennie robi się to z panelu)
-uv run python -m monday_audit.cli_web --zresetuj-haslo jle@cxlabs.digital
-uv run python -m monday_audit.cli_web --zresetuj-haslo acme
+uv run python -m monday_audit.stary_panel.cli_web --zresetuj-haslo jle@cxlabs.digital
+uv run python -m monday_audit.stary_panel.cli_web --zresetuj-haslo acme
 ```
 
 Hasło wypisuje się **raz, na konsolę** — w bazie leży tylko hash `scrypt`, więc nie
@@ -101,10 +101,10 @@ nie odbierało starego dostępu. Do wymiany hasła służy `--zresetuj-haslo`.
 
 ```bash
 # Rozbicie kosztu jednego runu jako HTML
-uv run python -m monday_audit.cli_ewaluacja --run acme-20260811T093330Z-agent
+uv run python -m monday_audit.stary_panel.cli_ewaluacja --run acme-20260811T093330Z-agent
 
 # Porównanie eksperymentu z baseline — obok siebie, z różnicą
-uv run python -m monday_audit.cli_ewaluacja --run <nowy> --wobec <baseline>
+uv run python -m monday_audit.stary_panel.cli_ewaluacja --run <nowy> --wobec <baseline>
 ```
 
 Raport pokazuje strukturę kosztu (wejście, wyjście, cache), koszt per klasa

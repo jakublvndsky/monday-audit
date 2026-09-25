@@ -115,7 +115,7 @@ ignore = [
 # W zamian regułę zastępuje test `test_zapytania_sa_parametryzowane`, który
 # sprawdza to, czego S608 sprawdzić nie umie: że w żadnej stałej SQL nie ma
 # wstawionej wartości, tylko nazwane parametry.
-"src/monday_audit/detektory.py" = ["S608"]
+"src/monday_audit/detekcja/detektory.py" = ["S608"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"

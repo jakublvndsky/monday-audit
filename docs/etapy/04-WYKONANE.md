@@ -125,7 +125,7 @@ zamiast findingu.
 wszystkie 7 findingów miało `dowod` **identyczny** z faktami detektora dla
 wszystkich 6 pól rubryki. Model przepisywał JSON i dokładał zdanie.
 
-Szablon w `src/monday_audit/szablony_findingow.py` daje **te same trzy metryki
+Szablon w `src/monday_audit/detekcja/szablony_findingow.py` daje **te same trzy metryki
 (1,000 / 0,000 / 1,000) za 0,00 USD** zamiast 0,357 USD na run.
 
 Rozdzielenie siedzi w `zbadaj_hipotezy`, nie w `zbadaj_hipoteze`: tamta funkcja

@@ -31,7 +31,7 @@ from monday_audit.konfiguracja import (
     sol_z_ustawien,
     wczytaj,
 )
-from monday_audit.osoby import MIN_DLUGOSC_SOLI, PseudonimizacjaError, policz_hash
+from monday_audit.zbieranie.osoby import MIN_DLUGOSC_SOLI, PseudonimizacjaError, policz_hash
 
 SOL = "x" * MIN_DLUGOSC_SOLI
 

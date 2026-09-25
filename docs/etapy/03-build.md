@@ -77,7 +77,7 @@ a wymuszony limit faktycznie przerywa działanie.
 > Dwie zmiany, obie zatwierdzone przez Kubę 2026-07-30 i uzasadnione w O8:
 > brama `is_admin` zamieniona na deklarowany zakres, a z zapytania wypadły
 > `me { name }` i `me { id }` (PII przed pseudonimizacją z 3.4).
-> Kod: `src/monday_audit/konto.py`.
+> Kod: `src/monday_audit/zbieranie/konto.py`.
 
 ```graphql
 query { me { id name is_admin account { id name slug
@@ -249,7 +249,7 @@ a wynik jest powtarzalny (ten sam snapshot → ta sama lista).
 
 **Tylko czytające. Bez wyjątków.**
 
-Wszystkie **własne**, wszystkie w `monday_audit.narzedzia`. Dwa czytają
+Wszystkie **własne**, wszystkie w `monday_audit.agent.narzedzia`. Dwa czytają
 snapshot, dwa wchodzą do monday — i te dwa idą przez ten sam `MondayClient`,
 którego używa collector:
 

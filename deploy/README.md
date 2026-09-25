@@ -407,7 +407,7 @@ procesu: czy baza odpowiada i na której migracji stoi. **Ani słowa o klientach
 
 ```bash
 cd /opt/monday-audit
-sudo -u audyt /usr/local/bin/uv run --frozen --no-dev python -m monday_audit.cli_web \
+sudo -u audyt /usr/local/bin/uv run --frozen --no-dev python -m monday_audit.stary_panel.cli_web \
     --plik-env /etc/monday-audit.env \
     --dodaj-osobe jle@cxlabs.digital
 ```

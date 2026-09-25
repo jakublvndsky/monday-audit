@@ -66,7 +66,7 @@ z MCP `--read-only`" i jej jedyne uzasadnienie okazało się nieprawdziwe.
 **Decyzja:**
 - Collector (faza 1): czysty GraphQL przez `httpx`
 - Agent (faza 2): **te same** `httpx` i `MondayClient`, narzędzia w
-  `monday_audit.narzedzia`. Żadnego MCP, żadnego podprocesu Node.
+  `monday_audit.agent.narzedzia`. Żadnego MCP, żadnego podprocesu Node.
 
 **Powód zmiany — zmierzony, nie estetyczny.** Pierwotne D4 mówiło: „Read-only
 wymuszony na poziomie serwera to mechanizm, nie polityka — model nie ma go jak
@@ -673,7 +673,7 @@ przez osadzenie fontu jest dokładnie tym, co ktoś kiedyś zrobi.
 **Droga do pełnej zgodności:** licencja wprost dopuszcza (§03, §04) font osadzony
 w nieedytowalnym dokumencie „solely for printing and display purposes". Czyli:
 zainstaluj Clash Display lokalnie, otwórz raport, **wydrukuj do PDF**, wyślij PDF.
-Instrukcja w `src/monday_audit/szablony/fonty/README.md`.
+Instrukcja w `src/monday_audit/raport/szablony/fonty/README.md`.
 
 **Co unieważni:** wykupienie licencji webfontowej Avenira i Clash Display albo
 zgoda ITF na piśmie. Wtedy fonty wchodzą do `szablony/fonty/`, a dwa testy

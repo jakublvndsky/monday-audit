@@ -59,15 +59,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from claude_agent_sdk import AssistantMessage, ClaudeSDKClient, ResultMessage, TextBlock
 
-from monday_audit.agent import _inwentarz, _opis_klasy, _opis_wyceny
+from monday_audit.agent.narzedzia import Narzedzia, NarzedziaHipotezy
+from monday_audit.agent.sdk import _tekst_promptu, _zbuduj_narzedzia, _zuzycie, zbuduj_opcje
 from monday_audit.baza import RejestrWywolan, polacz, zastosuj_migracje
-from monday_audit.detektory import Hipoteza, uruchom_detektory
-from monday_audit.klient import MondayClient
+from monday_audit.detekcja.detektory import Hipoteza, uruchom_detektory
+from monday_audit.detekcja.rubryka import Rubryka, wczytaj_rubryke
 from monday_audit.konfiguracja import klucz_anthropic, sol_z_ustawien, wczytaj
-from monday_audit.narzedzia import Narzedzia, NarzedziaHipotezy
-from monday_audit.przebieg import zapisz_zuzycie
-from monday_audit.rubryka import Rubryka, wczytaj_rubryke
-from monday_audit.sdk import _tekst_promptu, _zbuduj_narzedzia, _zuzycie, zbuduj_opcje
+from monday_audit.stary_panel.agent import _inwentarz, _opis_klasy, _opis_wyceny
+from monday_audit.zbieranie.klient import MondayClient
+from monday_audit.zbieranie.przebieg import zapisz_zuzycie
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +96,7 @@ def _zadanie_pierwsze(
     rubryka: Rubryka, hipoteza: Hipoteza, ile: int, stawki: dict[str, Any]
 ) -> str:
     """Pierwsza tura niesie pełną instrukcję kształtu odpowiedzi."""
-    from monday_audit.agent import ZADANIE
+    from monday_audit.stary_panel.agent import ZADANIE
 
     klasa = rubryka.po_id[hipoteza.klasa_id]
     return (
@@ -225,7 +225,7 @@ async def petla(
             finding: dict[str, Any] | None = None
             powod: str | None = None
             try:
-                from monday_audit.sdk import _wyluskaj_json
+                from monday_audit.agent.sdk import _wyluskaj_json
 
                 rozstrzygniecie = _wyluskaj_json(surowy)
                 if rozstrzygniecie.get("rozstrzygniecie") == "odrzucona":

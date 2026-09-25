@@ -93,9 +93,9 @@ Brak — całość w kodzie i konfiguracji w repo.
 ## Jak zweryfikować
 
 1. `uv run pytest -q` → 1133 testy zielone.
-2. `uv run python -m monday_audit.cli_analiza --zakres workspace --id 3554099 --tylko-szacunek`
+2. `uv run python -m monday_audit.cli.analiza --zakres workspace --id 3554099 --tylko-szacunek`
    → szacunek kosztu bez wywołania modelu (~1,6 USD dla Demo - 44).
-3. `uv run python -m monday_audit.cli_analiza --zakres cale_konto --raport <plik>.html`
+3. `uv run python -m monday_audit.cli.analiza --zakres cale_konto --raport <plik>.html`
    → plik z prawami 600; w przeglądarce strona główna z kategoriami,
    kliknięcie kategorii otwiera jej widok, „Wróć do raportu głównego" wraca.
    Poniżej ~720 px układ mobilny. Plik z nazwiskami po przejrzeniu usunąć.

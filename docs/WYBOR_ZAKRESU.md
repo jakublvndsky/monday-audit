@@ -257,8 +257,8 @@ decyzji) weryfikacja wizualna zostaje po stronie człowieka.
 
 | plik | rola |
 |---|---|
-| `src/monday_audit/podglad_zakresu.py` | podgląd przed zbieraniem |
-| `src/monday_audit/wybor_zakresu.py` | flagi, filtr, widełki |
+| `src/monday_audit/zbieranie/podglad_zakresu.py` | podgląd przed zbieraniem |
+| `src/monday_audit/stary_panel/wybor_zakresu.py` | flagi, filtr, widełki |
 | `src/monday_audit/migracje/012_zgoda_na_zakres.sql` | stan `czeka_na_zgode` |
 | `front/src/komponenty/PodgladZakresu.tsx` | kreator: workspace + tablice |
 | `front/src/komponenty/WyborZakresu.tsx` | bramka po zebraniu |

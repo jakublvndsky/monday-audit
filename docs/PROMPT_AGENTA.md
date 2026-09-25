@@ -177,7 +177,7 @@ Rozstrzygnąć empirycznie w etapie 4.
 
 **Reguła 7 to obrona przed prompt injection.** Nie polegaj wyłącznie
 na niej — prompt to warstwa dodatkowa, nie podstawowa. Twardą gwarancją są
-trzy warstwy w `monday_audit.agent`: biała lista narzędzi, jawna czarna lista
+trzy warstwy w `monday_audit.stary_panel.agent`: biała lista narzędzi, jawna czarna lista
 wbudowanych (`Write`, `Edit`, `Bash`) i `can_use_tool`, który odrzuca w procesie
 wszystko poza czterema naszymi narzędziami. Do tego `przygotuj_zapytanie()`
 odrzuca `mutation` i `subscription`, więc ścieżki zapisu do monday nie ma

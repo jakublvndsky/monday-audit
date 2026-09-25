@@ -97,7 +97,7 @@ CacheDirectory=monday-audit
 # być to `/usr/local/bin`, a nie domyślne `~/.local/bin` instalatora, bo usługa
 # startuje jako `audyt`, a instalację robi root. Stąd `UV_INSTALL_DIR` w kroku 1
 # deploy/README.md. Niezgodność daje `status=203/EXEC`.
-ExecStart=/usr/local/bin/uv run --frozen --no-dev python -m monday_audit.cli_web \
+ExecStart=/usr/local/bin/uv run --frozen --no-dev python -m monday_audit.stary_panel.cli_web \
     --serwuj --host 127.0.0.1 --port 8000
 
 # Migracje aplikują się same przy starcie (`cli_web` woła `przygotuj_baze`

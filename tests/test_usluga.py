@@ -13,11 +13,11 @@ from typing import Any
 import pytest
 
 from monday_audit import usluga
-from monday_audit.inwentarz import Inwentarz
-from monday_audit.klient import ZapytanieError
-from monday_audit.konto import Konto, Zakres, ZakresError
-from monday_audit.podglad_zakresu import WorkspaceDoWyboru
+from monday_audit.obraz.inwentarz import Inwentarz
 from monday_audit.usluga import KAFELKI, UslugaError, kafelki_z_inwentarza, przeglad_konta
+from monday_audit.zbieranie.klient import ZapytanieError
+from monday_audit.zbieranie.konto import Konto, Zakres, ZakresError
+from monday_audit.zbieranie.podglad_zakresu import WorkspaceDoWyboru
 
 
 def _inwentarz() -> Inwentarz:
@@ -176,9 +176,9 @@ from pathlib import Path  # noqa: E402
 from types import SimpleNamespace  # noqa: E402
 
 from monday_audit.baza import polacz, zastosuj_migracje  # noqa: E402
-from monday_audit.detektory import Hipoteza  # noqa: E402
-from monday_audit.przebieg import zapisz_snapshot  # noqa: E402
+from monday_audit.detekcja.detektory import Hipoteza  # noqa: E402
 from monday_audit.usluga import AnalizaError, analiza_konta  # noqa: E402
+from monday_audit.zbieranie.przebieg import zapisz_snapshot  # noqa: E402
 
 NAZWISKO = "Zdzisława Wąchockańska"
 PSEUDONIM = "1dcfeabe7fa5d9a7"
@@ -482,7 +482,7 @@ async def test_odpowiedz_bez_jsona_nie_gubi_oplaconej_sesji(
 ) -> None:
     """ZMIERZONE 2026-09-24: po 24 min sesja padła na parsowaniu i nie zostało
     nic — ani tekst, ani koszt. Teraz tekst wraca w pamięci, koszt idzie do bazy."""
-    from monday_audit.analiza import OdpowiedzBezJsonaError
+    from monday_audit.agent.sesja import OdpowiedzBezJsonaError
 
     async def model(*_: Any, **__: Any) -> dict[str, Any]:
         raise OdpowiedzBezJsonaError(

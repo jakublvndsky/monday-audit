@@ -13,7 +13,7 @@ pochodzą z projektu, a nie z żadnego konta.
 
 Ekrany **C** (raport główny) i **D** (raport pogłębiony kategorii), wariant
 „hero” oraz układ mobilny. Implementacja:
-`src/monday_audit/szablony/raport_uwag.html.j2` i `src/monday_audit/raport_uwag.py`.
+`src/monday_audit/raport/szablony/raport_uwag.html.j2` i `src/monday_audit/raport/uwagi.py`.
 
 ## Czego nie wzięliśmy i dlaczego
 

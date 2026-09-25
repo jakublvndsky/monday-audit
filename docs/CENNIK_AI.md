@@ -10,8 +10,8 @@
 > błędem, który podważa cały raport.
 
 ```bash
-uv run python -m monday_audit.cli_cennik --odswiez   # pobierz ze stron monday
-uv run python -m monday_audit.cli_cennik --pokaz     # co obowiązuje i od kiedy
+uv run python -m monday_audit.cli.cennik --odswiez   # pobierz ze stron monday
+uv run python -m monday_audit.cli.cennik --pokaz     # co obowiązuje i od kiedy
 ```
 
 ## Sprostowanie z 2026-08-04

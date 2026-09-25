@@ -264,7 +264,7 @@ Dwa pliki HTML z jednego runu, w `raporty/` (katalog jest w `.gitignore` — po
 deanonimizacji dokument zawiera prawdziwe imiona, e-maile i nazwy tablic).
 
 ```bash
-uv run python -m monday_audit.cli_raport --run-id agent-312-demo
+uv run python -m monday_audit.stary_panel.cli_raport --run-id agent-312-demo
 ```
 
 Osobna komenda, nie doklejona do `cli_agent`: renderowanie jest darmowe i musi
@@ -305,7 +305,7 @@ Trzy statyczne pliki z jednego polecenia, linkowane relatywnie — klika się ja
 aplikacja, a jest zwykłym HTML-em:
 
 ```bash
-uv run python -m monday_audit.cli_pulpit --json
+uv run python -m monday_audit.stary_panel.cli_pulpit --json
 ```
 
 ```
@@ -346,9 +346,9 @@ dalej stoi aplikacja niżej, a te pliki zostają jako szybki podgląd bez serwer
 ## Aplikacja web — jeden adres, dwa wejścia
 
 ```bash
-uv run python -m monday_audit.cli_web --dodaj-klienta acme      # wypisuje hasło
-uv run python -m monday_audit.cli_web --dodaj-osobe jle@cxlabs.digital
-uv run python -m monday_audit.cli_web --serwuj --port 8010
+uv run python -m monday_audit.stary_panel.cli_web --dodaj-klienta acme      # wypisuje hasło
+uv run python -m monday_audit.stary_panel.cli_web --dodaj-osobe jle@cxlabs.digital
+uv run python -m monday_audit.stary_panel.cli_web --serwuj --port 8010
 ```
 
 Realna aplikacja: React 19 + Vite + TypeScript na froncie, FastAPI z tyłu,
@@ -453,8 +453,8 @@ Sprawdzone przez HTTP, nie tylko jednostkowo.
 **Typy frontu są generowane z Pythona:**
 
 ```bash
-uv run python -m monday_audit.generuj_typy            # zapisuje front/src/api.ts
-uv run python -m monday_audit.generuj_typy --sprawdz  # jak `--check` w formatterze
+uv run python -m monday_audit.stary_panel.generuj_typy            # zapisuje front/src/api.ts
+uv run python -m monday_audit.stary_panel.generuj_typy --sprawdz  # jak `--check` w formatterze
 ```
 
 Ręcznie pisane typy po obu stronach rozjechałyby się przy pierwszej zmianie pola
@@ -591,15 +591,15 @@ happy pathie. Poprawione: `przerwij_run` w gałęzi błędu, w obu wejściach,
 
 ```bash
 # 1. Collector — kosztuje wywołania na koncie KLIENTA
-uv run python -m monday_audit.cli --klient cxlabs --zakres workspace --id 6576039
+uv run python -m monday_audit.stary_panel.cli --klient cxlabs --zakres workspace --id 6576039
 
 # 2. Agent — kosztuje pieniądze za model. Tanie próby: --klasy i --limit
-uv run python -m monday_audit.cli_agent --klient cxlabs --snapshot 5 \
+uv run python -m monday_audit.stary_panel.cli_agent --klient cxlabs --snapshot 5 \
     --klasy ZOMBIE_ACCOUNT --limit 1 --koszt-licencji-mies 100 \
     --zrodlo-stawki "faktura 07/2026"
 
 # 3. Cennik — osobno, NIGDY w trakcie audytu
-uv run python -m monday_audit.cli_cennik --odswiez --pokaz
+uv run python -m monday_audit.cli.cennik --odswiez --pokaz
 ```
 
 Wynik runu agenta ląduje w `raporty/agent_<run_id>.txt` — katalog jest
