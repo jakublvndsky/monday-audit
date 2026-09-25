@@ -470,7 +470,8 @@ Claude Design (`docs/design/`). Odbiór: `analiza-20260925T113801Z` na pełnym
 koncie CXLABS — 94 hipotezy do modelu, **59 uwag, 0 odrzuconych walidacją**,
 44 pominięte przez model, 2,16 USD przy szacunku 3,71 USD, 14 min. Przed nim
 tańszy run na jednym workspace (Demo - 44, 1,07 USD) i podgląd na danych
-syntetycznych za 0 USD. Dokumentu w `docs/features/` nie ma.
+syntetycznych za 0 USD. Dokument:
+[`docs/features/2026-09-25_raport-html-kategorie.md`](features/2026-09-25_raport-html-kategorie.md).
 
 Co poszło inaczej, niż zakładał plan:
 
