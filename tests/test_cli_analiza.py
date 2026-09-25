@@ -20,10 +20,10 @@ from typing import Any
 import pytest
 
 from monday_audit import cli_analiza, usluga
-from monday_audit.agent import AgentError
 from monday_audit.baza import polacz, zastosuj_migracje
 from monday_audit.detektory import Hipoteza
 from monday_audit.przebieg import zapisz_snapshot
+from monday_audit.sdk import AgentError
 
 
 class AtrapaSladu:

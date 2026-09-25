@@ -46,15 +46,15 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from monday_audit.agent import AgentError
 from monday_audit.baza import polacz, zastosuj_migracje
-from monday_audit.cli import zbuduj_zakres
+from monday_audit.dowod import KontraktError
 from monday_audit.klient import MondayClient
 from monday_audit.konfiguracja import KonfiguracjaError, klucz_anthropic, sol_z_ustawien, wczytaj
-from monday_audit.kontrakt import KontraktError
+from monday_audit.konto import zbuduj_zakres
 from monday_audit.koszt import porownaj
 from monday_audit.podglad_zakresu import RejestrPodgladu
 from monday_audit.raport_uwag import zapisz_html
+from monday_audit.sdk import AgentError
 from monday_audit.usluga import (
     AnalizaError,
     UslugaError,

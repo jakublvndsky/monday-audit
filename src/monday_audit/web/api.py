@@ -72,6 +72,7 @@ from monday_audit.klient import MondayClient
 from monday_audit.konfiguracja import Ustawienia, UstawieniaPoczty, wczytaj
 from monday_audit.poczta import PocztaError, wyslij_link_resetu
 from monday_audit.podglad_zakresu import (
+    TYP_TABLICY,
     PodgladError,
     RejestrPodgladu,
     podglad_do_json,
@@ -82,7 +83,6 @@ from monday_audit.raport import ODBIORCA_KLIENT, ODBIORCA_WEWNETRZNY, RaportErro
 from monday_audit.rubryka import Rubryka, wczytaj_rubryke
 from monday_audit.web.run import uruchom_analize_w_tle, uruchom_audyt_w_tle
 from monday_audit.wybor_zakresu import (
-    TYP_TABLICY,
     WyborError,
     sprawdz_wybor,
     wczytaj_payload,

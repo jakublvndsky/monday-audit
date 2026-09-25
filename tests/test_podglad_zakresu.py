@@ -23,6 +23,8 @@ from typing import Any
 import pytest
 
 from monday_audit.podglad_zakresu import (
+    FLAGA_NIEUZYWANA,
+    FLAGA_RAPORTOWA,
     LIMIT_PODGLADU,
     MAKS_STRON_PODGLADU,
     PodgladError,
@@ -33,7 +35,6 @@ from monday_audit.podglad_zakresu import (
     podglad_do_json,
     zbuduj_podglad,
 )
-from monday_audit.wybor_zakresu import FLAGA_NIEUZYWANA, FLAGA_RAPORTOWA
 
 ZALOZONA = "2026-01-01T10:00:00Z"
 RUSZONA_PO_TYGODNIU = "2026-01-08T10:00:00Z"

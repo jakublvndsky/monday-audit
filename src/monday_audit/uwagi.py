@@ -39,7 +39,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from monday_audit.kontrakt import (
+from monday_audit.dowod import (
     REGULA_BRAK_POLA,
     REGULA_KLASA_DO_WERYFIKACJI,
     REGULA_KLASA_NIEZNANA,

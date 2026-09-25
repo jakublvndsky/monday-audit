@@ -30,15 +30,12 @@ from monday_audit.raport import (
     ODBIORCA_KLIENT,
     ODBIORCA_WEWNETRZNY,
     RaportError,
-    etykieta,
-    odmiana,
-    slownie,
     wyrenderuj,
     zapisz,
-    zasob_data_uri,
     zbuduj_raport,
 )
 from monday_audit.rubryka import wczytaj_rubryke
+from monday_audit.srodowisko_szablonow import etykieta, odmiana, slownie, zasob_data_uri
 
 RUBRYKA = wczytaj_rubryke()
 RUN_AT = "2026-08-01T21:09:13.860699+00:00"

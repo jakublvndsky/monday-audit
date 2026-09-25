@@ -25,12 +25,14 @@ import pytest
 
 from monday_audit.baza import polacz, zastosuj_migracje
 from monday_audit.detektory import Hipoteza
-from monday_audit.rubryka import wczytaj_rubryke
-from monday_audit.wybor_zakresu import (
+from monday_audit.podglad_zakresu import (
     FLAGA_CISZA,
     FLAGA_NIEPROBKOWANA,
     FLAGA_NIEUZYWANA,
     FLAGA_RAPORTOWA,
+)
+from monday_audit.rubryka import wczytaj_rubryke
+from monday_audit.wybor_zakresu import (
     POWOD_POZA_ZAKRESEM,
     WyborError,
     identyfikatory_tablic,

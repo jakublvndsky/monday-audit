@@ -26,7 +26,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from monday_audit.agent import MODEL, hash_promptu, zapisz_do_pliku, zbadaj_hipotezy
+from monday_audit.agent import zapisz_do_pliku, zbadaj_hipotezy
 from monday_audit.baza import RejestrWywolan, polacz, zastosuj_migracje
 from monday_audit.cennik import Stawka, stawki_dla, wersja_uzytych, zapisz_stawke_klienta
 from monday_audit.detektory import Hipoteza, uruchom_detektory
@@ -41,6 +41,7 @@ from monday_audit.kontrakt import (
 from monday_audit.narzedzia import Narzedzia
 from monday_audit.przebieg import przerwij_run, zapisz_zuzycie
 from monday_audit.rubryka import Rubryka, wczytaj_rubryke
+from monday_audit.sdk import MODEL, hash_promptu
 from monday_audit.wysylka_langfuse import wysylka_z_ustawien
 
 logger = logging.getLogger(__name__)

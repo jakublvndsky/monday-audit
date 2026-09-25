@@ -300,3 +300,16 @@ async def rozpoznaj_konto(
         len(konto.zastrzezenia),
     )
     return konto
+
+
+def zbuduj_zakres(nazwa: str, identyfikatory: list[str]) -> Zakres:
+    """Zamienia argumenty na deklarację zakresu. Błąd, nie domysł."""
+    if nazwa == "cale_konto":
+        if identyfikatory:
+            raise SystemExit("--zakres cale_konto nie przyjmuje --id")
+        return Zakres.cale_konto()
+    if not identyfikatory:
+        raise SystemExit(f"--zakres {nazwa} wymaga co najmniej jednego --id")
+    if nazwa == "workspace":
+        return Zakres.workspace(*identyfikatory)
+    return Zakres.tablice(*identyfikatory)

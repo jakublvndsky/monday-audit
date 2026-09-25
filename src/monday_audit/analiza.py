@@ -38,7 +38,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from monday_audit.agent import (
+from monday_audit.detektory import Hipoteza
+from monday_audit.narzedzia import Narzedzia
+from monday_audit.rubryka import Rubryka, wczytaj_rubryke
+from monday_audit.sdk import (
     MODEL,
     AgentError,
     _tekst_promptu,
@@ -46,9 +49,6 @@ from monday_audit.agent import (
     _zuzycie,
     zbuduj_opcje,
 )
-from monday_audit.detektory import Hipoteza
-from monday_audit.narzedzia import Narzedzia
-from monday_audit.rubryka import Rubryka, wczytaj_rubryke
 from monday_audit.szablony_findingow import z_szablonu
 from monday_audit.uwagi import POLA_UWAGI
 
@@ -395,7 +395,7 @@ async def zbadaj_konto(
         ToolUseBlock,
     )
 
-    from monday_audit.agent import _zbuduj_narzedzia
+    from monday_audit.sdk import _zbuduj_narzedzia
 
     if not hipotezy:
         raise AgentError("brak hipotez — nie ma czego analizować")

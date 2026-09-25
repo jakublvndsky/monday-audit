@@ -101,7 +101,7 @@ def test_pusta_lista_zastrzezen_nie_wywraca_zadania() -> None:
 def test_prompt_analizy_istnieje_i_ma_blok() -> None:
     """Prompt jest runtime'em, nie dokumentacją — brak bloku to błąd wdrożenia,
     a nie literówka w pliku markdown."""
-    from monday_audit.agent import _tekst_promptu
+    from monday_audit.sdk import _tekst_promptu
 
     tresc = _tekst_promptu(SCIEZKA_PROMPTU_ANALIZY)
 
@@ -113,7 +113,7 @@ def test_prompt_zabrania_wyceny_i_stopniowania() -> None:
     """Dwie rzeczy, które wypadły z zakresu decyzją Kuby. Gdyby prompt o nich
     milczał, model dopisałby wagi i kwoty z własnej inicjatywy — robi tak,
     bo tak wygląda większość audytów, które widział."""
-    from monday_audit.agent import _tekst_promptu
+    from monday_audit.sdk import _tekst_promptu
 
     tresc = _tekst_promptu(SCIEZKA_PROMPTU_ANALIZY)
 
@@ -122,7 +122,7 @@ def test_prompt_zabrania_wyceny_i_stopniowania() -> None:
 
 
 def test_prompt_wymaga_dowodu() -> None:
-    from monday_audit.agent import _tekst_promptu
+    from monday_audit.sdk import _tekst_promptu
 
     assert "DOWÓD" in _tekst_promptu(SCIEZKA_PROMPTU_ANALIZY)
 
@@ -132,8 +132,8 @@ def test_prompt_wymaga_dowodu() -> None:
 
 def test_budzet_jest_na_sesje_a_nie_na_hipoteze() -> None:
     """Sedno 5b-2: budżety z rubryki zastępuje JEDEN sufit na cały run."""
-    from monday_audit.agent import MAKS_OBROTOW
     from monday_audit.analiza import BUDZET_NARZEDZI, MAKS_OBROTOW_ANALIZY
+    from monday_audit.sdk import MAKS_OBROTOW
 
     assert BUDZET_NARZEDZI > 0
     # Więcej obrotów niż w sesji per hipoteza — jest do rozstrzygnięcia
@@ -142,8 +142,8 @@ def test_budzet_jest_na_sesje_a_nie_na_hipoteze() -> None:
 
 
 async def test_brak_hipotez_przerywa_zamiast_placic_za_pusta_sesje() -> None:
-    from monday_audit.agent import AgentError
     from monday_audit.analiza import zbadaj_konto
+    from monday_audit.sdk import AgentError
 
     with pytest.raises(AgentError, match="brak hipotez"):
         await zbadaj_konto([], zestaw=None, wejscie={}, klucz_api="")  # type: ignore[arg-type]
@@ -221,7 +221,7 @@ def test_zadanie_podaje_wymagane_pola_dowodu() -> None:
 def test_prompt_mowi_ze_false_jest_faktem() -> None:
     """Druga lekcja z tego samego runu: model traktował `false` jak „nie ma
     o czym mówić" i pomijał pole. Prompt musi to powiedzieć wprost."""
-    from monday_audit.agent import _tekst_promptu
+    from monday_audit.sdk import _tekst_promptu
 
     tresc = _tekst_promptu(SCIEZKA_PROMPTU_ANALIZY)
 
@@ -319,7 +319,7 @@ def test_definicje_nie_niosa_metadanej_oceniajacej() -> None:
 
 
 def test_prompt_kaze_czytac_definicje_a_nie_nazwe() -> None:
-    from monday_audit.agent import _tekst_promptu
+    from monday_audit.sdk import _tekst_promptu
 
     tresc = _tekst_promptu(SCIEZKA_PROMPTU_ANALIZY)
 
@@ -398,8 +398,8 @@ def test_krotka_odpowiedz_nadal_z_ostatniego_bloku() -> None:
 
 
 def test_brak_jsona_to_blad_a_nie_cisza() -> None:
-    from monday_audit.agent import AgentError
     from monday_audit.analiza import odpowiedz_z_blokow
+    from monday_audit.sdk import AgentError
 
     with pytest.raises(AgentError):
         odpowiedz_z_blokow(["nie mam odpowiedzi"])

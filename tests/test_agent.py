@@ -17,7 +17,8 @@ from typing import Any, cast
 
 import pytest
 
-from monday_audit.agent import (
+from monday_audit.agent import _inwentarz
+from monday_audit.sdk import (
     MAKS_OBROTOW,
     MODEL,
     NASZE_NARZEDZIA,
@@ -26,7 +27,6 @@ from monday_audit.agent import (
     AgentError,
     _blad_api,
     _brama_narzedzi,
-    _inwentarz,
     _tekst_promptu,
     _wyluskaj_json,
     hash_promptu,
@@ -68,7 +68,7 @@ def test_brama_jest_podlaczona_jako_hook_a_nie_callback() -> None:
     Ten test patrzy na WIRING: hook musi być w opcjach, a `can_use_tool` nie
     ma prawa tam wrócić.
     """
-    from monday_audit import agent as modul
+    from monday_audit import sdk as modul
 
     zrodlo = Path(modul.__file__).read_text(encoding="utf-8")
 
@@ -381,7 +381,7 @@ async def test_narzedzie_zapisuje_argumenty_wynik_i_blad() -> None:
     """Trace pokazywał same nazwy. Opakowanie zapisuje to, co widział model."""
     from types import SimpleNamespace
 
-    from monday_audit.agent import wykonaj_narzedzie
+    from monday_audit.sdk import wykonaj_narzedzie
 
     zestaw = cast(Any, SimpleNamespace(przebieg=[]))
     wynik = SimpleNamespace(do_modelu=lambda: {"liczba": 3})

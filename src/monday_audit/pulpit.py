@@ -46,18 +46,16 @@ from typing import Any
 from monday_audit.deanonimizacja import Deanonimizacja
 from monday_audit.osoby import RODZAJE_AGENTOW
 from monday_audit.raport import (
-    KATALOG_SZABLONOW,
     ODBIORCA_KLIENT,
     ODBIORCA_WEWNETRZNY,
     ODBIORCY,
     Finding,
     Raport,
     RaportError,
-    srodowisko,
-    zasob_data_uri,
     zbuduj_raport,
 )
 from monday_audit.rubryka import Rubryka
+from monday_audit.srodowisko_szablonow import KATALOG_SZABLONOW, srodowisko, zasob_data_uri
 
 logger = logging.getLogger(__name__)
 

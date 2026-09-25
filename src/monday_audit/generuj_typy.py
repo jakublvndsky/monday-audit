@@ -44,12 +44,7 @@ from monday_audit.pulpit import (
     UdzialWTablicy,
 )
 from monday_audit.raport import Finding
-from monday_audit.wybor_zakresu import (
-    PozycjaTablicy,
-    PozycjaWorkspace,
-    Widelki,
-    WyborZakresu,
-)
+from monday_audit.wybor_zakresu import PozycjaTablicy, PozycjaWorkspace, Widelki, WyborZakresu
 
 logger = logging.getLogger(__name__)
 

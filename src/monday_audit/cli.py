@@ -24,7 +24,7 @@ from pathlib import Path
 from monday_audit.baza import polacz, zastosuj_migracje
 from monday_audit.klient import WERSJA_API
 from monday_audit.konfiguracja import Ustawienia, sol_z_ustawien, wczytaj
-from monday_audit.konto import Zakres
+from monday_audit.konto import zbuduj_zakres
 from monday_audit.logi import MAKS_STRON_LOGOW, TOP_PO_ITEMACH, Z_OGONA
 from monday_audit.postep import LicznikKonsolowy
 from monday_audit.przebieg import BUDZET_STARTOWY, RaportRunu, wykonaj_run
@@ -102,19 +102,6 @@ def zbuduj_parser() -> argparse.ArgumentParser:
         help=f"nie zapisuj JSON-a do {KATALOG_EKSPORTU}/ (i tak jest w bazie)",
     )
     return parser
-
-
-def zbuduj_zakres(nazwa: str, identyfikatory: list[str]) -> Zakres:
-    """Zamienia argumenty na deklarację zakresu. Błąd, nie domysł."""
-    if nazwa == "cale_konto":
-        if identyfikatory:
-            raise SystemExit("--zakres cale_konto nie przyjmuje --id")
-        return Zakres.cale_konto()
-    if not identyfikatory:
-        raise SystemExit(f"--zakres {nazwa} wymaga co najmniej jednego --id")
-    if nazwa == "workspace":
-        return Zakres.workspace(*identyfikatory)
-    return Zakres.tablice(*identyfikatory)
 
 
 def eksportuj(raport: RaportRunu, *, baza: Path, katalog: Path = KATALOG_EKSPORTU) -> Path:

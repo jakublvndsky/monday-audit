@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from monday_audit.kontrakt import KontraktError
+from monday_audit.dowod import KontraktError
 from monday_audit.rubryka import wczytaj_rubryke
 from monday_audit.uwagi import POLA_UWAGI, waliduj_uwagi
 

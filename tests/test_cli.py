@@ -19,8 +19,9 @@ from pathlib import Path
 import pytest
 
 from monday_audit.baza import polacz, zastosuj_migracje
-from monday_audit.cli import eksportuj, ustal_baze, zbuduj_parser, zbuduj_zakres
+from monday_audit.cli import eksportuj, ustal_baze, zbuduj_parser
 from monday_audit.konfiguracja import Ustawienia
+from monday_audit.konto import zbuduj_zakres
 from monday_audit.logi import MAKS_STRON_LOGOW, TOP_PO_ITEMACH, Z_OGONA
 from monday_audit.przebieg import RaportRunu, zapisz_snapshot
 

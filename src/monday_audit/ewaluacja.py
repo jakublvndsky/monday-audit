@@ -39,8 +39,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from monday_audit.raport import KATALOG_SZABLONOW, LOGO, srodowisko, zasob_data_uri
+from monday_audit.raport import LOGO
 from monday_audit.rubryka import Rubryka
+from monday_audit.srodowisko_szablonow import KATALOG_SZABLONOW, srodowisko, zasob_data_uri
 
 logger = logging.getLogger(__name__)
 

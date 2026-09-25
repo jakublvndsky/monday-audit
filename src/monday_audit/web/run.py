@@ -37,10 +37,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from monday_audit.agent import MODEL, hash_promptu, zbadaj_hipotezy
+from monday_audit.agent import zbadaj_hipotezy
 from monday_audit.baza import RejestrWywolan, polacz
 from monday_audit.cennik import stawki_dla, wersja_uzytych
-from monday_audit.cli import zbuduj_zakres
 from monday_audit.detektory import uruchom_detektory
 from monday_audit.klient import MondayClient
 from monday_audit.konfiguracja import (
@@ -49,6 +48,7 @@ from monday_audit.konfiguracja import (
     sol_z_ustawien,
     wczytaj,
 )
+from monday_audit.konto import zbuduj_zakres
 from monday_audit.kontrakt import (
     waliduj,
     zapisz_findingi,
@@ -58,6 +58,7 @@ from monday_audit.kontrakt import (
 from monday_audit.narzedzia import Narzedzia
 from monday_audit.przebieg import wykonaj_run, zapisz_zuzycie
 from monday_audit.rubryka import wczytaj_rubryke
+from monday_audit.sdk import MODEL, hash_promptu
 from monday_audit.wybor_zakresu import (
     identyfikatory_tablic,
     klasy_milczace,

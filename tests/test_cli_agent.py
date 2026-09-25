@@ -11,8 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from monday_audit.agent import MODEL
 from monday_audit.cli_agent import zbuduj_parser
+from monday_audit.sdk import MODEL
 
 
 def test_snapshot_i_klient_sa_wymagane() -> None:

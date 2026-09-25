@@ -62,47 +62,20 @@ from datetime import datetime
 from typing import Any
 
 from monday_audit.detektory import Hipoteza
+from monday_audit.podglad_zakresu import (
+    FLAGA_CISZA,
+    FLAGA_NIEPROBKOWANA,
+    FLAGA_NIEUZYWANA,
+    FLAGA_RAPORTOWA,
+    PROG_RAPORTOWEJ,
+    SEKUND_NIERUSZONEJ,
+    TYP_TABLICY,
+    TYPY_AUTOMATYCZNE,
+)
 from monday_audit.rubryka import Rubryka
 
 logger = logging.getLogger(__name__)
 
-
-# Tylko `board` trafia na listę wyboru. ZMIERZONE na #7: ze 124 obiektów
-# w `tablice.tablice` prawdziwymi tablicami jest 59 — reszta to 41
-# `sub_items_board`, 22 `custom_object` i 2 `document`. Ekran ze 124
-# wierszami byłby ekranem z 65 pozycjami, których klient nie zakłada
-# ani nie wybiera. Ten sam filtr stosuje `_PARY_TABLIC` w `detektory.py`.
-TYP_TABLICY = "board"
-
-# Kolumny wyliczane przez monday, nie wypełniane przez człowieka. Wysoki
-# udział znaczy „tablica raportowa" — czyta z innych, nie prowadzi procesu.
-# Zastępnik nieosiągalnej flagi o pustych kolumnach (patrz docstring modułu).
-TYPY_AUTOMATYCZNE = frozenset(
-    {
-        "formula",
-        "mirror",
-        "lookup",
-        "dependency",
-        "progress",
-        "auto_number",
-        "creation_log",
-        "last_updated",
-        "item_id",
-    }
-)
-
-# Od tego udziału kolumn automatycznych tablica dostaje flagę `raportowa`.
-PROG_RAPORTOWEJ = 0.5
-
-# Poniżej tej różnicy `updated_at - created_at` tablica nie została ruszona
-# po założeniu. Ta sama stała i to samo znaczenie co `SEKUND_NIERUSZONEJ`
-# w `detektory.py`, gdzie filtruje `BOARD_GHOST` przed hipotezą.
-SEKUND_NIERUSZONEJ = 86_400
-
-FLAGA_NIEUZYWANA = "nieuzywana_od_startu"
-FLAGA_CISZA = "cisza_90_dni"
-FLAGA_RAPORTOWA = "raportowa"
-FLAGA_NIEPROBKOWANA = "nieprobkowana"
 
 # Rozdzielnik pary w `obiekt_id` klas porównujących tablice parami
 # (`DUPLICATE_STRUCTURE`, `PROCESS_BYPASS`). ZMIERZONE na #7:

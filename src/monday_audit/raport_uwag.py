@@ -39,8 +39,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from monday_audit.deanonimizacja import Deanonimizacja
-from monday_audit.raport import KATALOG_SZABLONOW, srodowisko, zasob_data_uri
 from monday_audit.rubryka import PoleDowodu, Rubryka
+from monday_audit.srodowisko_szablonow import KATALOG_SZABLONOW, srodowisko, zasob_data_uri
 
 if TYPE_CHECKING:
     from monday_audit.analiza import PozaSufitem

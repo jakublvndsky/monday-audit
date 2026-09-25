@@ -555,7 +555,7 @@ def test_run_z_panelu_pinuje_model_i_prompt(
     literał w teście zamieniłby jedno źródło prawdy na dwa, czyli powtórzyłby
     błąd, który ten test ma wyłapywać.
     """
-    from monday_audit.agent import MODEL, hash_promptu
+    from monday_audit.sdk import MODEL, hash_promptu
     from monday_audit.web import run as modul_run
 
     async def atrapa_agenta(hipotezy: Any, **kwargs: Any) -> dict[str, Any]:

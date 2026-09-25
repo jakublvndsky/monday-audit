@@ -21,7 +21,7 @@ import pytest
 
 from monday_audit.baza import polacz, zastosuj_migracje
 from monday_audit.cennik import Stawka
-from monday_audit.kontrakt import (
+from monday_audit.dowod import (
     REGULA_BRAK_POLA,
     REGULA_DOWOD_NIEPELNY,
     REGULA_DOWOD_PUSTY,
@@ -34,6 +34,8 @@ from monday_audit.kontrakt import (
     REGULA_SLOWNIK,
     KontraktError,
     _cisza_jest_dowodem,
+)
+from monday_audit.kontrakt import (
     waliduj,
     zapisz_findingi,
     zapisz_hipotezy_odrzucone,
@@ -677,7 +679,7 @@ def _dowod_gosci(tablice_dostepne: Any) -> dict[str, Any]:
 
 
 def test_guest_sprawl_przechodzi_z_jawnym_nie_zmierzone() -> None:
-    from monday_audit.kontrakt import sprawdz_dowod
+    from monday_audit.dowod import sprawdz_dowod
 
     klasa = RUBRYKA.po_id["GUEST_SPRAWL"]
 
@@ -693,14 +695,14 @@ def test_guest_sprawl_przechodzi_z_jawnym_nie_zmierzone() -> None:
     ],
 )
 def test_opis_braku_danych_dalej_nie_jest_dana(wartosc: Any) -> None:
-    from monday_audit.kontrakt import sprawdz_dowod
+    from monday_audit.dowod import sprawdz_dowod
 
     assert sprawdz_dowod(_dowod_gosci(wartosc), RUBRYKA.po_id["GUEST_SPRAWL"]) is not None
 
 
 def test_znacznik_poza_zamknieta_lista_nie_przechodzi() -> None:
     """Znacznik dopuszczony wszędzie pozwoliłby modelowi obejść każde pole listowe."""
-    from monday_audit.kontrakt import sprawdz_dowod
+    from monday_audit.dowod import sprawdz_dowod
 
     klasa = RUBRYKA.po_id["DUPLICATE_STRUCTURE"]
     dowod: dict[str, Any] = {pole.rstrip("[]"): 0.9 for pole in klasa.dowod}
@@ -712,7 +714,7 @@ def test_znacznik_poza_zamknieta_lista_nie_przechodzi() -> None:
 def test_board_ghost_wymaga_licznika_ciszy() -> None:
     """ZMIERZONE 2026-09-24: 16 z 16 uwag odrzuconych za puste pola rozkładu,
     bo model nie przepisał `wpisow_w_oknie` — rubryka go nie wymagała."""
-    from monday_audit.kontrakt import sprawdz_dowod
+    from monday_audit.dowod import sprawdz_dowod
 
     klasa = RUBRYKA.po_id["BOARD_GHOST"]
     cisza: dict[str, Any] = {
