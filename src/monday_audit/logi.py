@@ -82,6 +82,13 @@ Z_OGONA = 40
 # odrzucił 20 z 20 za brak `top_kontrybutor_hash`. 20 = sufit na klasę przed
 # modelem (`analiza.SUFIT_NA_KLASE`), więc więcej i tak nie trafi do sesji.
 DOBRANYCH_BEZ_WLASCICIELA = 20
+# Log BEZ okna dla tablic bez aktywnego właściciela — osobny, wyższy limit
+# (2026-09-25, decyzja Kuby). Przy limicie 20 collector odpytywał 20 największych
+# tablic, a sufit przed modelem wybierał 20 inaczej (najpierw z kandydatem):
+# na pełnym CXLABS 11 z 20 hipotez trafiło na tablice, których nikt nie odpytał.
+# Odpytanie WSZYSTKICH (tu: 65) daje sufitowi 20 z kandydatem. 100 trzyma koszt
+# w miejscu na koncie z tysiącem takich tablic.
+MAKS_BEZ_OKNA = 100
 LIMIT_WPISOW = 100
 MAKS_STRON_LOGOW = 10
 
@@ -676,7 +683,7 @@ async def zbierz_logi(
         kolejka = sorted(
             (t for t in tablice if t.board_id in chciane),
             key=lambda t: (-(t.items_count or 0), t.board_id),
-        )[:DOBRANYCH_BEZ_WLASCICIELA]
+        )[:MAKS_BEZ_OKNA]
         for tablica in kolejka:
             logi, _, _ = await _pobierz_logi(
                 klient, tablica.board_id, limit=limit_wpisow, od=None, do=None, maks_stron=1

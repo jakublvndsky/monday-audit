@@ -770,3 +770,22 @@ async def test_tablica_bez_wlasciciela_dostaje_log_bez_okna(zbuduj: Any) -> None
     assert sum(1 for z in zapytania if z["od"] is None) == 1, "jedna strona, jedna tablica"
     assert wynik.sygnaly[0].wpisow == 0, "okno analizy dalej liczy tylko okno"
     assert "autorzy_bez_okna" in wynik.do_snapshotu()
+
+
+async def test_log_bez_okna_obejmuje_wiecej_tablic_niz_probka(zbuduj: Any) -> None:
+    """2026-09-25: limit bez okna jest osobny od limitu próbki (20). Przy wspólnym
+    sufit przed modelem wybierał tablice, których collector nie odpytał."""
+    from monday_audit.logi import DOBRANYCH_BEZ_WLASCICIELA, MAKS_BEZ_OKNA
+
+    tablice = [tablica(str(n), items_count=n) for n in range(30)]
+
+    wynik = await zbierz_logi(
+        zbuduj(odpowiedz({})),
+        tablice,
+        client_id=KLIENT,
+        sol=SOL,
+        dobrane=[t.board_id for t in tablice],
+    )
+
+    assert DOBRANYCH_BEZ_WLASCICIELA < 30 <= MAKS_BEZ_OKNA
+    assert len(wynik.autorzy_bez_okna) == 30

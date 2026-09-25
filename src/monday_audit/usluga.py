@@ -59,7 +59,7 @@ from monday_audit.klient import LimitDziennyError, MondayClient, MondayError
 from monday_audit.konto import LIMITY_DZIENNE, Zakres, ZakresError, rozpoznaj_konto
 from monday_audit.kontrakt import KontraktError
 from monday_audit.koszt import Szacunek, historia_analiz, oszacuj, zapisz_zuzycie_analizy
-from monday_audit.logi import DOBRANYCH_BEZ_WLASCICIELA, TOP_PO_ITEMACH, Z_OGONA
+from monday_audit.logi import DOBRANYCH_BEZ_WLASCICIELA, MAKS_BEZ_OKNA, TOP_PO_ITEMACH, Z_OGONA
 from monday_audit.narzedzia import Narzedzia
 from monday_audit.obserwowalnosc import (
     Wysylka,
@@ -248,6 +248,7 @@ STRON_LOGOW_TYPOWO = 1.5
 STALE_WYWOLANIA = 1 + 4 + 5  # konto + statystyki automatyzacji + sonda agentów
 SOND_TABLIC = 10  # `automatyzacje.MAKS_SOND`
 MAKS_PRZEBIEGOW_WYWOLAN = 60  # `automatyzacje.MAKS_PRZEBIEGOW` × 2
+BEZ_OKNA_TYPOWO = 65  # tablic bez aktywnego właściciela na pełnym CXLABS, 2026-09-25
 NARZEDZI_TYPOWO = 30  # wywołania narzędzi na żywo w sesji — zmierzone 2026-09-24
 # Przerwanie przy połowie dziennego limitu konta klienta (skill monday-graphql).
 PROG_LIMITU = 0.5
@@ -326,9 +327,11 @@ def szacuj_analize(
         stale + round(probka * STRON_LOGOW_TYPOWO) + MAKS_PRZEBIEGOW_WYWOLAN // 2 + NARZEDZI_TYPOWO
     )
     maks = stale + probka * MAKS_STRON_LOGOW + MAKS_PRZEBIEGOW_WYWOLAN + BUDZET_NARZEDZI
-    # Log bez okna dla tablic bez właściciela: jedna strona na tablicę, do sufitu.
-    typowo += DOBRANYCH_BEZ_WLASCICIELA
-    maks += DOBRANYCH_BEZ_WLASCICIELA
+    # Log bez okna dla tablic bez właściciela: jedna strona na tablicę, do
+    # `MAKS_BEZ_OKNA`. Ile ich jest, krok 1 nie wie — typowo liczba z pełnego
+    # CXLABS (65), maks = limit.
+    typowo += min(aktywnych, BEZ_OKNA_TYPOWO)
+    maks += min(aktywnych, MAKS_BEZ_OKNA)
 
     historia = historia_analiz(trwala) if trwala is not None else None
     usd_od = oszacuj(1, historia).koszt_usd
