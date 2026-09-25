@@ -299,12 +299,17 @@ na nich napisał.
     Serwer stał wtedy na 12 migracjach. Od 2026-09-25 produkcja stoi na
     `main` (`296a195`, migracja 14) — wdrożenie samego kodu faz 6–7, panel bez
     zmian i nadal z wstrzymanymi audytami.
-  - [ ] dane na serwerze i w `/var/backups` — **zostają na razie, „w razie w"**
-    (decyzja Kuby 2026-09-23). Nowe nie dochodzą, bo audyty z panelu są
-    wstrzymane i wdrożone (`decb5ea`); kopie dzienne dalej rotują co 14 dni,
-    ale kopiują tę samą, już niezmienianą zawartość. Sprzątanie tylko na
-    wyraźną decyzję — do rozstrzygnięcia: metadane runów zostają czy nie,
-  - [ ] stara ścieżka na serwerze dalej zapisuje snapshoty,
+  - [x] **kopie w `/var/backups/monday-audit` usunięte** (decyzja Kuby
+    2026-09-25): 14 dziennych kopii bazy, tylko nasz katalog — kopie systemu
+    nietknięte. Cron kopii w crontabie `audyt` **wyłączony** (zakomentowany,
+    do przywrócenia). Pod dostępy powstanie nowa baza; logowanie później.
+  - [ ] **żywa baza na serwerze** (3 snapshoty, 101 wierszy mapowania, 47
+    findingów, konta panelu) — zostaje do decyzji; usunięcie tylko na wyraźne
+    polecenie.
+  - [ ] stara ścieżka (dziś `src/monday_audit/stary_panel/`) — nowych danych nie
+    zapisuje, bo audyty z panelu są wstrzymane, ale kod zapisu istnieje. Stary
+    panel docelowo zastąpi portal (decyzja Kuby 2026-09-25) i wtedy idzie do
+    usunięcia w całości.
   - [x] D7 w `docs/ARCHITEKTURA.md` — sekcja „Faza 5c: snapshot przestaje być
     trwały w nowej ścieżce".
 
