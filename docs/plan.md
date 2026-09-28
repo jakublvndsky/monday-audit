@@ -508,6 +508,26 @@ na nich napisał.
   - Poza zakresem: raport zamaskowany z historii, PDF, portal, nowe klasy
     (Workspace i Agenci nadal „jeszcze nie mierzone").
 
+- [ ] **9. Workspace jako mierzona kategoria** — w raporcie Workspace przestaje
+  być „jeszcze nie mierzone". Kuba 2026-09-28: wytycznych do tej kategorii nie
+  ma, więc klasy wynikają z pomiaru pięciu kandydatów na pełnym CXLABS.
+  - [x] **9-1** — pomiar (0 USD modelu, 137 + 33 wywołań): martwy workspace,
+    rozdrobnienie, niezgodność produktu, nazwa demo/test, otwarty workspace
+    (`kind`/`state` — API oddaje, sprawdzone). **Decyzja Kuby:** klasy
+    martwy workspace (180 dni) i rozdrobnienie (≥ 20% workspace'ów z 0–2
+    tablicami, jedna uwaga o koncie); nazwa demo/test jako fakt pod warunek
+    odrzucenia; niezgodność produktu i otwarty workspace — do omówienia.
+    Cisza z LOGÓW, nie z `updated_at`: z 46 kandydatów po `updated_at` logi
+    potwierdziły 44 (O18).
+  - [x] **9-2** — collector `zbieranie/workspace.py` (lista z rodzajem, stanem
+    i produktem; ostatni wpis logu każdej aktywnej tablicy, 50 na wywołanie),
+    detektory `WORKSPACE_DEAD` i `WORKSPACE_SPRAWL`, rubryka 0.11. Na pełnym
+    CXLABS (`--tylko-szacunek`): WORKSPACE_DEAD 73 (do modelu 20),
+    WORKSPACE_SPRAWL 1; hipotez 400 → 474, do modelu 95 → 116.
+  - [ ] **9-3** — run odbiorczy na pełnym koncie (po osobnym „tak"): czy
+    uwagi o workspace'ach są trafne, czy demo i testy idą do pominiętych.
+  - Do omówienia po fazie: niezgodność produktu, otwarty workspace.
+
 ## Dziennik
 
 <!-- Uzupełniany przy zamykaniu faz: data, faza, link do dokumentu

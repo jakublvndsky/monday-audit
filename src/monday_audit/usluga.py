@@ -84,6 +84,7 @@ from monday_audit.zbieranie.logi import (
 from monday_audit.zbieranie.osoby import RODZAJE_AGENTOW, MaPII, zredaguj_pii
 from monday_audit.zbieranie.podglad_zakresu import RejestrPodgladu
 from monday_audit.zbieranie.przebieg import wykonaj_run, zapisz_zuzycie
+from monday_audit.zbieranie.workspace import LIMIT_WORKSPACE, TABLIC_NA_ZAPYTANIE
 
 logger = logging.getLogger(__name__)
 
@@ -337,6 +338,12 @@ def szacuj_analize(
     # CXLABS (65), maks = limit.
     typowo += min(aktywnych, BEZ_OKNA_TYPOWO)
     maks += min(aktywnych, MAKS_BEZ_OKNA)
+    # Faza 9: lista workspace'ów (1 na 100) i ostatni wpis logu każdej aktywnej
+    # tablicy (1 na 50). Liczba workspace'ów jest w kafelku — tu przybliżamy ją
+    # jedną stroną na każde 100 tablic, bo wynik i tak jest rzędu jednostek.
+    ostatnich_wpisow = -(-max(aktywnych, 1) // TABLIC_NA_ZAPYTANIE) + 1
+    typowo += ostatnich_wpisow
+    maks += ostatnich_wpisow + -(-max(obiektow, 1) // LIMIT_WORKSPACE)
 
     historia = historia_analiz(trwala) if trwala is not None else None
     usd_od = oszacuj(1, historia).koszt_usd

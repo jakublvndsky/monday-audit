@@ -107,6 +107,15 @@ def api(
                     },
                 }
             }
+        elif "workspaces (" in gql:
+            dane = {
+                "workspaces": [
+                    {"id": "6576039", "name": "monday AI Agents", "kind": "open",
+                     "state": "active", "account_product": {"kind": "core"}},
+                ]
+                if strona == 1
+                else []
+            }  # fmt: skip
         elif "users (" in gql:
             dane = {"users": ludzie if strona == 1 else []}
         elif "activity_logs" in gql:
@@ -253,6 +262,7 @@ async def test_payload_ma_wszystkie_sekcje(con: sqlite3.Connection) -> None:
         "meta",
         "konto",
         "agenci",
+        "workspace_y",
         "uzytkownicy",
         "tablice",
         "automatyzacje",

@@ -219,7 +219,9 @@ def test_cztery_kategorie_w_kolejnosci_z_rubryki_a_niemierzone_mowia_to_wprost(
     assert list(kategorie) == ["tablice", "uzytkownicy", "workspace", "agenci"]
     assert (kategorie["tablice"].uwag, kategorie["tablice"].udzial) == (2, 67)
     assert (kategorie["uzytkownicy"].uwag, kategorie["uzytkownicy"].udzial) == (1, 33)
-    assert kategorie["workspace"].niezmierzona and kategorie["agenci"].niezmierzona
+    # Workspace mierzony od fazy 9 (rubryka 0.11) — bez uwag to „0", nie „nie mierzone".
+    assert kategorie["agenci"].niezmierzona and kategorie["workspace"].niezmierzona is None
+    assert kategorie["workspace"].uwag == 0
     assert kategorie["tablice"].niezmierzona is None
     # Zdanie na kafelek mówi o KATEGORII, nie cytuje jednej uwagi.
     assert kategorie["tablice"].zdanie == "Wiele tablic robiących to samo."
@@ -282,7 +284,7 @@ def test_pokrycie_z_sufitu_i_nie_zmierzone_z_dowodu(con: sqlite3.Connection) -> 
     assert "NIE znaczy, że są w porządku" in sufit.tekst
     goscie = pokrycie["Dostęp gości do tablic"]
     assert goscie.niezmierzone and goscie.kategoria == "uzytkownicy"
-    assert {"Workspace", "Agenci AI"} <= set(pokrycie)
+    assert "Agenci AI" in pokrycie and "Workspace" not in pokrycie
     chip = raport.uwagi[0].chipy[1]
     assert (chip.niezmierzone, chip.powod) == (True, "API nie pokazuje (O45)")
 
@@ -305,7 +307,7 @@ def test_plik_to_wersja_klienta_bez_danych_zespolu_i_bez_zasobow(con: sqlite3.Co
     # Na stronie głównej niemierzone to tylko wiersz; w widokach kategorii
     # dochodzi ich wyszarzona pigułka w pasku (2026-09-28).
     glowny = html.split('<main id="glowny">')[1].split("</main>")[0]
-    assert glowny.count("jeszcze nie mierzone") == 2
+    assert glowny.count("jeszcze nie mierzone") == 1  # Agenci; Workspace od fazy 9
 
 
 def test_mapa_udzialow_to_procent_per_tablica(con: sqlite3.Connection) -> None:
@@ -382,12 +384,13 @@ def test_z_kategorii_da_sie_przejsc_dalej_bez_cofania(con: sqlite3.Connection) -
     html = wyrenderuj_uwagi(_zbuduj(con, [_uwaga(), _duplikaty(), _duplikaty()]))
     widoki = dict(re.findall(r'<section class="widok" id="kat-(\w+)">(.*?)</section>', html, re.S))
 
-    assert list(widoki) == ["tablice", "uzytkownicy"]
+    assert list(widoki) == ["tablice", "uzytkownicy", "workspace"]
     assert 'href="#kat-uzytkownicy"' in widoki["tablice"]
     assert "Następna kategoria: Użytkownicy" in widoki["tablice"]
     assert 'href="#kat-tablice"' in widoki["uzytkownicy"]
-    assert "Następna kategoria" not in widoki["uzytkownicy"]
-    dalej = widoki["uzytkownicy"].split('class="dalej"')[1]
+    assert "Następna kategoria: Workspace" in widoki["uzytkownicy"]
+    assert "Następna kategoria" not in widoki["workspace"]
+    dalej = widoki["workspace"].split('class="dalej"')[1]
     assert 'href="#glowny"' in dalej
-    assert "#kat-workspace" not in html and "#kat-agenci" not in html
-    assert "Workspace · jeszcze nie mierzone" in widoki["tablice"]
+    assert 'href="#kat-workspace"' in widoki["tablice"] and "#kat-agenci" not in html
+    assert "Agenci AI · jeszcze nie mierzone" in widoki["tablice"]

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -1559,6 +1560,151 @@ def uzytkownik_wygaszony(con: sqlite3.Connection, snapshot_id: int, budzet: int)
     return hipotezy
 
 
+# ── WORKSPACE_DEAD i WORKSPACE_SPRAWL (faza 9) ───────────────────────────
+#
+# Decyzja Kuby 2026-09-28 po pomiarze pięciu kandydatów na pełnym CXLABS
+# (139 workspace'ów, 1319 aktywnych tablic):
+#   - martwy workspace: brak aktywnych tablic ALBO ostatni wpis logu każdej
+#     tablicy starszy niż 180 dni. Cisza z LOGÓW, nie z `updated_at` — z 46
+#     kandydatów po `updated_at` logi potwierdziły 44 (O18),
+#   - rozdrobnienie: co najmniej 20% workspace'ów z 0–2 aktywnymi tablicami,
+#     jedna uwaga o koncie (na CXLABS 53 z 139, 38%).
+# Nazwa demo/test NIE jest osobną klasą, tylko faktem pod warunek odrzucenia.
+
+DNI_CISZY_WORKSPACE = 180
+PROG_ROZDROBNIENIA = 0.2
+MALY_WORKSPACE = 2  # aktywnych tablic „0–2" = mały
+# Ta sama lista co warunek odrzucenia BOARD_GHOST o nazwie workspace'u.
+_NAZWA_NIEPRODUKCYJNA = re.compile(
+    r"\b(demo|test\w*|sandbox|szkoleni\w*|training|poc|pilot)\b", re.IGNORECASE
+)
+BRAK_AKTYWNYCH_TABLIC = "brak aktywnych tablic"
+BRAK_WPISOW = "brak wpisów w logu"
+
+
+def _sekcja_workspace(con: sqlite3.Connection, snapshot_id: int) -> dict[str, Any] | None:
+    """Sekcja `workspace_y` snapshotu. `None` = snapshot sprzed fazy 9."""
+    wiersz = con.execute(
+        "SELECT json_extract(payload, '$.workspace_y') AS s FROM snapshots WHERE id = ?",
+        (snapshot_id,),
+    ).fetchone()
+    if not wiersz or not wiersz["s"]:
+        return None
+    sekcja: dict[str, Any] = json.loads(wiersz["s"])
+    return sekcja if sekcja.get("objete") else None
+
+
+def _aktywne_tablice_po_workspace(
+    con: sqlite3.Connection, snapshot_id: int
+) -> dict[str, list[dict[str, Any]]]:
+    wynik: dict[str, list[dict[str, Any]]] = {}
+    for w in con.execute(
+        f"WITH snap AS (SELECT payload FROM snapshots WHERE id = :snapshot_id), {_TABLICE} "
+        "SELECT board_id, workspace_id, items_count FROM tablice "
+        "WHERE typ = 'board' AND state = 'active'",
+        {"snapshot_id": snapshot_id},
+    ):
+        wynik.setdefault(str(w["workspace_id"]), []).append(dict(w))
+    return wynik
+
+
+def workspace_dead(con: sqlite3.Connection, snapshot_id: int, budzet: int) -> list[Hipoteza]:
+    """Workspace bez aktywnych tablic albo z tablicami bez wpisu w logu od 180 dni."""
+    sekcja = _sekcja_workspace(con, snapshot_id)
+    if sekcja is None:
+        return []
+    prog = _prog(_meta(con, snapshot_id), DNI_CISZY_WORKSPACE)
+    run_at = datetime.fromisoformat(prog) + timedelta(days=DNI_CISZY_WORKSPACE)
+    wpisy: dict[str, str | None] = sekcja.get("ostatni_wpis_tablic") or {}
+    tablice = _aktywne_tablice_po_workspace(con, snapshot_id)
+    hipotezy: list[Hipoteza] = []
+    for ws in sekcja.get("workspace_y") or []:
+        if ws.get("stan") not in (None, "active"):
+            continue
+        wid = str(ws.get("workspace_id"))
+        swoje = tablice.get(wid, [])
+        if swoje:
+            # Tablica, której nie odpytano o log, to „nie wiem" — nie orzekamy.
+            if any(t["board_id"] not in wpisy for t in swoje):
+                continue
+            daty = [d for t in swoje if (d := wpisy[t["board_id"]])]
+            najnowszy = max(daty) if daty else None
+            if najnowszy and najnowszy[:19] > prog:
+                continue
+            ostatnia = najnowszy[:10] if najnowszy else BRAK_WPISOW
+            dni_ciszy = (
+                (run_at - datetime.fromisoformat(najnowszy[:19])).days if najnowszy else None
+            )
+        else:
+            ostatnia, dni_ciszy = BRAK_AKTYWNYCH_TABLIC, None
+        nazwa = str(ws.get("nazwa") or "")
+        hipotezy.append(
+            Hipoteza(
+                klasa_id="WORKSPACE_DEAD",
+                obiekt_id=wid,
+                fakty={
+                    "workspace_id": wid,
+                    "nazwa": nazwa,
+                    "produkt": ws.get("produkt"),
+                    "tablic_aktywnych": len(swoje),
+                    "elementow": sum(int(t["items_count"] or 0) for t in swoje),
+                    "ostatnia_aktywnosc": ostatnia,
+                    "dni_ciszy": dni_ciszy,
+                    "prog_dni": DNI_CISZY_WORKSPACE,
+                    # Fakt pod warunek odrzucenia z rubryki — nie cicha decyzja.
+                    "nazwa_nieprodukcyjna": bool(_NAZWA_NIEPRODUKCYJNA.search(nazwa)),
+                },
+                budzet_wywolan=budzet,
+            )
+        )
+    return hipotezy
+
+
+def workspace_sprawl(con: sqlite3.Connection, snapshot_id: int, budzet: int) -> list[Hipoteza]:
+    """Konto rozsypane na małe workspace'y — jedna hipoteza o koncie."""
+    sekcja = _sekcja_workspace(con, snapshot_id)
+    # Rozdrobnienie mówi o CAŁYM koncie; wycinek workspace'ów nic o nim nie mówi.
+    zakres = con.execute(
+        "SELECT json_extract(payload, '$.konto.zakres.typ') AS typ FROM snapshots WHERE id = ?",
+        (snapshot_id,),
+    ).fetchone()
+    if sekcja is None or (zakres and zakres["typ"] not in (None, "cale_konto")):
+        return []
+    tablice = _aktywne_tablice_po_workspace(con, snapshot_id)
+    aktywne = [w for w in sekcja.get("workspace_y") or [] if w.get("stan") in (None, "active")]
+    if not aktywne:
+        return []
+    rozklad: dict[str, int] = {}
+    for w in aktywne:
+        n = len(tablice.get(str(w.get("workspace_id")), []))
+        if n <= MALY_WORKSPACE:
+            rozklad[str(n)] = rozklad.get(str(n), 0) + 1
+    malych = sum(rozklad.values())
+    udzial = round(malych / len(aktywne), 4)
+    if udzial < PROG_ROZDROBNIENIA:
+        return []
+    return [
+        Hipoteza(
+            klasa_id="WORKSPACE_SPRAWL",
+            obiekt_id=_konto_id(con, snapshot_id),
+            fakty={
+                "workspacow": len(aktywne),
+                "malych": malych,
+                "udzial": udzial,
+                "prog_udzialu": PROG_ROZDROBNIENIA,
+                "tablic_na_workspace": dict(sorted(rozklad.items())),
+                "nieprodukcyjnych_wsrod_malych": sum(
+                    1
+                    for w in aktywne
+                    if len(tablice.get(str(w.get("workspace_id")), [])) <= MALY_WORKSPACE
+                    and _NAZWA_NIEPRODUKCYJNA.search(str(w.get("nazwa") or ""))
+                ),
+            },
+            budzet_wywolan=budzet,
+        )
+    ]
+
+
 def _w_oknie(znacznik: str, srodek: str, dni: int) -> bool:
     """Czy `znacznik` wpada w ±`dni` od `srodek`. Oba w UTC ze snapshotu."""
     try:
@@ -1584,6 +1730,8 @@ DETEKTORY: dict[str, Detektor] = {
     "PROCESS_BYPASS": process_bypass,
     "AUTOMATION_ABSENT": automation_absent,
     "AUTOMATION_DEAD": automation_dead,
+    "WORKSPACE_DEAD": workspace_dead,
+    "WORKSPACE_SPRAWL": workspace_sprawl,
 }
 
 

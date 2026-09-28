@@ -50,6 +50,7 @@ from monday_audit.zbieranie.osoby import (
     zredaguj_pii,
 )
 from monday_audit.zbieranie.tablice import zbierz_tablice
+from monday_audit.zbieranie.workspace import zbierz_workspace
 
 logger = logging.getLogger(__name__)
 
@@ -440,6 +441,14 @@ async def _zbierz_i_zapisz(
             maks_stron=maks_stron_logow,
             dobrane=_bez_aktywnego_wlasciciela(tablice.tablice, osoby.osoby),
         )
+        # Workspace'y i ostatni wpis logu każdej aktywnej tablicy (faza 9) —
+        # ~1 wywołanie na 50 tablic. Bez tego workspace bez tablic nie istniał
+        # dla detektorów, a „cisza" stała na `updated_at` (O18).
+        workspace_y = await zbierz_workspace(
+            klient,
+            zakres,
+            [t.board_id for t in tablice.tablice if t.typ == "board" and t.state == "active"],
+        )
         wywolan = klient.liczba_wywolan
         complexity = klient.complexity_suma
 
@@ -463,6 +472,7 @@ async def _zbierz_i_zapisz(
         "tablice": tablice.do_snapshotu(),
         "automatyzacje": automaty.do_snapshotu(),
         "aktywnosc": logi.do_snapshotu(),
+        "workspace_y": workspace_y.do_snapshotu(),
         # Agenci AI mają własną sekcję, a nie są rozsypani po automatyzacjach
         # i użytkownikach. Powód: to jest pytanie zadane osobno („ile kredytów
         # zużywają agenci"), więc odpowiedź musi mieć jedno miejsce.

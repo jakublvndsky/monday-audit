@@ -33,7 +33,7 @@
 # To są decyzje biznesowe z etapu 1 i pomiary techniczne nie mają do nich nic
 # do powiedzenia.
 
-wersja: "0.10"
+wersja: "0.11"
 odbiorca_domyslny: wewnetrzny
 
 # ──────────────────────────────────────────────────────────────
@@ -89,11 +89,9 @@ reguly:
 # Kategoria bez klasy z detektorem jest „jeszcze nie mierzona" — i raport
 # mówi to wprost, zamiast pokazać „0 problemów".
 kategorie:
+  # Mierzona od 0.11 (faza 9): WORKSPACE_DEAD i WORKSPACE_SPRAWL.
   - id: workspace
     nazwa: Workspace
-    niezmierzona: >-
-      Audyt nie ma jeszcze sygnałów o workspace'ach. Brak uwag nie oznacza,
-      że wszystko jest w porządku.
   - id: tablice
     nazwa: Tablice
   - id: uzytkownicy
@@ -170,6 +168,14 @@ pola_dowodu:
   udzial: {etykieta: udział, format: procent}
   kandydaci: {etykieta: kandydaci, format: tablice}
   zuzycie_kredytow_ai: {etykieta: zużycie kredytów AI, format: liczba}
+  # Faza 9 — workspace'y.
+  workspace_id: {etykieta: workspace, format: pomin}
+  tablic_aktywnych: {etykieta: aktywne tablice, format: liczba}
+  elementow: {etykieta: elementy na tablicach, format: liczba}
+  ostatnia_aktywnosc: {etykieta: ostatni wpis w logu, format: data}
+  workspacow: {etykieta: workspace'y, format: liczba}
+  malych: {etykieta: z 0–2 aktywnymi tablicami, format: liczba}
+  tablic_na_workspace: {etykieta: aktywnych tablic na workspace, format: mapa_liczb}
 
 # ──────────────────────────────────────────────────────────────
 # KLASY ZNALEZISK
@@ -663,6 +669,74 @@ klasy:
     dowod: [automation_id, failure, success, exhausted, powody_bledow]
     widocznosc: klient
     trop_sprzedazowy: audyt automatyzacji — wejście do warsztatu
+
+  # ═══ WORKSPACE (faza 9, 0.11) ══════════════════════════════
+  #
+  # Decyzja Kuby 2026-09-28 po pomiarze pięciu kandydatów na pełnym CXLABS.
+  # Wzięte: martwy workspace i rozdrobnienie. Nazwa demo/test — fakt pod
+  # warunek odrzucenia, nie klasa. Odłożone: niezgodność produktu (tablica
+  # z szablonu CRM w innym produkcie nie musi być błędem) i otwarty workspace
+  # (otwarty to domyślne ustawienie; wrażliwości danych nie rozpoznajemy).
+
+  - id: WORKSPACE_DEAD
+    nazwa: Workspace bez życia
+    kategoria: workspace
+    modul_zrodlowy: 9
+    # Cisza z LOGÓW (ostatni wpis każdej tablicy), nie z `updated_at` — O18.
+    # Na CXLABS z 46 kandydatów po `updated_at` logi potwierdziły 44.
+    sygnal: |
+      state = active AND (
+        brak aktywnych tablic
+        OR ostatni wpis logu KAŻDEJ aktywnej tablicy starszy niż 180 dni
+      )
+      Tablica bez odpytanego logu = „nie wiem" — workspace nie wzbudza hipotezy.
+    rola_agenta: |
+      Rozstrzygnij, czy workspace to porzucony obszar pracy (do archiwizacji
+      albo scalenia), czy celowe archiwum. Pusty workspace i workspace
+      z uśpionymi tablicami to dwie różne rekomendacje: pierwszy zwykle do
+      usunięcia, drugi do przeglądu z właścicielem procesu.
+    budzet_wywolan: 2
+    warunki_odrzucenia:
+      - >-
+        nazwa_nieprodukcyjna: true — nazwa workspace'u wskazuje na demo, test,
+        sandbox, szkolenie, training, POC albo pilot; taki workspace bywa
+        uśpiony celowo
+      - nazwa wskazuje na archiwum albo zamknięty rok lub okres
+    waga: niska
+    wysilek_naprawy: niski
+    typ_wyceny: ryzyko
+    wzor: null
+    dowod: [workspace_id, nazwa, tablic_aktywnych, ostatnia_aktywnosc]
+    widocznosc: klient
+    trop_sprzedazowy: porządki w strukturze konta — wejście do przeglądu architektury
+
+  - id: WORKSPACE_SPRAWL
+    nazwa: Konto rozdrobnione na małe workspace'y
+    kategoria: workspace
+    modul_zrodlowy: 9
+    # Jedna hipoteza o koncie, nie po jednej na workspace — problemem jest
+    # struktura, nie pojedynczy obszar. Tylko przy zakresie `cale_konto`.
+    sygnal: |
+      udział aktywnych workspace'ów z 0–2 aktywnymi tablicami >= 20%
+    rola_agenta: |
+      Oceń, czy rozdrobnienie utrudnia pracę (trudno znaleźć, gdzie co jest,
+      rozsiane uprawnienia), czy wynika z celowego podziału (np. osobny
+      workspace na klienta). `nieprodukcyjnych_wsrod_malych` mówi, ile małych
+      workspace'ów to demo i testy — gdy to większość, rozdrobnienie jest
+      bałaganem po testach, nie problemem struktury pracy.
+    budzet_wywolan: 0
+    warunki_odrzucenia:
+      - >-
+        małe workspace'y to w większości demo, testy lub szkolenia
+        (nieprodukcyjnych_wsrod_malych > połowa malych) — wtedy uwaga dotyczy
+        porządków, a tę klasę zgłasza WORKSPACE_DEAD
+    waga: niska
+    wysilek_naprawy: sredni
+    typ_wyceny: ryzyko
+    wzor: null
+    dowod: [workspacow, malych, udzial, tablic_na_workspace]
+    widocznosc: klient
+    trop_sprzedazowy: przegląd architektury konta
 
   # ═══ AI ════════════════════════════════════════════════════
 

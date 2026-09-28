@@ -37,6 +37,8 @@ from monday_audit.detekcja.detektory import (
     process_bypass,
     uruchom_detektory,
     uzytkownik_wygaszony,
+    workspace_dead,
+    workspace_sprawl,
     zombie_account,
 )
 from monday_audit.detekcja.rubryka import wczytaj_rubryke
@@ -454,7 +456,7 @@ def test_raport_wymienia_klasy_bez_detektora(con: sqlite3.Connection) -> None:
     assert set(raport["klasy_bez_detektora"]) == wszystkie - zbudowane
     # 0.3 przy dodaniu UZYTKOWNIK_WYGASZONY, 0.4 przy doprecyzowaniu warunku
     # odrzucenia BOARD_GHOST (O34) — oba w etapie 4.
-    assert raport["rubric_version"] == "0.10"
+    assert raport["rubric_version"] == "0.11"
 
 
 def test_budzet_bierze_sie_z_rubryki(con: sqlite3.Connection) -> None:
@@ -1316,3 +1318,99 @@ def test_obiekt_grupy_jest_krotki_i_liczbowo_najmniejszy() -> None:
 
     assert obiekt_grupy(board_ids) == "grupa-999-91"
     assert obiekt_grupy(list(reversed(board_ids))) == "grupa-999-91"
+
+
+# ── WORKSPACE_DEAD i WORKSPACE_SPRAWL (faza 9) ───────────────────────────
+
+
+def _z_workspace(
+    tablice: list[dict[str, Any]],
+    workspace_y: list[dict[str, Any]],
+    wpisy: dict[str, str | None],
+    *,
+    zakres: str = "cale_konto",
+) -> dict[str, Any]:
+    dane = pelny(tablice=tablice)
+    dane["konto"]["zakres"] = {"typ": zakres}
+    dane["workspace_y"] = {
+        "objete": True,
+        "workspace_y": workspace_y,
+        "ostatni_wpis_tablic": wpisy,
+    }
+    return dane
+
+
+def _ws(wid: str, nazwa: str = "Sprzedaż", stan: str = "active") -> dict[str, Any]:
+    return {"workspace_id": wid, "nazwa": nazwa, "rodzaj": "open", "stan": stan, "produkt": "crm"}
+
+
+def test_workspace_dead_stoi_na_logu_nie_na_updated_at(con: sqlite3.Connection) -> None:
+    """Faza 9: cisza z ostatniego wpisu logu KAŻDEJ tablicy, próg 180 dni.
+
+    ZMIERZONE na CXLABS: z 46 workspace'ów „cichych" po `updated_at` logi
+    potwierdziły 44 — w dwóch ktoś pracował. Tablica bez odpytanego logu to
+    „nie wiem", więc workspace nie wzbudza hipotezy.
+    """
+    tablice = [
+        tablica("m1", workspace_id="martwy", updated_at="2026-07-30T00:00:00Z", items_count=40),
+        tablica("m2", workspace_id="martwy"),
+        tablica("z1", workspace_id="zywy", updated_at="2025-01-01T00:00:00Z"),
+        tablica("n1", workspace_id="nieznany"),
+        tablica("c1", workspace_id="cichy_bez_wpisow"),
+    ]
+    wpisy = {
+        "m1": "2025-12-01T00:00:00+00:00",  # 243 dni przed RUN_AT
+        "m2": None,
+        "z1": "2026-07-01T00:00:00+00:00",  # updated_at stare, log świeży
+        "c1": None,
+    }
+    workspace_y = [_ws("martwy"), _ws("zywy"), _ws("nieznany"), _ws("pusty", "Demo klienta"),
+                   _ws("cichy_bez_wpisow"), _ws("zarchiwizowany", stan="archived")]  # fmt: skip
+    snapshot_id = zapisz(con, _z_workspace(tablice, workspace_y, wpisy))
+
+    fakty = {h.obiekt_id: h.fakty for h in workspace_dead(con, snapshot_id, 0)}
+
+    assert sorted(fakty) == ["cichy_bez_wpisow", "martwy", "pusty"]
+    assert (fakty["martwy"]["ostatnia_aktywnosc"], fakty["martwy"]["dni_ciszy"]) == (
+        "2025-12-01",
+        243,
+    )
+    assert (fakty["martwy"]["tablic_aktywnych"], fakty["martwy"]["elementow"]) == (2, 50)
+    assert fakty["cichy_bez_wpisow"]["ostatnia_aktywnosc"] == "brak wpisów w logu"
+    assert fakty["pusty"]["ostatnia_aktywnosc"] == "brak aktywnych tablic"
+    assert fakty["pusty"]["nazwa_nieprodukcyjna"] is True
+    assert fakty["martwy"]["nazwa_nieprodukcyjna"] is False
+
+
+def test_workspace_sprawl_to_jedna_uwaga_o_koncie_od_20_procent(
+    con: sqlite3.Connection,
+) -> None:
+    """Decyzja Kuby 2026-09-28: ≥ 20% workspace'ów z 0–2 aktywnymi tablicami."""
+    duze = [tablica(f"d{n}", workspace_id="duzy") for n in range(3)]
+    workspace_y = [_ws("duzy"), _ws("maly"), *[_ws(f"duzy{n}") for n in range(3)]]
+    tablice = duze + [
+        tablica(f"x{n}{m}", workspace_id=f"duzy{n}") for n in range(3) for m in range(3)
+    ]
+    tablice.append(tablica("maly1", workspace_id="maly"))
+    snapshot_id = zapisz(con, _z_workspace(tablice, workspace_y, {}))
+
+    [h] = workspace_sprawl(con, snapshot_id, 0)
+
+    assert h.obiekt_id == "27690228"
+    assert (h.fakty["workspacow"], h.fakty["malych"], h.fakty["udzial"]) == (5, 1, 0.2)
+    assert h.fakty["tablic_na_workspace"] == {"1": 1}
+
+    # Poniżej progu — brak hipotezy; wycinek konta — też brak (mówi o całości).
+    dodatkowe = [tablica(f"e{n}", workspace_id="duzy_extra") for n in range(3)]
+    ponizej = zapisz(con, _z_workspace(tablice + dodatkowe, [*workspace_y, _ws("duzy_extra")], {}))
+    assert workspace_sprawl(con, ponizej, 0) == []
+    wycinek = zapisz(con, _z_workspace(tablice, workspace_y, {}, zakres="workspace"))
+    assert workspace_sprawl(con, wycinek, 0) == []
+
+
+def test_snapshot_sprzed_fazy_9_nie_wzbudza_klas_workspace(con: sqlite3.Connection) -> None:
+    """Stary snapshot nie ma sekcji `workspace_y` — milczenie, nie błąd."""
+    snapshot_id = zapisz(con, pelny(tablice=[tablica("b1")]))
+
+    assert workspace_dead(con, snapshot_id, 0) == []
+    assert workspace_sprawl(con, snapshot_id, 0) == []

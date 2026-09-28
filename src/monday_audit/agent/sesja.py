@@ -141,6 +141,11 @@ _SILA: dict[str, tuple[str, Callable[[dict[str, Any]], tuple[Any, ...]]]] = {
         "tablice, na których ktoś pracuje",
         lambda f: (f.get("top_kontrybutor_hash") is not None,),
     ),
+    # Najwięcej do posprzątania: tablice, potem elementy (faza 9).
+    "WORKSPACE_DEAD": (
+        "najwięcej aktywnych tablic i elementów",
+        lambda f: (f.get("tablic_aktywnych") or 0, f.get("elementow") or 0),
+    ),
     "BOARD_GHOST": (
         "najwięcej itemów",
         lambda f: (f.get("items_count") or 0,),
