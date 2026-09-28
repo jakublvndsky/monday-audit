@@ -40,8 +40,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
+import io
 import json
 import logging
+import os
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -65,6 +69,40 @@ from monday_audit.zbieranie.konto import zbuduj_zakres
 from monday_audit.zbieranie.podglad_zakresu import RejestrPodgladu
 
 logger = logging.getLogger(__name__)
+
+
+_POZYCJA_BLEDU = re.compile(r"\(char (\d+)\)")
+
+
+def _fragment_bledu(komunikat: str, odpowiedz: Any) -> str:
+    """Kilkaset znaków wokół miejsca, w którym JSON się psuje — do diagnozy.
+
+    Run 9-3 (2026-09-28): błąd w znaku 59 953 z ~60 tys., a cała odpowiedź na
+    ekranie to ściana tekstu, w której tego miejsca nikt nie znajdzie.
+    """
+    tekst = str((odpowiedz or {}).get("surowy_tekst") or "") if isinstance(odpowiedz, dict) else ""
+    trafienie = _POZYCJA_BLEDU.search(komunikat)
+    if not tekst or not trafienie:
+        return f"BŁĄD: {komunikat}"
+    # Pozycja jest liczona w tekście po zdjęciu płotka ``` — przybliżenie
+    # wystarcza, fragment ma zapas w obie strony.
+    poz = int(trafienie.group(1))
+    okolica = tekst[max(0, poz - 400) : poz + 200]
+    return f"BŁĄD: {komunikat}\n--- okolica miejsca błędu ---\n{okolica}\n---"
+
+
+def _wypisz_blokujaco(tekst: str) -> None:
+    """`print` dużego tekstu, który nie urwie się w połowie.
+
+    ZMIERZONE 2026-09-28 (run 9-3): w tle stdout był nieblokujący i wydruk
+    ~60 tys. znaków padł na `BlockingIOError` — surowa odpowiedź za 3,50 USD
+    przepadła. Przełączamy deskryptor na zapis blokujący przed wydrukiem.
+    """
+    # Nie plik z deskryptorem (np. przechwycony w teście) — i tak zapisze.
+    with contextlib.suppress(OSError, ValueError, io.UnsupportedOperation):
+        os.set_blocking(sys.stdout.fileno(), True)
+    sys.stdout.write(tekst + "\n")
+    sys.stdout.flush()
 
 
 def zbuduj_parser() -> argparse.ArgumentParser:
@@ -258,7 +296,8 @@ async def uruchom(argumenty: argparse.Namespace) -> int:
         except AnalizaError as blad:
             # Odpowiedź bez struktury: treść na EKRAN, nie na dysk. Za sesję
             # już zapłacono i nie wolno jej zgubić bez śladu.
-            print(json.dumps(blad.odpowiedz_modelu, ensure_ascii=False, indent=1))
+            _wypisz_blokujaco(_fragment_bledu(str(blad), blad.odpowiedz_modelu))
+            _wypisz_blokujaco(json.dumps(blad.odpowiedz_modelu, ensure_ascii=False, indent=1))
             raise KontraktError(str(blad)) from blad
     finally:
         # Bez dosłania bufora krótki proces CLI kończy się przed eksportem.

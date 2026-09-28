@@ -112,10 +112,15 @@ Zwróć JEDEN obiekt JSON, bez tekstu przed ani po:
     {
       "klasa_id": "ID klasy",
       "obiekt_id": "ID obiektu z hipotezy",
-      "powod": "Dlaczego to NIE jest uwaga krytyczna."
+      "powod": "JEDNO zdanie: dlaczego to NIE jest uwaga krytyczna."
     }
   ]
 }
+
+Powód pominięcia to JEDNO krótkie zdanie, najlepiej wskazujące warunek
+odrzucenia albo brakujący fakt. Uzasadnienie rozstrzygnięcia nie jest potrzebne
+w pominiętych — odpowiedź przy ponad stu hipotezach ma dziesiątki tysięcy
+znaków, a każde zbędne zdanie to więcej miejsca na błąd składni JSON.
 
 Jedna hipoteza = jedna pozycja: uwaga ALBO pominięta, dokładnie raz, z tym
 samym `klasa_id` i `obiekt_id` co w hipotezie. Hipoteza, której nie ma

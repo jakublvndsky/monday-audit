@@ -468,3 +468,14 @@ def test_surowa_odpowiedz_ma_prawa_600(tmp_path: Path) -> None:
 
     assert sciezka.stat().st_mode & 0o777 == 0o600
     assert json.loads(sciezka.read_text(encoding="utf-8")) == {"uwagi": []}
+
+
+def test_blad_json_pokazuje_okolice_miejsca_bledu() -> None:
+    """Run 9-3: błąd w znaku 59 953 z ~60 tys. — bez fragmentu nikt go nie znajdzie."""
+    tekst = "a" * 1000 + "TU_BLAD" + "b" * 1000
+    komunikat = "Expecting ',' delimiter: line 1 column 1001 (char 1000)"
+
+    fragment = cli_analiza._fragment_bledu(komunikat, {"surowy_tekst": tekst})
+
+    assert "TU_BLAD" in fragment and len(fragment) < 800
+    assert cli_analiza._fragment_bledu("inny błąd", {}) == "BŁĄD: inny błąd"

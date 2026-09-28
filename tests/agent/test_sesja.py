@@ -462,3 +462,107 @@ def test_prompt_wymaga_obiekt_id_w_uwadze() -> None:
     tresc = SCIEZKA_PROMPTU_ANALIZY.read_text(encoding="utf-8")
 
     assert '"obiekt_id": "ID obiektu z hipotezy, niezmienione",\n      "opis"' in tresc
+
+
+# ── naprawa JSON w tej samej sesji (2026-09-28, run 9-3) ─────────────────
+
+
+class _NarzedziaAtrapa:
+    snapshot_id = 1
+
+    def __init__(self) -> None:
+        self.przebieg: list[dict[str, Any]] = []
+        self.wywolania: list[str] = []
+
+
+class _ZestawAtrapa:
+    snapshot_id = 1
+
+    def dla_hipotezy(self, _: Any) -> _NarzedziaAtrapa:
+        return _NarzedziaAtrapa()
+
+
+def _klient_sdk(odpowiedzi: list[str], koszty: list[float], zapytania: list[str]) -> type:
+    """Atrapa `ClaudeSDKClient`: każda tura oddaje kolejny tekst i koszt."""
+    from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
+
+    class Atrapa:
+        def __init__(self, options: Any) -> None:
+            self.tura = -1
+
+        async def __aenter__(self) -> Atrapa:
+            return self
+
+        async def __aexit__(self, *_: Any) -> None:
+            return None
+
+        async def query(self, tekst: str) -> None:
+            zapytania.append(tekst)
+            self.tura += 1
+
+        async def receive_response(self) -> Any:
+            yield AssistantMessage(content=[TextBlock(text=odpowiedzi[self.tura])], model="m")
+            yield ResultMessage(
+                subtype="success", duration_ms=1, duration_api_ms=1, is_error=False,
+                num_turns=1, session_id="s", total_cost_usd=koszty[self.tura],
+                model_usage={"m": {"outputTokens": 100, "costUSD": koszty[self.tura]}},  # type: ignore[typeddict-item]
+            )  # fmt: skip
+
+    return Atrapa
+
+
+async def test_zepsuty_json_naprawia_sie_w_tej_samej_sesji(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Jedna literówka w ~60 tys. znaków nie może kosztować całego runu."""
+    import claude_agent_sdk
+
+    from monday_audit.agent.sesja import zbadaj_konto
+
+    dobry = json.dumps({"uwagi": [], "pominiete": [{"klasa_id": "BOARD_GHOST",
+                        "obiekt_id": "b0", "powod": "x"}]})  # fmt: skip
+    zapytania: list[str] = []
+    monkeypatch.setattr(
+        claude_agent_sdk,
+        "ClaudeSDKClient",
+        _klient_sdk(['{"uwagi": [] "pominiete": []}', dobry], [3.5, 0.4], zapytania),
+    )
+
+    odpowiedz = await zbadaj_konto(
+        _hipotezy(1),
+        zestaw=_ZestawAtrapa(),  # type: ignore[arg-type]
+        wejscie=WEJSCIE,
+        klucz_api="k",
+    )
+
+    assert len(zapytania) == 2 and "nie jest poprawnym JSON-em" in zapytania[1]
+    assert odpowiedz["pominiete"][0]["obiekt_id"] == "b0"
+    assert "naprawa_json" in odpowiedz
+    assert odpowiedz["zuzycie"]["koszt_usd"] == pytest.approx(3.9)
+
+
+async def test_druga_zla_odpowiedz_oddaje_tekst_i_koszt(monkeypatch: pytest.MonkeyPatch) -> None:
+    import claude_agent_sdk
+
+    from monday_audit.agent.sesja import OdpowiedzBezJsonaError, zbadaj_konto
+
+    monkeypatch.setattr(
+        claude_agent_sdk, "ClaudeSDKClient", _klient_sdk(["zepsuty {", "wciąż {"], [3.5, 0.4], [])
+    )
+
+    with pytest.raises(OdpowiedzBezJsonaError, match="po poprawce") as blad:
+        await zbadaj_konto(
+            _hipotezy(1),
+            zestaw=_ZestawAtrapa(),  # type: ignore[arg-type]
+            wejscie=WEJSCIE,
+            klucz_api="k",
+        )
+    assert blad.value.tekst == "wciąż {"
+    assert blad.value.zuzycie["koszt_usd"] == pytest.approx(3.9)
+
+
+def test_zuzycie_poprawki_narastajace_nie_liczy_sie_dwa_razy() -> None:
+    from monday_audit.agent.sesja import polacz_zuzycie
+
+    assert polacz_zuzycie({"koszt_usd": 3.5}, {"koszt_usd": 0.4})["koszt_usd"] == pytest.approx(3.9)
+    assert polacz_zuzycie({"koszt_usd": 3.5}, {"koszt_usd": 3.9})["koszt_usd"] == pytest.approx(3.9)

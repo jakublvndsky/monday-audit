@@ -271,6 +271,56 @@ class OdpowiedzBezJsonaError(AgentError):
         self.przebieg = przebieg
 
 
+PROSBA_O_POPRAWKE = (
+    "Twoja odpowiedź nie jest poprawnym JSON-em: {blad}. Zwróć CAŁY obiekt JSON "
+    "jeszcze raz, poprawiony — bez tekstu przed ani po, bez zmiany rozstrzygnięć, "
+    "bez wołania narzędzi."
+)
+
+
+async def _odbierz(klient: Any) -> tuple[list[str], dict[str, float]]:
+    """Bloki tekstu po ostatnim narzędziu i zużycie jednej tury rozmowy."""
+    # Import w środku z tego samego powodu co w `zbadaj_konto`.
+    from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock, ToolUseBlock
+
+    bloki: list[str] = []
+    zuzycie: dict[str, float] = {}
+    blad: str | None = None
+    async for wiadomosc in klient.receive_response():
+        if isinstance(wiadomosc, AssistantMessage):
+            for blok in wiadomosc.content:
+                if isinstance(blok, ToolUseBlock):
+                    # Tekst przed narzędziem to rozumowanie, nie odpowiedź.
+                    bloki.clear()
+                elif isinstance(blok, TextBlock) and blok.text.strip():
+                    bloki.append(blok.text)
+        elif isinstance(wiadomosc, ResultMessage):
+            zuzycie = _zuzycie(wiadomosc)
+            if wiadomosc.is_error:
+                # Błąd API wraca jako `is_error`, NIE jako wyjątek — i to
+                # przy `subtype='success'`, co jest mylące. Bez tego
+                # sprawdzenia zły klucz objawiałby się jako „nie znalazłem
+                # JSON-a". Zmierzone 2026-08-05.
+                blad = str(getattr(wiadomosc, "result", "") or "błąd API")
+    if blad:
+        raise AgentError(f"sesja analizy padła: {blad}")
+    return bloki, zuzycie
+
+
+def polacz_zuzycie(pierwsze: dict[str, float], drugie: dict[str, float]) -> dict[str, float]:
+    """Zużycie sesji z poprawką. NIEZMIERZONE, czy SDK podaje je narastająco.
+
+    Poprawka kosztuje mniej niż pierwsza tura (to samo wyjście, wejście z cache),
+    więc drugi `koszt_usd` MNIEJSZY od pierwszego znaczy „tylko ta tura" — sumujemy.
+    Większy albo równy znaczy „narastająco dla sesji" — bierzemy drugi. Po
+    pierwszej poprawce na żywo sprawdzić w logu, która gałąź zadziałała.
+    """
+    if float(drugie.get("koszt_usd") or 0) >= float(pierwsze.get("koszt_usd") or 0):
+        logger.info("zużycie poprawki wygląda na narastające — biorę drugie")
+        return dict(drugie)
+    return {k: pierwsze.get(k, 0) + drugie.get(k, 0) for k in {*pierwsze, *drugie}}
+
+
 def odpowiedz_z_blokow(bloki: list[str]) -> dict[str, Any]:
     """Obiekt JSON z bloków tekstu PO ostatnim wywołaniu narzędzia.
 
@@ -397,13 +447,7 @@ async def zbadaj_konto(
     """
     # Import w środku: `claude_agent_sdk` ciągnie podproces i nie ma powodu,
     # żeby obciążał każdego, kto importuje cokolwiek z pakietu.
-    from claude_agent_sdk import (
-        AssistantMessage,
-        ClaudeSDKClient,
-        ResultMessage,
-        TextBlock,
-        ToolUseBlock,
-    )
+    from claude_agent_sdk import ClaudeSDKClient
 
     from monday_audit.agent.sdk import _zbuduj_narzedzia
 
@@ -444,41 +488,36 @@ async def zbadaj_konto(
         raise AgentError("opcje sesji bez bramki narzędzi — nie uruchamiam")
 
     zadanie = zbuduj_zadanie(hipotezy, wejscie, rubryka)
-    bloki: list[str] = []
-    zuzycie: dict[str, float] = {}
-    blad: str | None = None
+    naprawa: str | None = None
 
     async with ClaudeSDKClient(options=opcje) as klient:
         await klient.query(zadanie)
-        async for wiadomosc in klient.receive_response():
-            if isinstance(wiadomosc, AssistantMessage):
-                for blok in wiadomosc.content:
-                    if isinstance(blok, ToolUseBlock):
-                        # Tekst przed narzędziem to rozumowanie, nie odpowiedź.
-                        bloki.clear()
-                    elif isinstance(blok, TextBlock) and blok.text.strip():
-                        bloki.append(blok.text)
-            elif isinstance(wiadomosc, ResultMessage):
-                zuzycie = _zuzycie(wiadomosc)
-                if wiadomosc.is_error:
-                    # Błąd API wraca jako `is_error`, NIE jako wyjątek — i to
-                    # przy `subtype='success'`, co jest mylące. Bez tego
-                    # sprawdzenia zły klucz objawiałby się jako „nie znalazłem
-                    # JSON-a". Zmierzone 2026-08-05.
-                    blad = str(getattr(wiadomosc, "result", "") or "błąd API")
+        bloki, zuzycie = await _odbierz(klient)
+        try:
+            odpowiedz = odpowiedz_z_blokow(bloki)
+        except AgentError as blad:
+            # Naprawa w TEJ SAMEJ sesji (2026-09-28, run 9-3): przy 116
+            # hipotezach model oddał ~60 tys. znaków z jednym brakującym
+            # przecinkiem i 3,50 USD przepadło. Kontekst jest w cache, więc
+            # poprawka kosztuje głównie ponowne wypisanie odpowiedzi — i tylko
+            # przy awarii. Jedna próba: druga zła odpowiedź to już nie literówka.
+            naprawa = str(blad)
+            logger.warning("odpowiedź nie jest JSON-em (%s) — proszę model o poprawkę", naprawa)
+            await klient.query(PROSBA_O_POPRAWKE.format(blad=naprawa))
+            bloki_poprawki, zuzycie_poprawki = await _odbierz(klient)
+            zuzycie = polacz_zuzycie(zuzycie, zuzycie_poprawki)
+            try:
+                odpowiedz = odpowiedz_z_blokow(bloki_poprawki)
+            except AgentError as blad_poprawki:
+                raise OdpowiedzBezJsonaError(
+                    f"{blad}; po poprawce: {blad_poprawki}",
+                    tekst="".join(bloki_poprawki) or "".join(bloki),
+                    zuzycie=zuzycie,
+                    przebieg=list(narzedzia_sesji.przebieg),
+                ) from None
 
-    if blad:
-        raise AgentError(f"sesja analizy padła: {blad}")
-
-    try:
-        odpowiedz = odpowiedz_z_blokow(bloki)
-    except AgentError as blad:
-        raise OdpowiedzBezJsonaError(
-            str(blad),
-            tekst="".join(bloki),
-            zuzycie=zuzycie,
-            przebieg=list(narzedzia_sesji.przebieg),
-        ) from None
+    if naprawa:
+        odpowiedz["naprawa_json"] = naprawa
     odpowiedz["zuzycie"] = zuzycie
     odpowiedz["wywolania_narzedzi"] = list(narzedzia_sesji.wywolania)
     odpowiedz["przebieg_narzedzi"] = list(narzedzia_sesji.przebieg)
