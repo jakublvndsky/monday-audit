@@ -71,8 +71,19 @@
     body { background: #fff; }
     .widok, #glowny { display: block !important; }
     .widok { break-before: page; }
-    .wroc { display: none !important; }
+    .wroc, .kat-nav, .dalej { display: none !important; }
   }
+  /* Przejście między kategoriami bez cofania się (uwaga Kuby 2026-09-28) —
+     projekt z Claude Design go nie miał. Pigułki w stylu chipów projektu. */
+  .kat-nav { display: flex; flex-wrap: wrap; gap: 8px; }
+  .kat-nav > a, .kat-nav > span { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px;
+    border-radius: 999px; font-size: 14px; border: 1px solid var(--cx-cloud-2); background: #fff; color: var(--cx-ink); }
+  .kat-nav > a:hover { border-color: var(--cx-ink-40); }
+  .kat-nav .biezaca { background: var(--cx-ink); border-color: var(--cx-ink); color: var(--cx-mist); }
+  .kat-nav .niemierzona { color: var(--cx-gray-3); border-style: dashed; background: transparent; }
+  .kat-nav .kat-licznik { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .kat-nav .biezaca .kat-licznik { color: var(--cx-lime); }
+  .dalej { display: flex; justify-content: flex-end; }
 </style>
 
 {% set kolory = ["var(--cx-lime)", "var(--cx-ink-20)", "var(--cx-ink-40)", "var(--cx-ink-10)"] %}
@@ -217,10 +228,19 @@
 
   {# ═══ D · RAPORT POGŁĘBIONY KATEGORII ════════════════════════════════ #}
   {% for k in r.zmierzone %}
+  {% set nastepna = r.zmierzone[loop.index] if not loop.last else None %}
   <section class="widok" id="kat-{{ k.id }}">
     {{ naglowek(k.nazwa, [("Audyt monday.com", None), ("Raport audytu", "#glowny"), (k.nazwa, None)]) }}
     <div style="max-width:960px;margin:0 auto;padding:clamp(24px,4cqw,48px) clamp(20px,5cqw,64px) clamp(48px,6cqw,80px);display:flex;flex-direction:column;gap:clamp(20px,3cqw,32px);">
       {{ metadane(True) }}
+
+      <nav class="kat-nav" aria-label="Kategorie raportu">
+        {% for inna in r.kategorie %}
+        {% if inna.niezmierzona %}<span class="niemierzona" title="{{ inna.niezmierzona }}">{{ inna.nazwa }} · jeszcze nie mierzone</span>
+        {% elif inna.id == k.id %}<span class="biezaca" aria-current="page">{{ inna.nazwa }} <span class="kat-licznik">{{ inna.uwag }}</span></span>
+        {% else %}<a href="#kat-{{ inna.id }}">{{ inna.nazwa }} <span class="kat-licznik">{{ inna.uwag }}</span></a>{% endif %}
+        {% endfor %}
+      </nav>
 
       <div style="display:flex;flex-wrap:wrap;gap:12px 32px;align-items:baseline;">
         <span style="font-family:var(--font-display);font-size:clamp(24px,2.8cqw,32px);">{{ k.uwag }} {{ odmiana(k.uwag, "uwaga krytyczna", "uwagi krytyczne", "uwag krytycznych") }}</span>
@@ -286,6 +306,11 @@
         {% endfor %}
       </div>
       {% endfor %}
+
+      <div class="dalej">
+        {% if nastepna %}<a class="cx-btn" href="#kat-{{ nastepna.id }}">Następna kategoria: {{ nastepna.nazwa }}<span class="cx-btn__chev"><span class="cx-chev"></span></span></a>
+        {% else %}<a class="cx-btn" href="#glowny">Wróć do raportu głównego<span class="cx-btn__chev"><span class="cx-chev"></span></span></a>{% endif %}
+      </div>
     </div>
   </section>
   {% endfor %}

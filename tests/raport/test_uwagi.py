@@ -302,7 +302,10 @@ def test_plik_to_wersja_klienta_bez_danych_zespolu_i_bez_zasobow(con: sqlite3.Co
     # Kategorie mierzone mają widok pogłębiony, niemierzone — tylko wiersz.
     assert 'id="kat-tablice"' in html and 'id="kat-uzytkownicy"' in html
     assert 'id="kat-agenci"' not in html
-    assert html.count("jeszcze nie mierzone") == 2
+    # Na stronie głównej niemierzone to tylko wiersz; w widokach kategorii
+    # dochodzi ich wyszarzona pigułka w pasku (2026-09-28).
+    glowny = html.split('<main id="glowny">')[1].split("</main>")[0]
+    assert glowny.count("jeszcze nie mierzone") == 2
 
 
 def test_mapa_udzialow_to_procent_per_tablica(con: sqlite3.Connection) -> None:
@@ -366,3 +369,25 @@ def test_pusta_lista_to_ustalenie_a_nie_pusty_fakt() -> None:
     }
 
     assert chipy == {"właściciele": "brak"}
+
+
+def test_z_kategorii_da_sie_przejsc_dalej_bez_cofania(con: sqlite3.Connection) -> None:
+    """Uwaga Kuby 2026-09-28: z widoku kategorii trzeba było wracać na główną.
+
+    Pasek kategorii w każdym widoku i „Następna kategoria" w kolejności strony
+    głównej; w ostatniej mierzonej — powrót. Niemierzone nie są linkami.
+    """
+    import re
+
+    html = wyrenderuj_uwagi(_zbuduj(con, [_uwaga(), _duplikaty(), _duplikaty()]))
+    widoki = dict(re.findall(r'<section class="widok" id="kat-(\w+)">(.*?)</section>', html, re.S))
+
+    assert list(widoki) == ["tablice", "uzytkownicy"]
+    assert 'href="#kat-uzytkownicy"' in widoki["tablice"]
+    assert "Następna kategoria: Użytkownicy" in widoki["tablice"]
+    assert 'href="#kat-tablice"' in widoki["uzytkownicy"]
+    assert "Następna kategoria" not in widoki["uzytkownicy"]
+    dalej = widoki["uzytkownicy"].split('class="dalej"')[1]
+    assert 'href="#glowny"' in dalej
+    assert "#kat-workspace" not in html and "#kat-agenci" not in html
+    assert "Workspace · jeszcze nie mierzone" in widoki["tablice"]
