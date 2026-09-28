@@ -218,3 +218,26 @@ def test_prawdziwa_lista_albo_mapa_przechodzi(tablice: object) -> None:
     wynik = waliduj_uwagi({"uwagi": [_gosc(tablice)]}, wczytaj_rubryke())
 
     assert len(wynik.przyjete) == 1
+
+
+def test_rekomendacja_grupowa_uzupelnia_puste_przy_uwagach() -> None:
+    """2026-09-28, „ściana tekstu": model pisze rekomendację RAZ na klasę.
+
+    Uwaga z pustą rekomendacją dostaje grupową i przechodzi; własna zostaje.
+    Pusta bez grupowej nadal odpada — reguła pustego tekstu się nie zmienia.
+    """
+    odpowiedz = {
+        "uwagi": [_uwaga(rekomendacja=""), _uwaga(rekomendacja="Najpierw odebrać admina.")],
+        "rekomendacje_grup": {"ZOMBIE_ACCOUNT": "Potwierdzić i dezaktywować."},
+    }
+
+    wynik = waliduj_uwagi(odpowiedz, RUBRYKA)
+
+    assert [u["rekomendacja"] for u in wynik.przyjete] == [
+        "Potwierdzić i dezaktywować.",
+        "Najpierw odebrać admina.",
+    ]
+    assert wynik.rekomendacje_grup == {"ZOMBIE_ACCOUNT": "Potwierdzić i dezaktywować."}
+
+    bez_grupowej = waliduj_uwagi({"uwagi": [_uwaga(rekomendacja="")]}, RUBRYKA)
+    assert bez_grupowej.przyjete == [] and len(bez_grupowej.odrzucone) == 1

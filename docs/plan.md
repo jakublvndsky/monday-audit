@@ -508,7 +508,7 @@ na nich napisał.
   - Poza zakresem: raport zamaskowany z historii, PDF, portal, nowe klasy
     (Workspace i Agenci nadal „jeszcze nie mierzone").
 
-- [ ] **9. Workspace jako mierzona kategoria** — w raporcie Workspace przestaje
+- [x] **9. Workspace jako mierzona kategoria** — w raporcie Workspace przestaje
   być „jeszcze nie mierzone". Kuba 2026-09-28: wytycznych do tej kategorii nie
   ma, więc klasy wynikają z pomiaru pięciu kandydatów na pełnym CXLABS.
   - [x] **9-1** — pomiar (0 USD modelu, 137 + 33 wywołań): martwy workspace,
@@ -524,14 +524,37 @@ na nich napisał.
     detektory `WORKSPACE_DEAD` i `WORKSPACE_SPRAWL`, rubryka 0.11. Na pełnym
     CXLABS (`--tylko-szacunek`): WORKSPACE_DEAD 73 (do modelu 20),
     WORKSPACE_SPRAWL 1; hipotez 400 → 474, do modelu 95 → 116.
-  - [ ] **9-3** — run odbiorczy na pełnym koncie (po osobnym „tak"): czy
-    uwagi o workspace'ach są trafne, czy demo i testy idą do pominiętych.
+  - [x] **9-3** — run odbiorczy `analiza-20260928T115822Z` (drugie podejście;
+    pierwsze padło na zepsutym JSON-ie, patrz dziennik). WORKSPACE_DEAD 12 z 20,
+    wszystkie o nazwach produkcyjnych; demo i testy w pominiętych.
+    WORKSPACE_SPRAWL 1 (53 z 139, 38%).
   - Do omówienia po fazie: niezgodność produktu, otwarty workspace.
 
 ## Dziennik
 
 <!-- Uzupełniany przy zamykaniu faz: data, faza, link do dokumentu
      w `docs/features/`, odchylenia od planu. -->
+
+**2026-09-28 — faza 9 zamknięta.** Run odbiorczy `analiza-20260928T115822Z`
+na pełnym CXLABS: 475 hipotez, 117 do modelu, **77 uwag, 0 odrzuconych
+walidacją**, 48 pominiętych, 2,76 USD przy szacunku 4,62 USD, 17 min, bez
+ostrzeżeń o pokryciu. Workspace w raporcie jest mierzony: 12 × WORKSPACE_DEAD,
+1 × WORKSPACE_SPRAWL. Dokumentu w `docs/features/` jeszcze nie ma.
+
+Co poszło inaczej, niż zakładał plan:
+
+- **Wytycznych do kategorii nie było** — klasy powstały z pomiaru pięciu
+  kandydatów i decyzji Kuby, nie z dokumentu.
+- **Cisza z `updated_at` okazała się za słaba** (O18 wróciło): klasę oparto na
+  ostatnim wpisie logu każdej tablicy — nowy collector, 50 tablic na wywołanie.
+- **Pierwszy run 9-3 przepadł (3,50 USD):** przy 116 hipotezach model oddał
+  ~60 tys. znaków z jednym brakującym przecinkiem, a CLI zgubiło surowy tekst
+  na `BlockingIOError`. Poprawki: naprawa JSON w tej samej sesji, zapis
+  blokujący w CLI, krótszy powód pominięcia (`8ce96b9`). W drugim runie
+  naprawa nie była potrzebna.
+- **Po odbiorze:** „obszar roboczy" zamiast „przestrzeń robocza" w prompcie;
+  Kuba: w raporcie „za duża ściana tekstu, nagminnie" — do rozstrzygnięcia.
+- **Do omówienia:** niezgodność produktu i otwarty workspace (kandydaci 3 i 5).
 
 **2026-09-28 — faza 8 zamknięta.** Dokument:
 [`docs/features/2026-09-28_jakosc-klas.md`](features/2026-09-28_jakosc-klas.md).

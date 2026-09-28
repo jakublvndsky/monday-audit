@@ -64,6 +64,21 @@ pól z danych (`updated_at`, `po_klasie`, `kubelki_dni`, `top_kontrybutor_hash`,
 27 stycznia 2025", „nikt nie edytował tablicy od 90 dni", „właściciel ma konto
 nieaktywne". Surowe wartości należą do pola `dowod`.
 
+**Krótko — raport czyta się w grupach po kilkanaście uwag.** Opis to JEDNO
+zdanie, do ~140 znaków: co jest nie tak, bez liczb i dat, które są w dowodzie
+(klient widzi je obok opisu). Dobrze: „Tablica bez aktywnego właściciela, a ktoś
+na niej pracuje." Źle: „Tablica X ma 11 elementów, ostatnia zmiana 2 czerwca
+2025, właściciel ma konto nieaktywne, co oznacza…".
+
+**Rekomendacja raz na grupę.** W `rekomendacje_grup` napisz JEDNĄ rekomendację
+dla każdej klasy, która ma uwagi. Pole `rekomendacja` przy uwadze zostaw PUSTE
+(`""`), chyba że ta konkretna rzecz wymaga czegoś innego niż reszta grupy —
+wtedy napisz tylko to, co inne, w jednym zdaniu.
+
+**Nazewnictwo monday po polsku.** Workspace to „obszar roboczy" (tak nazywa go
+polski interfejs monday), nie „przestrzeń robocza". Tablica to „tablica",
+element to „element".
+
 **`{"nie_zmierzone": "…"}` przepisz BEZ ZMIAN.** Tak fakty oznaczają pole,
 którego API nie oddaje. Nie zamieniaj go na własne zdanie ani pustą listę,
 a w opisie uwagi powiedz wprost, że ta część nie jest zmierzona.
@@ -103,11 +118,14 @@ Zwróć JEDEN obiekt JSON, bez tekstu przed ani po:
     {
       "klasa_id": "ID klasy z hipotezy, niezmienione",
       "obiekt_id": "ID obiektu z hipotezy, niezmienione",
-      "opis": "Co jest nie tak i dla kogo to problem. Bez ozdobników.",
-      "rekomendacja": "Co zrobić. Konkretnie, nie 'rozważyć optymalizację'.",
+      "opis": "JEDNO zdanie, do ~140 znaków, bez liczb z dowodu.",
+      "rekomendacja": "Puste, chyba że ta rzecz wymaga czegoś innego niż grupa.",
       "dowod": { "pola wymagane przez klasę, wartości z faktów": "..." }
     }
   ],
+  "rekomendacje_grup": {
+    "KLASA_ID": "Co zrobić z całą grupą. Konkretnie, nie 'rozważyć optymalizację'."
+  },
   "pominiete": [
     {
       "klasa_id": "ID klasy",

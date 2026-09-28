@@ -71,7 +71,8 @@
     body { background: #fff; }
     .widok, #glowny { display: block !important; }
     .widok { break-before: page; }
-    .wroc, .kat-nav, .dalej { display: none !important; }
+    .wroc, .kat-nav, .dalej, .rozwin-etykieta { display: none !important; }
+    .reszta { display: block !important; }
   }
   /* Przejście między kategoriami bez cofania się (uwaga Kuby 2026-09-28) —
      projekt z Claude Design go nie miał. Pigułki w stylu chipów projektu. */
@@ -84,8 +85,20 @@
   .kat-nav .kat-licznik { font-variant-numeric: tabular-nums; font-weight: 600; }
   .kat-nav .biezaca .kat-licznik { color: var(--cx-lime); }
   .dalej { display: flex; justify-content: flex-end; }
+  /* Długie grupy zwinięte do 5 wierszy — bez skryptów, na przełączniku
+     (uwaga Kuby 2026-09-28: „za duża ściana tekstu"). Na wydruku wszystko. */
+  .rozwin { position: absolute; opacity: 0; pointer-events: none; }
+  .reszta { display: none; }
+  .rozwin:checked ~ .reszta { display: block; }
+  .rozwin-etykieta { display: block; padding: 14px 24px; border-top: 1px solid var(--cx-cloud);
+    color: var(--cx-ink-10); font-weight: 600; font-size: 15px; cursor: pointer; background: var(--cx-paper); }
+  .rozwin-etykieta:hover { color: var(--cx-ink); }
+  .rozwin-etykieta .zwin, .rozwin:checked + .rozwin-etykieta .pokaz { display: none; }
+  .rozwin:checked + .rozwin-etykieta .zwin { display: inline; }
+  .rozwin:focus-visible + .rozwin-etykieta { outline: 2px solid var(--cx-ink-40); outline-offset: -2px; }
 </style>
 
+{% set WIDOCZNYCH_W_GRUPIE = 5 %}
 {% set kolory = ["var(--cx-lime)", "var(--cx-ink-20)", "var(--cx-ink-40)", "var(--cx-ink-10)"] %}
 {% set konto = r.konto_nazwa or r.client_id %}
 {% set naj = r.zmierzone | selectattr("uwag") | list %}
@@ -271,18 +284,28 @@
           {% endif %}
         </div>
         <div class="grupa-wiersz-nag" style="gap:24px;padding:10px 24px;background:var(--cx-paper);border-top:1px solid var(--cx-cloud);font-size:13px;color:var(--cx-gray-2);">
-          <span style="flex:1.1 1 240px;">Opis</span>{% if not g.wspolna_rekomendacja %}<span style="flex:1 1 220px;">Rekomendacja</span>{% endif %}<span style="flex:1.4 1 280px;">Dowód</span><span style="flex:0 0 72px;">Źródło</span>
+          <span style="flex:1.1 1 240px;">Opis</span>{% if g.rekomendacje_w_wierszach %}<span style="flex:1 1 220px;">Rekomendacja</span>{% endif %}<span style="flex:1.4 1 280px;">Dowód</span><span style="flex:0 0 72px;">Źródło</span>
         </div>
+        {% set zwin = g.uwagi | length > WIDOCZNYCH_W_GRUPIE %}
+        {% set id_grupy = "rozwin-" ~ k.id ~ "-" ~ loop.index %}
         {% for u in g.uwagi %}
+        {% if zwin and loop.index0 == WIDOCZNYCH_W_GRUPIE %}
+        <input type="checkbox" class="rozwin" id="{{ id_grupy }}">
+        <label class="rozwin-etykieta" for="{{ id_grupy }}"><span class="pokaz">Pokaż wszystkie {{ g.uwagi | length }}</span><span class="zwin">Zwiń do {{ WIDOCZNYCH_W_GRUPIE }}</span></label>
+        <div class="reszta">
+        {% endif %}
         <div style="display:flex;flex-wrap:wrap;gap:14px 24px;padding:18px 24px;border-top:1px solid var(--cx-cloud);">
           <div style="flex:1.1 1 240px;min-width:0;display:flex;flex-direction:column;gap:4px;">
             <span class="etykieta-m">Opis</span>
             <p style="font-size:15px;line-height:1.5;">{{ u.opis }}</p>
           </div>
-          {% if not g.wspolna_rekomendacja %}
+          {% if g.rekomendacje_w_wierszach %}
           <div style="flex:1 1 220px;min-width:0;display:flex;flex-direction:column;gap:4px;">
+            {% set wlasna = g.wlasna(u) %}
+            {% if wlasna %}
             <span class="etykieta-m">Rekomendacja</span>
-            <p style="font-size:15px;line-height:1.5;display:flex;gap:8px;"><span style="color:var(--cx-ink-10);flex:none;">→</span><span>{{ u.rekomendacja }}</span></p>
+            <p style="font-size:15px;line-height:1.5;display:flex;gap:8px;"><span style="color:var(--cx-ink-10);flex:none;">→</span><span>{{ wlasna }}</span></p>
+            {% else %}<span style="font-size:14px;color:var(--cx-gray-3);">jak dla grupy</span>{% endif %}
           </div>
           {% endif %}
           <div style="flex:1.4 1 280px;min-width:0;display:flex;flex-direction:column;gap:6px;">
@@ -303,6 +326,7 @@
             {% else %}<span style="background:var(--cx-ink-80);color:var(--cx-mist);border-radius:6px;padding:2px 8px;font-size:12px;">AI</span>{% endif %}
           </div>
         </div>
+        {% if zwin and loop.last %}</div>{% endif %}
         {% endfor %}
       </div>
       {% endfor %}

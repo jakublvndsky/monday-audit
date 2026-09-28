@@ -72,6 +72,8 @@ class WynikUwag:
     przyjete: list[dict[str, Any]] = field(default_factory=list)
     odrzucone: list[OdrzuconaUwaga] = field(default_factory=list)
     pominiete: list[dict[str, Any]] = field(default_factory=list)
+    # klasa_id → rekomendacja dla całej grupy, jak ją podał model.
+    rekomendacje_grup: dict[str, str] = field(default_factory=dict)
 
     @property
     def odsetek_odrzuconych(self) -> float:
@@ -136,7 +138,22 @@ def waliduj_uwagi(odpowiedz: Any, rubryka: Rubryka) -> WynikUwag:
         raise KontraktError("pole `uwagi` nie jest listą")
 
     wynik = WynikUwag()
+    # Rekomendacja na poziomie grupy (2026-09-28, „ściana tekstu"): model pisze
+    # jedną na klasę, a przy uwadze tylko wtedy, gdy ta rzecz wymaga czegoś
+    # innego. Uwaga bez własnej dostaje grupową — zapis i stare ścieżki dalej
+    # widzą rekomendację przy każdej uwadze.
+    grupowe = odpowiedz.get("rekomendacje_grup")
+    if isinstance(grupowe, dict):
+        wynik.rekomendacje_grup = {
+            str(k): str(v).strip() for k, v in grupowe.items() if str(v or "").strip()
+        }
     for surowa in surowe:
+        if (
+            isinstance(surowa, dict)
+            and not str(surowa.get("rekomendacja") or "").strip()
+            and str(surowa.get("klasa_id")) in wynik.rekomendacje_grup
+        ):
+            surowa["rekomendacja"] = wynik.rekomendacje_grup[str(surowa["klasa_id"])]
         odrzut = _sprawdz_uwage(surowa, rubryka)
         if odrzut is None:
             wynik.przyjete.append(surowa)

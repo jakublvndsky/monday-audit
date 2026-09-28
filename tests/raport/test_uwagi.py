@@ -394,3 +394,37 @@ def test_z_kategorii_da_sie_przejsc_dalej_bez_cofania(con: sqlite3.Connection) -
     assert 'href="#glowny"' in dalej
     assert 'href="#kat-workspace"' in widoki["tablice"] and "#kat-agenci" not in html
     assert "Agenci AI · jeszcze nie mierzone" in widoki["tablice"]
+
+
+def _duze_grupy(con: sqlite3.Connection, ile: int, **k: Any) -> str:
+    uwagi = [
+        _uwaga(dowod={"user_hash": PSEUDONIM, "kind": "member", "status": "ACTIVE",
+                      "last_activity": f"2026-06-{n + 1:02d}", "obecnosc_w_logach": False},
+               rekomendacja="Potwierdzić." if n else "Najpierw odebrać admina.")
+        for n in range(ile)
+    ]  # fmt: skip
+    return wyrenderuj_uwagi(
+        _zbuduj(con, uwagi, rekomendacje_grup={"ZOMBIE_ACCOUNT": "Potwierdzić."}, **k)
+    )
+
+
+def test_rekomendacja_grupowa_nad_grupa_a_w_wierszu_tylko_wyjatek(
+    con: sqlite3.Connection,
+) -> None:
+    """2026-09-28: 20 × „wyznaczyć nowego właściciela" pod sobą to ściana tekstu."""
+    html = _duze_grupy(con, 3)
+
+    assert "Rekomendacja dla całej grupy: </span>Potwierdzić." in html
+    assert html.count("Najpierw odebrać admina.") == 1
+    assert html.count("jak dla grupy") == 2
+
+
+def test_dluga_grupa_zwinieta_do_pieciu_bez_skryptow(con: sqlite3.Connection) -> None:
+    html = _duze_grupy(con, 8)
+
+    assert html.count('class="rozwin"') == 1 and "Pokaż wszystkie 8" in html
+    assert "<script" not in html
+    # Reszta istnieje w pliku (na wydruku rozwinięta), tylko schowana.
+    reszta = html.split('<div class="reszta">')[1]
+    assert reszta.count("jak dla grupy") == 3
+    assert "Pokaż wszystkie" not in _duze_grupy(con, 5)

@@ -246,16 +246,31 @@ class GrupaUwag:
     uwagi: tuple[UwagaWRaporcie, ...]
     # Pola dowodu w kolejności pierwszego wystąpienia.
     kolumny: tuple[str, ...]
-    # Rekomendacje bez powtórzeń. Jedna → pokazana raz nad grupą (decyzja
-    # 2026-09-25: bez rekomendacji grupowej pisanej przez model).
+    # Rekomendacje bez powtórzeń. Jedna → pokazana raz nad grupą.
     rekomendacje: tuple[str, ...]
+    # Rekomendacja grupowa od modelu (2026-09-28). Wygrywa z wyliczoną z uwag:
+    # model pisze ją raz, a przy uwadze tylko wyjątek.
+    grupowa: str | None = None
 
     @property
     def wspolna_rekomendacja(self) -> str | None:
+        if self.grupowa:
+            return self.grupowa
         return self.rekomendacje[0] if len(self.rekomendacje) == 1 else None
 
+    def wlasna(self, uwaga: UwagaWRaporcie) -> str | None:
+        """Rekomendacja wiersza — tylko gdy różni się od grupowej."""
+        tekst = uwaga.rekomendacja.strip()
+        return tekst if tekst and tekst != self.wspolna_rekomendacja else None
 
-def _grupy(uwagi: Sequence[UwagaWRaporcie]) -> tuple[GrupaUwag, ...]:
+    @property
+    def rekomendacje_w_wierszach(self) -> bool:
+        return any(self.wlasna(u) for u in self.uwagi)
+
+
+def _grupy(
+    uwagi: Sequence[UwagaWRaporcie], grupowe: dict[str, str] | None = None
+) -> tuple[GrupaUwag, ...]:
     """Najliczniejsze grupy najpierw — tam jest najwięcej do zrobienia."""
     po_klasie: dict[str, list[UwagaWRaporcie]] = {}
     for uwaga in uwagi:
@@ -267,6 +282,7 @@ def _grupy(uwagi: Sequence[UwagaWRaporcie]) -> tuple[GrupaUwag, ...]:
             uwagi=tuple(lista),
             kolumny=tuple(dict.fromkeys(k for u in lista for k in u.dowod)),
             rekomendacje=tuple(dict.fromkeys(u.rekomendacja for u in lista)),
+            grupowa=(grupowe or {}).get(klasa_id),
         )
         for klasa_id, lista in po_klasie.items()
     ]
@@ -338,10 +354,11 @@ class RaportUwag:
     plan: str | None = None
     kategorie: tuple[KategoriaRaportu, ...] = ()
     pokrycie: tuple[Pokrycie, ...] = field(default_factory=tuple)
+    rekomendacje_grup: dict[str, str] = field(default_factory=dict)
 
     @property
     def grupy(self) -> tuple[GrupaUwag, ...]:
-        return _grupy(self.uwagi)
+        return _grupy(self.uwagi, self.rekomendacje_grup)
 
     @property
     def zmierzone(self) -> tuple[KategoriaRaportu, ...]:
@@ -367,7 +384,9 @@ def _nazwy_tablic(payload: dict[str, Any], deanon: Deanonimizacja) -> dict[str, 
     }
 
 
-def _kategorie(uwagi: Sequence[UwagaWRaporcie], rubryka: Rubryka) -> tuple[KategoriaRaportu, ...]:
+def _kategorie(
+    uwagi: Sequence[UwagaWRaporcie], rubryka: Rubryka, grupowe: dict[str, str] | None = None
+) -> tuple[KategoriaRaportu, ...]:
     kategoria_klasy = {k.id: k.kategoria for k in rubryka.klasy}
     razem = len(uwagi) or 1
     wynik = []
@@ -385,7 +404,7 @@ def _kategorie(uwagi: Sequence[UwagaWRaporcie], rubryka: Rubryka) -> tuple[Kateg
                 niezmierzona=None
                 if mierzona
                 else (kategoria.niezmierzona or "jeszcze nie mierzone"),
-                grupy=_grupy(swoje),
+                grupy=_grupy(swoje, grupowe),
                 udzial=round(len(swoje) / razem * 100),
             )
         )
@@ -468,6 +487,7 @@ def zbuduj_raport_uwag(
     zastrzezenia: tuple[str, ...] = (),
     snapshot_id: int | None = None,
     poza_sufitem: Sequence[PozaSufitem] = (),
+    rekomendacje_grup: dict[str, str] | None = None,
 ) -> RaportUwag:
     """Uwagi przyjęte przez walidację → raport z nazwiskami.
 
@@ -503,8 +523,9 @@ def zbuduj_raport_uwag(
     # Zastrzeżenia też: obraz konta jest redagowany przed modelem, więc niosą
     # `[OSOBA:…]` — bez tego czytelnik raportu widziałby surowy hasz.
     zastrzezenia = tuple(deanon.tekst(z) for z in zastrzezenia)
+    grupowe = {k: deanon.tekst(v) for k, v in (rekomendacje_grup or {}).items()}
     deanon.podsumuj()
-    kategorie = _kategorie(uwagi, rubryka)
+    kategorie = _kategorie(uwagi, rubryka, grupowe)
     konto = (payload.get("konto") or {}).get("konto") or {}
     plan = (payload.get("konto") or {}).get("plan") or {}
     return RaportUwag(
@@ -519,6 +540,7 @@ def zbuduj_raport_uwag(
         plan=plan.get("tier") or None,
         kategorie=kategorie,
         pokrycie=_pokrycie(payload, uwagi, kategorie, poza_sufitem, rubryka),
+        rekomendacje_grup=grupowe,
     )
 
 

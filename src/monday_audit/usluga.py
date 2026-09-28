@@ -35,6 +35,7 @@ import dataclasses
 import logging
 import sqlite3
 import time
+from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -641,6 +642,12 @@ async def analizuj_snapshot(
         if do_modelu:
             _sprawdz_strukture(odpowiedz_modelu)
         odpowiedz["uwagi"] = z_szablonow + list(odpowiedz.get("uwagi") or [])
+        # Klasy z szablonu też mają rekomendację grupową: najczęstsza z ich
+        # uwag. Wariant inny (admin przy ZOMBIE) zostaje przy wierszu jako wyjątek.
+        grupowe = odpowiedz.setdefault("rekomendacje_grup", {})
+        for klasa in {u["klasa_id"] for u in z_szablonow}:
+            teksty = Counter(u["rekomendacja"] for u in z_szablonow if u["klasa_id"] == klasa)
+            grupowe.setdefault(klasa, teksty.most_common(1)[0][0])
         try:
             walidacja = waliduj_uwagi(odpowiedz, rubryka)
         except KontraktError as blad:
@@ -807,6 +814,7 @@ def _raport_z_nazwiskami(
             zastrzezenia=zastrzezenia,
             snapshot_id=snapshot_id,
             poza_sufitem=poza_sufitem,
+            rekomendacje_grup=walidacja.rekomendacje_grup,
         )
         return wyrenderuj_uwagi(raport)
     except Exception:  # raport nie jest wynikiem — wynik zostaje

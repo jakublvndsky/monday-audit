@@ -68,23 +68,6 @@ def _dni_ciszy(fakty: dict[str, Any], teraz: datetime | None = None) -> int | No
     return ((teraz or datetime.now(tz=UTC)) - kiedy).days
 
 
-_MIESIACE = (
-    "stycznia", "lutego", "marca", "kwietnia", "maja", "czerwca",
-    "lipca", "sierpnia", "września", "października", "listopada", "grudnia",
-)  # fmt: skip
-
-
-def _data_slownie(surowy: Any) -> str | None:
-    """`2026-06-09T13:01:12Z` → `9 czerwca 2026`. Nieczytelne ISO zostaje jak jest."""
-    if not surowy:
-        return None
-    try:
-        kiedy = datetime.fromisoformat(str(surowy).replace("Z", "+00:00"))
-    except ValueError:
-        return str(surowy)
-    return f"{kiedy.day} {_MIESIACE[kiedy.month - 1]} {kiedy.year}"
-
-
 def _opis_zombie(fakty: dict[str, Any], dni: int | None) -> str:
     """Opis: co, gdzie, dlaczego — z faktów, bez ani jednego zdania od modelu.
 
@@ -98,25 +81,19 @@ def _opis_zombie(fakty: dict[str, Any], dni: int | None) -> str:
     """
     kind = str(fakty.get("kind") or "?")
     rola = "administratora" if kind == "admin" else "członka zespołu"
-    czas = f"{dni} dni" if dni is not None else "cały okres badania"
+    cisza = (
+        f"bez aktywności od {dni} dni" if dni is not None else "nie ma zapisanej daty aktywności"
+    )
     plan = str(fakty.get("plan_tier") or "?")
 
     # Bez nazw pól (`kind`, `obecnosc_w_logach`) i bez surowego ISO: opis czyta
     # klient, surowe wartości są w `dowod` (uwaga Kuby po runie Demo-44, 2026-09-25).
-    ostatnia = _data_slownie(fakty.get("last_activity"))
-    zdania = [
-        f"Konto {rola} zajmuje płatne miejsce w planie {plan} i nie wykazuje aktywności od {czas}.",
-        f"Ostatnia aktywność: {ostatnia}."
-        if ostatnia
-        else "Konto nie ma zapisanej daty ostatniej aktywności.",
-        "Nie pojawia się też jako autor w żadnym wpisie logu aktywności"
-        " z badanego okna — to drugi, niezależny dowód.",
-    ]
+    # Jedno zdanie (2026-09-28, „ściana tekstu"): liczby i daty są w dowodzie,
+    # obok opisu. Zostają fakty, których wymaga złoty zestaw: płatne miejsce,
+    # rola (ADMIN to inne ryzyko), brak śladu w logach.
+    zdania = [f"Konto {rola} zajmuje płatne miejsce w planie {plan}, {cisza} i bez śladu w logach."]
     if kind == "admin":
-        zdania.append(
-            "Konto ma uprawnienia administratora, więc martwe konto oznacza"
-            " tu nie tylko koszt licencji, ale i nienadzorowany dostęp."
-        )
+        zdania.append("Martwe konto z uprawnieniami administratora to też nienadzorowany dostęp.")
     return " ".join(zdania)
 
 
