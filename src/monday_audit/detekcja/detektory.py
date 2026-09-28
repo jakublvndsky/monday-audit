@@ -31,7 +31,7 @@ from typing import Any
 
 from monday_audit.detekcja.rubryka import Rubryka, wczytaj_rubryke
 from monday_audit.zbieranie.osoby import RODZAJ_AGENT
-from monday_audit.zbieranie.podglad_zakresu import PROG_RAPORTOWEJ, TYPY_AUTOMATYCZNE
+from monday_audit.zbieranie.typy_kolumn import PROG_RAPORTOWEJ, TYPY_AUTOMATYCZNE
 
 logger = logging.getLogger(__name__)
 
@@ -703,7 +703,10 @@ FROM tablice
 WHERE typ = 'board'
   AND state = 'active'
   AND kolumn > :prog
-  AND COALESCE(items_count, 0) >= :min_elementow
+  -- Brak liczby elementów to „nie wiem", nie „zero": hipoteza przechodzi,
+  -- inaczej klasa znikałaby po cichu na koncie, gdzie API jej nie oddaje
+  -- (code review 2026-09-28).
+  AND (items_count IS NULL OR items_count >= :min_elementow)
 ORDER BY kolumn DESC, board_id
 """
 

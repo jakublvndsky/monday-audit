@@ -44,6 +44,7 @@ from datetime import datetime
 from typing import Any
 
 from monday_audit.zbieranie.klient import MondayClient
+from monday_audit.zbieranie.typy_kolumn import PROG_RAPORTOWEJ, TYPY_AUTOMATYCZNE
 
 logger = logging.getLogger(__name__)
 
@@ -58,25 +59,6 @@ logger = logging.getLogger(__name__)
 # ani nie wybiera. Ten sam filtr stosuje `_PARY_TABLIC` w `detektory.py`.
 TYP_TABLICY = "board"
 
-# Kolumny wyliczane przez monday, nie wypełniane przez człowieka. Wysoki
-# udział znaczy „tablica raportowa" — czyta z innych, nie prowadzi procesu.
-# Zastępnik nieosiągalnej flagi o pustych kolumnach (patrz docstring modułu).
-TYPY_AUTOMATYCZNE = frozenset(
-    {
-        "formula",
-        "mirror",
-        "lookup",
-        "dependency",
-        "progress",
-        "auto_number",
-        "creation_log",
-        "last_updated",
-        "item_id",
-    }
-)
-
-# Od tego udziału kolumn automatycznych tablica dostaje flagę `raportowa`.
-PROG_RAPORTOWEJ = 0.5
 
 # Poniżej tej różnicy `updated_at - created_at` tablica nie została ruszona
 # po założeniu. Ta sama stała i to samo znaczenie co `SEKUND_NIERUSZONEJ`

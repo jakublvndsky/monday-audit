@@ -549,7 +549,7 @@ def tablica(
     nazwa: str = "Tablica",
     typ: str = "board",
     state: str = "active",
-    items_count: int = 10,
+    items_count: int | None = 10,
     created_at: str = "2025-01-01T00:00:00Z",
     updated_at: str = "2026-07-01T00:00:00Z",
     workspace_id: str | None = "ws1",
@@ -735,6 +735,7 @@ def test_board_overcomplex_liczy_tylko_kolumny_reczne(con: sqlite3.Connection) -
                 tablica("formuly", kolumny=reczne[:10] + formuly),
                 tablica("raportowa", kolumny=reczne + formuly + formuly),
                 tablica("pusta", kolumny=reczne, items_count=4),
+                tablica("nieznana", kolumny=reczne, items_count=None),
             ]
         ),
     )
@@ -743,7 +744,9 @@ def test_board_overcomplex_liczy_tylko_kolumny_reczne(con: sqlite3.Connection) -
 
     # `formuly`: 20 kolumn, ale ręcznych 10. `raportowa`: 16 ręcznych, lecz
     # 20 z 36 to automatyczne (≥ 50%). `pusta`: 4 elementy, próbka nic nie powie.
-    assert list(hipotezy) == ["reczna"]
+    # `nieznana`: API nie oddało liczby elementów — „nie wiem" przechodzi,
+    # żeby klasa nie znikała po cichu (code review 2026-09-28).
+    assert sorted(hipotezy) == ["nieznana", "reczna"]
     assert (hipotezy["reczna"]["kolumn_recznych"], hipotezy["reczna"]["kolumn_automatycznych"]) == (
         16,
         5,

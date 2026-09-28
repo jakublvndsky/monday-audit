@@ -68,11 +68,10 @@ from monday_audit.zbieranie.podglad_zakresu import (
     FLAGA_NIEPROBKOWANA,
     FLAGA_NIEUZYWANA,
     FLAGA_RAPORTOWA,
-    PROG_RAPORTOWEJ,
     SEKUND_NIERUSZONEJ,
     TYP_TABLICY,
-    TYPY_AUTOMATYCZNE,
 )
+from monday_audit.zbieranie.typy_kolumn import PROG_RAPORTOWEJ, TYPY_AUTOMATYCZNE
 
 logger = logging.getLogger(__name__)
 
