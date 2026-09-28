@@ -466,6 +466,33 @@ na nich napisał.
   - [x] **7-2** — sesja na pełnym koncie i raport z nazwiskami obejrzany
     przez Kubę; poprawki po nim. Odebrane na `analiza-20260925T113801Z`.
 
+- [ ] **8. Jakość klas** — DRAFT (2026-09-28), czeka na odpowiedź Kuby: czy
+  kolejność kroków jest właściwa i czy zakres jest kompletny. Rezultat: mniej
+  szumu i stabilniejsze rozstrzygnięcia na pełnym koncie — liczba hipotez
+  BOARD_OVERCOMPLEX z 398 do zmierzonej, zero fałszywych ostrzeżeń o pokryciu,
+  każdy powód błędu automatyzacji z decyzją. Kroki 8-1…8-3 to 0 USD modelu
+  (collector + `--tylko-szacunek`); płatny tylko run w 8-4.
+  - [ ] **8-1** — BOARD_OVERCOMPLEX wybiórczy. Pomiar na pełnym koncie trzech
+    filtrów osobno i razem: (1) liczyć tylko kolumny wypełniane ręcznie (bez
+    formuł, luster, autonumerów — `TYPY_AUTOMATYCZNE`), (2) pominąć tablice
+    raportowe (≥ `PROG_RAPORTOWEJ` kolumn automatycznych), (3) pominąć tablice
+    z kilkoma elementami. Wybór należy do Kuby — zmienia sygnał w rubryce (0.9).
+    - Ryzyko: rozkład nieznany; za ostry filtr ukryje tablice naprawdę
+      przeładowane. Najpierw pomiar, potem decyzja.
+  - [ ] **8-2** — krótki `obiekt_id` grupy duplikatów:
+    `grupa-<najmniejsze ID>-<liczba tablic>` zamiast złączonych ID (do ~1000
+    znaków); pełna lista zostaje w faktach i dowodzie.
+    - Ryzyko: `obiekt_id` czytają też pominięte i `hipotezy_odrzucone` —
+      sprawdzić wszystkie miejsca.
+  - [ ] **8-3** — pełna lista powodów błędów automatyzacji z konta (z liczbą
+    automatyzacji i uruchomień) do decyzji Kuby: wada procesu czy złe dane
+    wejściowe (m.in. `invalid_person_assignment`) → `POWODY_Z_DANYCH_WEJSCIOWYCH`.
+  - [ ] **8-4** — szacunek, potem run odbiorczy na pełnym koncie (po osobnym
+    „tak"): BOARD_OVERCOMPLEX mniej i trafniej, zero ostrzeżeń o pokryciu,
+    AUTOMATION_DEAD stabilne.
+  - Poza zakresem: raport zamaskowany z historii, PDF, portal, nowe klasy
+    (Workspace i Agenci nadal „jeszcze nie mierzone").
+
 ## Dziennik
 
 <!-- Uzupełniany przy zamykaniu faz: data, faza, link do dokumentu

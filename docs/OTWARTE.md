@@ -2397,3 +2397,45 @@ zapytaniem, ale dane z nieprzypiętej wersji **nie mają prawa wejść do
 findingów** (D4, 05-deploy) — audyt przestałby być odtwarzalny.
 `board_automations` wchodzi więc do audytu dopiero z przypięciem `2026-10`,
 gdy stanie się `current`.
+
+---
+
+## O53. Jev (TypeSafe AI) do samych rozstrzygnięć hipotez — niesprawdzone
+
+**Status: POMYSŁ NA PÓŹNIEJ (Kuba, 2026-09-28). Nic nie jest zbudowane ani podłączone.**
+**Dotyczy:** `agent.sesja` (rozstrzygnięcia hipotez), faza 8-3
+
+**Co to jest.** Jev to model „System One": dostaje stan i typowane pytania
+(wybór z listy do 255 opcji, ocena wg rubryki, prawda/fałsz 0–1) i oddaje
+typowane odpowiedzi z prawdopodobieństwem i pewnością. **Nie generuje tekstu**
+i nie woła narzędzi. Premiera 2026-09-15, wczesny dostęp, infrastruktura
+w USA (zachodnie wybrzeże).
+
+**Co firma DEKLARUJE — nie zmierzone przez nas ani przez nikogo niezależnie:**
+70–500 ms na odpowiedź, 40–200× szybciej od czołowych LLM na takich zadaniach,
+0,042 USD za mln tokenów wejścia, wyjście „za darmo", „zero halucynacji" —
+co znaczy poprawny TYP odpowiedzi, nie trafność; firma sama nazywa to
+twierdzeniem teoretycznym.
+
+**Gdzie by pasował.** Nie jako zamiennik agenta — sesja pisze opis
+i rekomendację po polsku i używa narzędzi. Pasowałby do jednej decyzji:
+„uwaga czy pominięta, i który warunek odrzucenia" (np. czy powód błędu
+automatyzacji to złe dane wejściowe). Opis musiałby wtedy powstawać
+z szablonu, jak dziś `ZOMBIE_ACCOUNT` — to zmiana architektury, nie modelu.
+
+**Co musi być wiadomo, zanim ktokolwiek to przetestuje:**
+
+- **zasady przechowywania danych i DPA TypeSafe** — do Jev poszłyby nazwy
+  tablic i fakty, czyli ten sam poziom co do Anthropic. Nowy odbiorca danych
+  klienta to decyzja Kuby, jak D10 przy Langfuse,
+- **nowa zależność** — zakaz twardy, tylko za zgodą Kuby,
+- **limit długości wejścia** — nie znaleziony w dokumentacji.
+
+**Jak sprawdzić, gdy warunki będą spełnione.** Offline, bez klienta: ten sam
+zestaw hipotez z jednego runu na koncie CXLABS, rozstrzygnięcia Jev obok
+rozstrzygnięć Sonneta, zgodność per klasa i koszt. Bez wpinania w ścieżkę
+produkcyjną przed tym porównaniem.
+
+Źródła: [blog TypeSafe](https://typesafe.ai/blog/introducing-system-one-models-and-jev),
+[dokumentacja](https://docs.typesafe.ai/introduction),
+[Wikipedia](https://en.wikipedia.org/wiki/Jev_(AI_model)).
