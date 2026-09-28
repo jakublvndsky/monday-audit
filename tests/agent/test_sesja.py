@@ -361,7 +361,7 @@ def test_sufit_bierze_najsilniejsze_a_remis_rozstrzyga_obiekt() -> None:
         2,
         4,
     )
-    assert przyciete.kryterium == "najwięcej kolumn"
+    assert przyciete.kryterium == "najwięcej kolumn wypełnianych ręcznie"
 
 
 def test_remis_bez_faktu_rankingu_bierze_kolejnosc_detektora() -> None:

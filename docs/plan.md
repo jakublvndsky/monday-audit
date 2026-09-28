@@ -466,13 +466,17 @@ na nich napisał.
   - [x] **7-2** — sesja na pełnym koncie i raport z nazwiskami obejrzany
     przez Kubę; poprawki po nim. Odebrane na `analiza-20260925T113801Z`.
 
-- [ ] **8. Jakość klas** — DRAFT (2026-09-28), czeka na odpowiedź Kuby: czy
-  kolejność kroków jest właściwa i czy zakres jest kompletny. Rezultat: mniej
+- [ ] **8. Jakość klas** — kolejność i zakres zatwierdzone przez Kubę
+  2026-09-28. Rezultat: mniej
   szumu i stabilniejsze rozstrzygnięcia na pełnym koncie — liczba hipotez
   BOARD_OVERCOMPLEX z 398 do zmierzonej, zero fałszywych ostrzeżeń o pokryciu,
   każdy powód błędu automatyzacji z decyzją. Kroki 8-1…8-3 to 0 USD modelu
   (collector + `--tylko-szacunek`); płatny tylko run w 8-4.
-  - [ ] **8-1** — BOARD_OVERCOMPLEX wybiórczy. Pomiar na pełnym koncie trzech
+  - [x] **8-1** — BOARD_OVERCOMPLEX wybiórczy. **Zrobione 2026-09-28**, decyzja
+    Kuby: ręcznych kolumn > 15, bez tablic raportowych, elementów ≥ 5; sufit
+    rankingowany po kolumnach ręcznych; rubryka 0.9. Na pełnym CXLABS 398 → 175
+    hipotez tej klasy, wszystkich 621 → 399 (`--tylko-szacunek`, 0 USD).
+    Pierwotny opis: Pomiar na pełnym koncie trzech
     filtrów osobno i razem: (1) liczyć tylko kolumny wypełniane ręcznie (bez
     formuł, luster, autonumerów — `TYPY_AUTOMATYCZNE`), (2) pominąć tablice
     raportowe (≥ `PROG_RAPORTOWEJ` kolumn automatycznych), (3) pominąć tablice

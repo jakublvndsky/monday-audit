@@ -124,9 +124,14 @@ SUFIT_NA_KLASE = 20
 # Klasa → klucz siły (większy = silniejszy sygnał). Klasa bez wpisu zachowuje
 # kolejność detektorów (po `obiekt_id`) — deterministyczną, choć bez rankingu.
 _SILA: dict[str, tuple[str, Callable[[dict[str, Any]], tuple[Any, ...]]]] = {
+    # Kolumny RĘCZNE, nie wszystkie (faza 8-1): po wszystkich na górę szły
+    # tablice pełne formuł i luster, których nikt nie wypełnia.
     "BOARD_OVERCOMPLEX": (
-        "najwięcej kolumn",
-        lambda f: (f.get("liczba_kolumn") or 0, f.get("items_count") or 0),
+        "najwięcej kolumn wypełnianych ręcznie",
+        lambda f: (
+            f.get("kolumn_recznych") or f.get("liczba_kolumn") or 0,
+            f.get("items_count") or 0,
+        ),
     ),
     "DUPLICATE_STRUCTURE": (
         "największe grupy",

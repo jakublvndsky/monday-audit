@@ -423,7 +423,7 @@ def test_raport_wymienia_klasy_bez_detektora(con: sqlite3.Connection) -> None:
     assert set(raport["klasy_bez_detektora"]) == wszystkie - zbudowane
     # 0.3 przy dodaniu UZYTKOWNIK_WYGASZONY, 0.4 przy doprecyzowaniu warunku
     # odrzucenia BOARD_GHOST (O34) — oba w etapie 4.
-    assert raport["rubric_version"] == "0.8"
+    assert raport["rubric_version"] == "0.9"
 
 
 def test_budzet_bierze_sie_z_rubryki(con: sqlite3.Connection) -> None:
@@ -686,6 +686,37 @@ def test_board_overcomplex_nie_udaje_ze_zna_martwe_kolumny(con: sqlite3.Connecti
     assert hipotezy[0].fakty["liczba_kolumn"] == 16
     assert hipotezy[0].fakty["kolumny_martwe"] is None, "wymaga próbki itemów (D5) — robota agenta"
     assert hipotezy[0].fakty["typy_kolumn"] == {"text": 16}
+
+
+def test_board_overcomplex_liczy_tylko_kolumny_reczne(con: sqlite3.Connection) -> None:
+    """Rubryka 0.9 (faza 8-1): formuł i luster nikt nie wypełnia — nie liczą się.
+
+    ZMIERZONE na pełnym CXLABS: 180 z 398 hipotez przekraczało próg wyłącznie
+    kolumnami automatycznymi.
+    """
+    reczne = [{"title": f"K{n}", "type": "text"} for n in range(16)]
+    formuly = [{"title": f"F{n}", "type": "formula"} for n in range(10)]
+    snapshot_id = zapisz(
+        con,
+        pelny(
+            tablice=[
+                tablica("reczna", kolumny=reczne + formuly[:5]),
+                tablica("formuly", kolumny=reczne[:10] + formuly),
+                tablica("raportowa", kolumny=reczne + formuly + formuly),
+                tablica("pusta", kolumny=reczne, items_count=4),
+            ]
+        ),
+    )
+
+    hipotezy = {h.obiekt_id: h.fakty for h in board_overcomplex(con, snapshot_id, 0)}
+
+    # `formuly`: 20 kolumn, ale ręcznych 10. `raportowa`: 16 ręcznych, lecz
+    # 20 z 36 to automatyczne (≥ 50%). `pusta`: 4 elementy, próbka nic nie powie.
+    assert list(hipotezy) == ["reczna"]
+    assert (hipotezy["reczna"]["kolumn_recznych"], hipotezy["reczna"]["kolumn_automatycznych"]) == (
+        16,
+        5,
+    )
 
 
 def test_duplicate_structure_liczy_jaccarda(con: sqlite3.Connection) -> None:

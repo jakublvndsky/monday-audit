@@ -33,7 +33,7 @@
 # To są decyzje biznesowe z etapu 1 i pomiary techniczne nie mają do nich nic
 # do powiedzenia.
 
-wersja: "0.8"
+wersja: "0.9"
 odbiorca_domyslny: wewnetrzny
 
 # ──────────────────────────────────────────────────────────────
@@ -452,7 +452,14 @@ klasy:
     nazwa: Tablica z polami, których nikt nie wypełnia
     kategoria: tablice
     modul_zrodlowy: 3
-    sygnal: liczba_kolumn > 15
+    # 0.9 (Kuba, 2026-09-28, faza 8-1): sygnał „liczba_kolumn > 15" dawał na
+    # pełnym CXLABS 398 hipotez, 180 z nich wyłącznie przez kolumny
+    # automatyczne, 128 z mniej niż 5 elementami. Po zmianie: 175.
+    sygnal: |
+      kolumn_recznych > 15   (bez formula, mirror, lookup, dependency, progress,
+                              auto_number, creation_log, last_updated, item_id)
+      AND udział kolumn automatycznych < 50%   (tablica nie jest raportowa)
+      AND items_count >= 5
     rola_agenta: |
       Ustal, które kolumny są faktycznie martwe. UWAGA: snapshot nie
       zawiera wskaźnika wypełnienia (nie schodzimy na poziom itemów),

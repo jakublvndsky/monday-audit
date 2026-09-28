@@ -31,6 +31,7 @@ from typing import Any
 
 from monday_audit.detekcja.rubryka import Rubryka, wczytaj_rubryke
 from monday_audit.zbieranie.osoby import RODZAJ_AGENT
+from monday_audit.zbieranie.podglad_zakresu import PROG_RAPORTOWEJ, TYPY_AUTOMATYCZNE
 
 logger = logging.getLogger(__name__)
 
@@ -668,8 +669,17 @@ def board_no_owner(con: sqlite3.Connection, snapshot_id: int, budzet: int) -> li
 
 # ── BOARD_OVERCOMPLEX ────────────────────────────────────────────────────
 
-# Rubryka: `liczba_kolumn > 15`.
+# Rubryka 0.9: więcej niż 15 kolumn WYPEŁNIANYCH RĘCZNIE, tablica nie jest
+# raportowa, co najmniej 5 elementów. Decyzja Kuby 2026-09-28 (faza 8-1).
+#
+# ZMIERZONE na pełnym CXLABS (1317 aktywnych tablic): sygnał „kolumn > 15"
+# dawał 398 hipotez, z czego 180 przekraczało próg WYŁĄCZNIE kolumnami
+# automatycznymi (formuły, lustra, autonumery — ich nikt nie wypełnia, więc
+# nie pasują do klasy), a 128 miało mniej niż 5 elementów (76 pustych) — próbka
+# nie ma tam czego pokazać. Po filtrach: 175. Model i tak widzi 20 (sufit), ale
+# teraz 20 właściwych, a raport mówi „20 z 175", nie „20 z 398".
 PROG_KOLUMN = 15
+MIN_ELEMENTOW_OVERCOMPLEX = 5
 
 _BOARD_OVERCOMPLEX = f"""
 WITH snap AS (SELECT payload FROM snapshots WHERE id = :snapshot_id),
@@ -682,12 +692,13 @@ FROM tablice
 WHERE typ = 'board'
   AND state = 'active'
   AND kolumn > :prog
+  AND COALESCE(items_count, 0) >= :min_elementow
 ORDER BY kolumn DESC, board_id
 """
 
 
 def board_overcomplex(con: sqlite3.Connection, snapshot_id: int, budzet: int) -> list[Hipoteza]:
-    """Tablica z liczbą kolumn powyżej progu.
+    """Tablica z więcej niż 15 kolumnami wypełnianymi ręcznie (rubryka 0.9).
 
     `kolumny_martwe[]` i `rozmiar_probki` z `dowod` NIE są tu wypełniane —
     wymagają próbki itemów, czyli jedynego świadomego wyjątku od D5, i to
@@ -696,11 +707,22 @@ def board_overcomplex(con: sqlite3.Connection, snapshot_id: int, budzet: int) ->
     tekstowych wypełnianych ręcznie.
     """
     hipotezy: list[Hipoteza] = []
-    for w in con.execute(_BOARD_OVERCOMPLEX, {"snapshot_id": snapshot_id, "prog": PROG_KOLUMN}):
+    parametry = {
+        "snapshot_id": snapshot_id,
+        "prog": PROG_KOLUMN,
+        "min_elementow": MIN_ELEMENTOW_OVERCOMPLEX,
+    }
+    for w in con.execute(_BOARD_OVERCOMPLEX, parametry):
         typy: list[str] = json.loads(w["typy_kolumn"] or "[]")
         rozklad: dict[str, int] = {}
         for typ in typy:
             rozklad[typ] = rozklad.get(typ, 0) + 1
+        automatycznych = sum(1 for typ in typy if typ in TYPY_AUTOMATYCZNE)
+        recznych = len(typy) - automatycznych
+        # Tablica raportowa to warunek odrzucenia z rubryki — liczymy go tu,
+        # bo detektor ma typy kolumn, a model musiałby je przeliczać.
+        if recznych <= PROG_KOLUMN or (typy and automatycznych / len(typy) >= PROG_RAPORTOWEJ):
+            continue
         hipotezy.append(
             Hipoteza(
                 klasa_id="BOARD_OVERCOMPLEX",
@@ -708,6 +730,8 @@ def board_overcomplex(con: sqlite3.Connection, snapshot_id: int, budzet: int) ->
                 fakty={
                     "board_id": str(w["board_id"]),
                     "liczba_kolumn": w["kolumn"],
+                    "kolumn_recznych": recznych,
+                    "kolumn_automatycznych": automatycznych,
                     "prog_kolumn": PROG_KOLUMN,
                     "items_count": w["items_count"],
                     "nazwa": w["nazwa"],
