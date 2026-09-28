@@ -466,7 +466,7 @@ na nich napisał.
   - [x] **7-2** — sesja na pełnym koncie i raport z nazwiskami obejrzany
     przez Kubę; poprawki po nim. Odebrane na `analiza-20260925T113801Z`.
 
-- [ ] **8. Jakość klas** — kolejność i zakres zatwierdzone przez Kubę
+- [x] **8. Jakość klas** — kolejność i zakres zatwierdzone przez Kubę
   2026-09-28. Rezultat: mniej
   szumu i stabilniejsze rozstrzygnięcia na pełnym koncie — liczba hipotez
   BOARD_OVERCOMPLEX z 398 do zmierzonej, zero fałszywych ostrzeżeń o pokryciu,
@@ -501,7 +501,8 @@ na nich napisał.
     Pierwotny opis: pełna lista powodów błędów automatyzacji z konta (z liczbą
     automatyzacji i uruchomień) do decyzji Kuby: wada procesu czy złe dane
     wejściowe (m.in. `invalid_person_assignment`) → `POWODY_Z_DANYCH_WEJSCIOWYCH`.
-  - [ ] **8-4** — szacunek, potem run odbiorczy na pełnym koncie (po osobnym
+  - [x] **8-4** — **zrobione 2026-09-28**, `analiza-20260928T091801Z`.
+    Pierwotny opis: szacunek, potem run odbiorczy na pełnym koncie (po osobnym
     „tak"): BOARD_OVERCOMPLEX mniej i trafniej, zero ostrzeżeń o pokryciu,
     AUTOMATION_DEAD stabilne.
   - Poza zakresem: raport zamaskowany z historii, PDF, portal, nowe klasy
@@ -511,6 +512,28 @@ na nich napisał.
 
 <!-- Uzupełniany przy zamykaniu faz: data, faza, link do dokumentu
      w `docs/features/`, odchylenia od planu. -->
+
+**2026-09-28 — faza 8 zamknięta.** Dokument:
+[`docs/features/2026-09-28_jakosc-klas.md`](features/2026-09-28_jakosc-klas.md).
+Run odbiorczy `analiza-20260928T091801Z` na pełnym CXLABS: 400 hipotez (było
+621), 95 do modelu, **76 uwag, 0 odrzuconych walidacją**, 27 pominiętych,
+2,87 USD przy szacunku 3,75 USD, 17 min, bez ostrzeżenia o pokryciu.
+
+Co poszło inaczej, niż zakładał plan:
+
+- **Filtr tablic raportowych prawie nic nie zdjął** (15 z 398) — robotę zrobiło
+  liczenie kolumn ręcznych (180 hipotez stało na samych formułach i lustrach).
+- **Zysk nie jest w koszcie, tylko w trafności:** sufit trzyma 20 hipotez na
+  klasę, więc koszt się nie zmienił; BOARD_OVERCOMPLEX przeszedł z 4 do 15 uwag
+  na 20, bo sufit wybiera teraz właściwe tablice.
+- **`invalid_person_assignment` nie wystąpił w oknie statystyk** — decyzja na
+  zapas, bez przykładu na koncie.
+- **Stary panel wymagał poprawki** przy krótkim `obiekt_id` grupy — rozcinał go
+  po `+`, żeby odsiać zakres.
+- **Po odbiorze:** Kuba zgłosił, że nie da się wejść w kategorie — raport był
+  otwarty w panelu podglądu aplikacji Claude, który przechwytuje przejście do
+  kotwicy. W przeglądarce działa (sprawdzone na `#kat-tablice`). Nie błąd
+  raportu; do sprawdzenia ponownie przy osadzeniu w portalu.
 
 **2026-09-25 — faza 7 zamknięta** (bez PDF, decyzją Kuby). Raport HTML
 w czterech kategoriach z widokami pogłębionymi, markup 1:1 z projektu
