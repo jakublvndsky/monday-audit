@@ -493,7 +493,12 @@ na nich napisał.
     znaków); pełna lista zostaje w faktach i dowodzie.
     - Ryzyko: `obiekt_id` czytają też pominięte i `hipotezy_odrzucone` —
       sprawdzić wszystkie miejsca.
-  - [ ] **8-3** — pełna lista powodów błędów automatyzacji z konta (z liczbą
+  - [x] **8-3** — **zrobione 2026-09-28**. Spis z CXLABS (4 wywołania, 91
+    automatyzacji, 10 z błędami, 5 powodów). Decyzja Kuby: złe dane wejściowe =
+    brak pliku, za krótki tekst, pusta kolumna wejściowa; wada procesu = błąd
+    webhooka, „provide more informative instructions", `invalid_person_assignment`
+    (tego ostatniego nie było w oknie — zdecydowane na zapas). Rubryka 0.10.
+    Pierwotny opis: pełna lista powodów błędów automatyzacji z konta (z liczbą
     automatyzacji i uruchomień) do decyzji Kuby: wada procesu czy złe dane
     wejściowe (m.in. `invalid_person_assignment`) → `POWODY_Z_DANYCH_WEJSCIOWYCH`.
   - [ ] **8-4** — szacunek, potem run odbiorczy na pełnym koncie (po osobnym

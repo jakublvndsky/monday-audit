@@ -314,6 +314,37 @@ def test_brak_pliku_to_dane_wejsciowe_a_nie_wada(con: sqlite3.Connection) -> Non
     assert fakty["a3"]["tylko_bledy_danych_wejsciowych"] is False
 
 
+@pytest.mark.parametrize(
+    ("powod", "z_danych"),
+    [
+        ("No results – there are no files for the AI to read.", True),
+        ("No results – the provided text is not detailed enough", True),
+        (
+            "Couldn't generate results – the input column(s) are empty. "
+            "Please fill in at least one cell.",
+            True,
+        ),
+        ("No results – please try again or provide more informative instructions.", False),
+        ("automations.history.failed_trigger_details.error_reason.monday.webhook_error", False),
+        (
+            "automations.history.failed_trigger_details.error_reason.invalid_person_assignment",
+            False,
+        ),
+    ],
+)
+def test_powody_z_danych_wejsciowych_wg_decyzji_z_8_3(
+    con: sqlite3.Connection, powod: str, z_danych: bool
+) -> None:
+    """Decyzja Kuby 2026-09-28 — teksty dosłownie ze spisu konta CXLABS."""
+    snapshot_id = zapisz(
+        con, payload(statystyki=[automatyzacja("a1", failure=2, powody={powod: 2})])
+    )
+
+    [h] = automation_dead(con, snapshot_id, 0)
+
+    assert h.fakty["tylko_bledy_danych_wejsciowych"] is z_danych
+
+
 def test_wyczerpanie_limitu_wzbudza_bez_bledow(con: sqlite3.Connection) -> None:
     """`exhausted` to automatyzacja zatrzymana limitem — cicho przestała działać."""
     snapshot_id = zapisz(con, payload(statystyki=[automatyzacja("a1", success=10, exhausted=3)]))
@@ -423,7 +454,7 @@ def test_raport_wymienia_klasy_bez_detektora(con: sqlite3.Connection) -> None:
     assert set(raport["klasy_bez_detektora"]) == wszystkie - zbudowane
     # 0.3 przy dodaniu UZYTKOWNIK_WYGASZONY, 0.4 przy doprecyzowaniu warunku
     # odrzucenia BOARD_GHOST (O34) — oba w etapie 4.
-    assert raport["rubric_version"] == "0.9"
+    assert raport["rubric_version"] == "0.10"
 
 
 def test_budzet_bierze_sie_z_rubryki(con: sqlite3.Connection) -> None:

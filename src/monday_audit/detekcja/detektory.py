@@ -261,7 +261,18 @@ PROG_UDZIALU_BLEDOW = 0.05
 # raz tak — na pełnym koncie 11, 1 i 7 uwag w trzech kolejnych runach.
 # Dopasowanie po fragmencie tekstu, bez wielkości liter: monday doklejał
 # „No results – " z różnymi myślnikami.
-POWODY_Z_DANYCH_WEJSCIOWYCH = ("there are no files for the ai to read",)
+#
+# Rozszerzone 2026-09-28 (faza 8-3, decyzja Kuby) po spisie WSZYSTKICH powodów
+# z konta CXLABS: pusta kolumna wejściowa i za krótki tekst elementu to też
+# dane, nie konfiguracja — w tych automatyzacjach obok błędów jest 24 i 50
+# udanych uruchomień. Świadomie NIE tu: „provide more informative
+# instructions" (instrukcja kroku AI = konfiguracja, zero sukcesów), błąd
+# webhooka i `invalid_person_assignment` — to wady procesu.
+POWODY_Z_DANYCH_WEJSCIOWYCH = (
+    "there are no files for the ai to read",
+    "the provided text is not detailed enough",
+    "the input column(s) are empty",
+)
 
 
 def _z_danych_wejsciowych(powod: str) -> bool:
