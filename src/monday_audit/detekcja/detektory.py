@@ -1248,6 +1248,15 @@ def _grupy(krawedzie: list[tuple[str, str]]) -> list[list[str]]:
     return sorted((sorted(s) for s in skladowe.values()), key=lambda s: s[0])
 
 
+PREFIKS_GRUPY = "grupa"
+
+
+def obiekt_grupy(board_ids: list[str]) -> str:
+    """`grupa-<najmniejsze ID>-<liczba tablic>` — krótki i powtarzalny."""
+    najmniejsze = min(board_ids, key=lambda b: (len(b), b))
+    return f"{PREFIKS_GRUPY}-{najmniejsze}-{len(board_ids)}"
+
+
 def duplicate_structure(con: sqlite3.Connection, snapshot_id: int, budzet: int) -> list[Hipoteza]:
     """Grupa ≥ 2 tablic w jednym workspace o niemal identycznym zestawie kolumn.
 
@@ -1301,9 +1310,12 @@ def duplicate_structure(con: sqlite3.Connection, snapshot_id: int, budzet: int) 
         hipotezy.append(
             Hipoteza(
                 klasa_id="DUPLICATE_STRUCTURE",
-                # Rozdzielnik `+` jak w parze: `wybor_zakresu` i miernik evali
-                # składają obiekt z posortowanych `board_ids` tym samym znakiem.
-                obiekt_id="+".join(grupa),
+                # Krótki identyfikator zamiast złączonych ID (faza 8-2): grupa
+                # 91 tablic dawała ~1000 znaków, które model musiał przepisać
+                # bezbłędnie, a literówka wyglądała w pokryciu jak zguba.
+                # Składowe są rozłączne, więc najmniejsze ID jest unikalne;
+                # pełna lista zostaje w `board_ids`.
+                obiekt_id=obiekt_grupy(grupa),
                 fakty={
                     "board_ids": grupa,
                     "tablic": len(grupa),

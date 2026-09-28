@@ -286,6 +286,21 @@ def test_para_wymaga_obu_stron() -> None:
     assert obie == [para] and brak == []
 
 
+def test_grupa_bierze_tablice_z_faktow_a_nie_z_obiektu() -> None:
+    """Od fazy 8-2 `obiekt_id` grupy to `grupa-…` — tablice są w `board_ids`."""
+    grupa = hipoteza("DUPLICATE_STRUCTURE", "grupa-a-3", board_ids=["a", "b", "c"])
+    znane = frozenset({"a", "b", "c"})
+
+    bez_c, pominiete = odsiej_hipotezy(
+        [grupa], board_ids=frozenset({"a", "b"}), znane_tablice=znane
+    )
+    assert bez_c == [] and pominiete == [grupa]
+    assert klasy_milczace(pominiete, wczytaj_rubryke()) == ["DUPLICATE_STRUCTURE"]
+
+    wszystkie, brak = odsiej_hipotezy([grupa], board_ids=znane, znane_tablice=znane)
+    assert wszystkie == [grupa] and brak == []
+
+
 def test_obiekt_nieznany_snapshotowi_zostaje() -> None:
     """Domyślnie zostawiamy. Pomyłka „zbadaj" kosztuje centy, „pomiń" — znalezisko."""
     dziwna = hipoteza("BOARD_GHOST", "identyfikator_nie_z_tego_snapshotu")

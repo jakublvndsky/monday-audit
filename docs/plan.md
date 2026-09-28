@@ -483,7 +483,12 @@ na nich napisał.
     z kilkoma elementami. Wybór należy do Kuby — zmienia sygnał w rubryce (0.9).
     - Ryzyko: rozkład nieznany; za ostry filtr ukryje tablice naprawdę
       przeładowane. Najpierw pomiar, potem decyzja.
-  - [ ] **8-2** — krótki `obiekt_id` grupy duplikatów:
+  - [x] **8-2** — **zrobione 2026-09-28**: `obiekt_grupy()` w detektorze
+    (najmniejsze ID liczbowo); `stary_panel/wybor_zakresu` bierze tablice
+    z `board_ids`, nie z rozcinania `obiekt_id`. Miernik powtarzalności starej
+    ścieżki (`evals/mierz.py`) klucza findingi po `a+b+…` z dowodu, a odrzucone
+    po `obiekt_id` — dla grup się nie spotkają; stara ścieżka nie robi nowych
+    runów, więc zostawione. Pierwotny opis: krótki `obiekt_id` grupy duplikatów:
     `grupa-<najmniejsze ID>-<liczba tablic>` zamiast złączonych ID (do ~1000
     znaków); pełna lista zostaje w faktach i dowodzie.
     - Ryzyko: `obiekt_id` czytają też pominięte i `hipotezy_odrzucone` —

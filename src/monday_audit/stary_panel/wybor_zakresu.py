@@ -258,10 +258,14 @@ def identyfikatory_tablic(payload: dict[str, Any]) -> frozenset[str]:
 def _tablice_hipotezy(hipoteza: Hipoteza) -> tuple[str, ...]:
     """Tablice, o których mówi hipoteza. Pusta krotka = hipoteza nie o tablicy.
 
-    Źródłem jest `obiekt_id`, bo tylko on jest wspólny dla wszystkich klas.
-    Klasy porównujące parami trzymają tam dwa identyfikatory zlepione `+`
-    i obie strony liczą się jednakowo: para bez jednej strony nie jest parą.
+    Grupa duplikatów niesie tablice w `board_ids` — od fazy 8-2 jej `obiekt_id`
+    to krótkie `grupa-…`, nie złączone ID. Pozostałe klasy: `obiekt_id`, a klasy
+    porównujące parami trzymają tam dwa identyfikatory zlepione `+` i obie
+    strony liczą się jednakowo: para bez jednej strony nie jest parą.
     """
+    board_ids = hipoteza.fakty.get("board_ids")
+    if isinstance(board_ids, list) and board_ids:
+        return tuple(str(b) for b in board_ids)
     if not hipoteza.obiekt_id:
         return ()
     return tuple(hipoteza.obiekt_id.split(ROZDZIELNIK_PARY))
@@ -590,11 +594,11 @@ def opis_milczenia_par(klasy: list[str], rubryka: Rubryka) -> str:
 def klasy_milczace(pominiete: list[Hipoteza], rubryka: Rubryka) -> list[str]:
     """Klasy porównujące parami, których hipotezy odsiał wybór.
 
-    Kryterium mechaniczne: `obiekt_id` zawiera rozdzielnik pary. Nie lista
+    Kryterium mechaniczne: hipoteza mówi o więcej niż jednej tablicy. Nie lista
     nazw w kodzie — nowa klasa porównująca parami ma być objęta adnotacją
     bez zmiany tego pliku.
     """
-    return sorted({h.klasa_id for h in pominiete if ROZDZIELNIK_PARY in (h.obiekt_id or "")})
+    return sorted({h.klasa_id for h in pominiete if len(_tablice_hipotezy(h)) > 1})
 
 
 def wybor_do_json(wybor: WyborZakresu) -> dict[str, Any]:

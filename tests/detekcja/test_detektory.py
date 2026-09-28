@@ -735,7 +735,7 @@ def test_duplicate_structure_liczy_jaccarda(con: sqlite3.Connection) -> None:
 
     hipotezy = duplicate_structure(con, snapshot_id, budzet("DUPLICATE_STRUCTURE"))
 
-    assert [h.obiekt_id for h in hipotezy] == ["a+b"]
+    assert [h.obiekt_id for h in hipotezy] == ["grupa-a-2"]
     assert hipotezy[0].fakty["nakladanie_kolumn"] == 1.0
 
 
@@ -761,7 +761,7 @@ def test_duplicate_structure_sklada_kopie_w_jedna_grupe(con: sqlite3.Connection)
 
     hipotezy = duplicate_structure(con, snapshot_id, budzet("DUPLICATE_STRUCTURE"))
 
-    assert [h.obiekt_id for h in hipotezy] == ["k0+k1+k2+k3+k4", "w1+w2"]
+    assert [h.obiekt_id for h in hipotezy] == ["grupa-k0-5", "grupa-w1-2"]
     grupa = hipotezy[0].fakty
     assert grupa["board_ids"] == ["k0", "k1", "k2", "k3", "k4"]
     assert grupa["tablic"] == 5
@@ -787,7 +787,7 @@ def test_duplicate_structure_lancuch_widac_w_dowodzie(con: sqlite3.Connection) -
 
     [grupa] = duplicate_structure(con, snapshot_id, 0)
 
-    assert grupa.obiekt_id == "a+b+c"
+    assert grupa.obiekt_id == "grupa-a-3"
     # a~b i b~c: 9/11 ≈ 0,82; a~c: 8/12 ≈ 0,67 < progu — więc 2 krawędzie z 3 par.
     assert grupa.fakty["spojnosc"] == round(2 / 3, 4)
     assert grupa.fakty["nakladanie_kolumn"] == round(9 / 11, 4)
@@ -1268,3 +1268,17 @@ def test_detektory_na_duzym_koncie_nie_staja(con: sqlite3.Connection) -> None:
     # Przed poprawką: minuty przy 600 tablicach. Po: ułamek sekundy. Próg
     # z dużym zapasem, żeby wolna maszyna CI nie dawała fałszywych alarmów.
     assert trwalo < 5, f"detektory na 600 tablicach: {trwalo:.1f} s"
+
+
+def test_obiekt_grupy_jest_krotki_i_liczbowo_najmniejszy() -> None:
+    """Faza 8-2: grupa 91 tablic dawała ~1000 znaków `obiekt_id` do przepisania.
+
+    Najmniejsze ID liczbowo, nie tekstowo: `"999" < "1000"` jako liczby, a jako
+    napisy odwrotnie — identyfikatory monday mają różną długość.
+    """
+    from monday_audit.detekcja.detektory import obiekt_grupy
+
+    board_ids = [str(5093364928 + n) for n in range(90)] + ["999"]
+
+    assert obiekt_grupy(board_ids) == "grupa-999-91"
+    assert obiekt_grupy(list(reversed(board_ids))) == "grupa-999-91"
